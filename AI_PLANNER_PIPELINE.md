@@ -172,14 +172,14 @@ Sebelum memicu tools perencanaan, agen harus melengkapi slot data berikut melalu
 
 ## 6. Kontrak Integrasi UI Frontend
 
-1. **Komponen Chatbot (`src/pages/Chatbot.tsx`)**:
+1. **Komponen Chatbot (`src/features/chatbot/ChatbotPage.tsx`)**:
    - Menerima pesan teks biasa dan pesan tipe khusus `plan_recommendation`.
    - Menampilkan kartu rekomendasi interaktif saat AI mengembalikan payload rencana studi.
    - Tombol **[Terapkan Rencana Ini ke Degree Planner]** memicu callback `onApplyPlan(planPayload)`.
-2. **State Global (`src/App.tsx`)**:
+2. **State Global (`src/app/App.tsx`)**:
    - Menyimpan `customPlan` yang diterima dari Chatbot.
    - Mengarahkan navigasi ke tab `degree-planner`.
-3. **Papan Visual (`src/pages/DegreePlanner.tsx`)**:
+3. **Papan Visual (`src/features/degree-planner/DegreePlannerPage.tsx`)**:
    - Memperbarui state `plan` dengan data dari AI dan menampilkan indikator visual bahwa rencana berasal dari rekomendasi Compass AI.
 
 ---
