@@ -174,9 +174,9 @@ The application layout is structured as a full-viewport responsive layout:
 | **Suggestion Chips** | `px-3 py-1.5 bg-surface border border-border rounded-full text-xs font-medium text-navy hover:border-navy hover:text-navy` | Displayed when message history length is 1; clicking fills input field |
 | **Chat Input Area** | `p-4 bg-surface border-t border-border` | Rounded-xl input with embedded send button (`bg-navy hover:bg-navy-light text-white disabled:opacity-50`) |
 
-### 5.7 Orphaned Components Note
+### 5.7 Legacy Component Note
 
-* **`src/pages/TimetableBuilder.tsx`:** This file represents a standalone timetable page created in earlier development. By design decision (2026-08-26), it is **orphaned** and disconnected from `src/app/App.tsx` routing. Its grid logic has been extracted into the shared `src/shared/timetable/TimetableGrid.tsx` component, used by both `DashboardPage.tsx` and `DegreePlannerPage.tsx`.
+* **Standalone Timetable Page:** Halaman tabel jadwal mandiri dari pengembangan awal sudah dihapus. Logika grid dipusatkan di `src/shared/timetable/TimetableGrid.tsx` dan dipakai oleh `DashboardPage.tsx` serta `DegreePlannerPage.tsx`.
 
 ---
 
@@ -311,4 +311,4 @@ The following table documents intentional mockup boundaries implemented in the p
 | **Schedule Conflict** | `src/shared/domain/models.ts` | An intentional schedule collision is seeded on Tuesday 10:00 between `II4042 Machine Learning` and `II4045 Data Visualization` to exercise conflict styling. |
 | **Degree Planner Storage** | `src/features/degree-planner/DegreePlannerPage.tsx` | Roadmap state initializes from `INITIAL_PLAN` in memory; page reload resets customizations. |
 | **Curriculum Catalog** | `src/features/catalog/courseData.ts` | Normalizes static JSON curriculum data from `/Ekstrak/*.json` via `import.meta.glob`; defaults to built-in mocks if unpopulated. |
-| **Orphaned Timetable** | `src/pages/TimetableBuilder.tsx` | Deprecated standalone timetable view; retained for code reference but disconnected from live routing. |
+| **Shared Timetable Grid** | `src/shared/timetable/TimetableGrid.tsx` | Satu implementasi grid dipakai Dashboard dan Degree Planner; tidak ada halaman timetable mandiri. |

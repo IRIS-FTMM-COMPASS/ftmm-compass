@@ -7,6 +7,8 @@
 **Scope audit:** 68 berkas sumber (≈11.4k LOC `src/`, ≈8.6k LOC `backend/` di luar `.venv`, `database/schema_v2_1_rc1.sql`)
 **Metode:** import graph statis (`src/`) + 6 pembacaan audit paralel read-only (pages, components, data layer, `app.py`, backend domain, tests/schema)
 
+> **Path update pasca-refactor (2026-11-16):** Isi dokumen ini adalah snapshot historis; nomor baris merujuk kode sebelum refactor feature-based. Padanan path saat ini: `src/pages/<Page>.tsx` → `src/features/<domain>/<Page>Page.tsx`; `src/components/<fitur>/` → `src/features/<fitur>/components/`; `src/components/course/` → `src/shared/ui/course/`; `src/components/TimetableGrid.tsx` → `src/shared/timetable/TimetableGrid.tsx`; `src/services/*` dan `src/state/*` → `src/features/<domain>/services/` dan `src/features/<domain>/state/`; `src/api/` → `src/shared/api/`; `src/domain/` → `src/shared/domain/`; `src/data.ts` → `src/shared/domain/models.ts`; `src/utils.ts` → `src/shared/utils.ts`; `src/courseData.ts` → `src/features/catalog/courseData.ts`; `src/utils/icsExport.ts` dan `src/utils/timetableShare.ts` → `src/shared/timetable/`.
+
 ---
 
 ## 1. Ringkasan Diagnosis

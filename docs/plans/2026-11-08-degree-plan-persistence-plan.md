@@ -5,6 +5,8 @@
 **Basis commit:** `8d4d6c4`
 **Status:** Selesai dieksekusi — inti 2026-11-08 (§12), Fase 2 item #1–#3 2026-11-14 (§13). Sisa: §9.4 (kolaborasi dosen/PA) tetap backlog.
 
+> **Path update pasca-refactor (2026-11-16):** Isi dokumen ini adalah snapshot historis; nomor baris merujuk kode sebelum refactor feature-based. Padanan path saat ini: `src/pages/<Page>.tsx` → `src/features/<domain>/<Page>Page.tsx`; `src/components/<fitur>/` → `src/features/<fitur>/components/`; `src/services/*` dan `src/state/*` → `src/features/<domain>/services/` dan `src/features/<domain>/state/`; `src/api/` → `src/shared/api/`; `src/domain/` → `src/shared/domain/`; `src/data.ts` → `src/shared/domain/models.ts`; `src/utils.ts` → `src/shared/utils.ts`; `src/courseData.ts` → `src/features/catalog/courseData.ts`.
+
 ---
 
 ## 1. Masalah & Akar
