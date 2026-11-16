@@ -22,13 +22,13 @@ except ImportError:  # screenshots are optional: gradients fall back to a flat t
     Image = None
 
 PAGES = [
-    ("01 · Login", "login", "src/pages/Login.tsx"),
-    ("02 · Dashboard", "dashboard", "src/pages/Dashboard.tsx"),
-    ("03 · Course Finder", "course-finder", "src/pages/CourseFinder.tsx"),
-    ("04 · Degree Planner", "degree-planner", "src/pages/DegreePlanner.tsx"),
-    ("05 · Compass AI", "compass-ai", "src/pages/Chatbot.tsx"),
-    ("06 · Profil", "profile", "src/pages/Profile.tsx"),
-    ("07 · State · Konfirmasi Keluar", "logout", "src/pages/Profile.tsx"),
+    ("01 · Login", "login", "src/features/auth/LoginPage.tsx"),
+    ("02 · Dashboard", "dashboard", "src/features/dashboard/DashboardPage.tsx"),
+    ("03 · Course Finder", "course-finder", "src/features/course-finder/CourseFinderPage.tsx"),
+    ("04 · Degree Planner", "degree-planner", "src/features/degree-planner/DegreePlannerPage.tsx"),
+    ("05 · Compass AI", "compass-ai", "src/features/chatbot/ChatbotPage.tsx"),
+    ("06 · Profil", "profile", "src/features/profile/ProfilePage.tsx"),
+    ("07 · State · Konfirmasi Keluar", "logout", "src/features/profile/ProfilePage.tsx"),
 ]
 FONTS = {"Inter": "Inter", "Poppins": "Poppins", "JetBrains Mono": "Consolas"}
 NAVY, MUTED, FG, BG = "#0f3e32", "#6b7280", "#2d333a", "#faf9f7"

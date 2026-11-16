@@ -11,7 +11,7 @@ The visual language balances academic rigor and modern institutional identity:
 * **Academic Authority & Heritage:** The primary palette utilizes deep forest navy (`#0f3e32`) paired with academic gold (`#d7b03d`) to convey institutional credibility and prestige aligned with Universitas Airlangga guidelines.
 * **Cybercampus UNAIR Alignment:** Typography specifically aligns with the Cybercampus UNAIR web experience by utilizing *Poppins* for headings (defined under `--font-heading` in `src/index.css`) and *Inter* (`--font-sans`) for legible interface copy.
 * **Clarity & Spatial Hierarchy:** Clean surface backgrounds (`#ffffff`), tinted neutral canvas (`#faf9f7`), subtle structural borders (`#e5e7eb`), and distinct status highlights guide students through complex academic planning tasks.
-* **Utility-First Token Discipline:** Styles are strictly driven by Tailwind CSS v4 `@theme` tokens in `src/index.css` and composed via the `cn()` utility (`src/utils.ts`). Hardcoded hex values in JSX component class names are avoided.
+* **Utility-First Token Discipline:** Styles are strictly driven by Tailwind CSS v4 `@theme` tokens in `src/index.css` and composed via the `cn()` utility (`src/shared/utils.ts`). Hardcoded hex values in JSX component class names are avoided.
 
 ---
 
@@ -23,36 +23,36 @@ All colors are declared in `src/index.css` within the `@theme` block.
 
 | Token Name | Hex Value | Tailwind Utilities | Semantic Role | Primary Usage Locations |
 | :--- | :--- | :--- | :--- | :--- |
-| `--color-navy` | `#0f3e32` | `bg-navy`, `text-navy`, `border-navy`, `ring-navy` | Primary brand background, heading typography, primary CTA | `src/App.tsx`, `src/pages/Login.tsx`, `src/pages/CourseFinder.tsx` |
-| `--color-navy-light` | `#165a49` | `bg-navy-light`, `text-navy-light`, `border-navy-light` | Active sidebar nav item, primary button hover, secondary container | `src/App.tsx`, `src/pages/Login.tsx` |
-| `--color-navy-dark` | `#08221b` | `bg-navy-dark`, `text-navy-dark` | Deepest brand baseline, high-contrast text on teal surfaces | `src/App.tsx`, `src/pages/Chatbot.tsx` |
-| `--color-gold` | `#d7b03d` | `bg-gold`, `text-gold`, `border-gold`, `ring-gold` | Academic accent, active filter pills, focus rings, planned course badges | `src/App.tsx`, `src/pages/CourseFinder.tsx`, `src/pages/DegreePlanner.tsx` |
+| `--color-navy` | `#0f3e32` | `bg-navy`, `text-navy`, `border-navy`, `ring-navy` | Primary brand background, heading typography, primary CTA | `src/app/App.tsx`, `src/features/auth/LoginPage.tsx`, `src/features/course-finder/CourseFinderPage.tsx` |
+| `--color-navy-light` | `#165a49` | `bg-navy-light`, `text-navy-light`, `border-navy-light` | Active sidebar nav item, primary button hover, secondary container | `src/app/App.tsx`, `src/features/auth/LoginPage.tsx` |
+| `--color-navy-dark` | `#08221b` | `bg-navy-dark`, `text-navy-dark` | Deepest brand baseline, high-contrast text on teal surfaces | `src/app/App.tsx`, `src/features/chatbot/ChatbotPage.tsx` |
+| `--color-gold` | `#d7b03d` | `bg-gold`, `text-gold`, `border-gold`, `ring-gold` | Academic accent, active filter pills, focus rings, planned course badges | `src/app/App.tsx`, `src/features/course-finder/CourseFinderPage.tsx`, `src/features/degree-planner/DegreePlannerPage.tsx` |
 | `--color-gold-hover` | `#c09d35` | `bg-gold-hover`, `text-gold-hover` | Darkened gold for interactive hover states | `src/index.css` (hover use only; badge text uses `text-navy` for contrast) |
-| `--color-teal` | `#93f08e` | `bg-teal`, `text-teal`, `border-teal`, `ring-teal` | Positive feedback, SKS progress bars, completed indicators, user bubbles | `src/pages/Dashboard.tsx`, `src/pages/Chatbot.tsx`, `src/pages/CourseFinder.tsx` |
-| `--color-teal-light` | `#b3f5b0` | `bg-teal-light`, `text-teal-light` | Subtitle text on dark surfaces, icon tints on dark panels | `src/App.tsx`, `src/pages/Login.tsx`, `src/pages/Chatbot.tsx` |
-| `--color-teal-dark` | `#6bd465` | `bg-teal-dark`, `text-teal-dark` | Icon tints on light surfaces (IPK trend icon) | `src/pages/Dashboard.tsx` (icon only; badge text uses `text-navy` for contrast) |
+| `--color-teal` | `#93f08e` | `bg-teal`, `text-teal`, `border-teal`, `ring-teal` | Positive feedback, SKS progress bars, completed indicators, user bubbles | `src/features/dashboard/DashboardPage.tsx`, `src/features/chatbot/ChatbotPage.tsx`, `src/features/course-finder/CourseFinderPage.tsx` |
+| `--color-teal-light` | `#b3f5b0` | `bg-teal-light`, `text-teal-light` | Subtitle text on dark surfaces, icon tints on dark panels | `src/app/App.tsx`, `src/features/auth/LoginPage.tsx`, `src/features/chatbot/ChatbotPage.tsx` |
+| `--color-teal-dark` | `#6bd465` | `bg-teal-dark`, `text-teal-dark` | Icon tints on light surfaces (IPK trend icon) | `src/features/dashboard/DashboardPage.tsx` (icon only; badge text uses `text-navy` for contrast) |
 | `--color-orange` | `#ad5712` | `bg-orange`, `text-orange` | Base warm accent | `src/index.css` |
-| `--color-background` | `#faf9f7` | `bg-background` | Warm tinted off-white application canvas | `src/index.css`, `src/App.tsx`, `src/pages/Login.tsx` |
-| `--color-surface` | `#ffffff` | `bg-surface` | Pure white container surfaces, cards, modals, topbar | `src/App.tsx`, `src/pages/Dashboard.tsx`, `src/pages/CourseFinder.tsx` |
-| `--color-foreground` | `#2d333a` | `text-foreground` | Slate-charcoal primary body and label copy | `src/index.css`, `src/App.tsx`, `src/pages/Login.tsx` |
-| `--color-muted` | `#6b7280` | `text-muted`, `border-muted` | Neutral secondary text, metadata timestamps, placeholder icons | `src/App.tsx`, `src/pages/Dashboard.tsx`, `src/pages/CourseFinder.tsx` |
-| `--color-border` | `#e5e7eb` | `border-border`, `divide-border` | Subtle boundary lines, card borders, grid dividers | `src/App.tsx`, `src/pages/Dashboard.tsx`, `src/pages/DegreePlanner.tsx` |
+| `--color-background` | `#faf9f7` | `bg-background` | Warm tinted off-white application canvas | `src/index.css`, `src/app/App.tsx`, `src/features/auth/LoginPage.tsx` |
+| `--color-surface` | `#ffffff` | `bg-surface` | Pure white container surfaces, cards, modals, topbar | `src/app/App.tsx`, `src/features/dashboard/DashboardPage.tsx`, `src/features/course-finder/CourseFinderPage.tsx` |
+| `--color-foreground` | `#2d333a` | `text-foreground` | Slate-charcoal primary body and label copy | `src/index.css`, `src/app/App.tsx`, `src/features/auth/LoginPage.tsx` |
+| `--color-muted` | `#6b7280` | `text-muted`, `border-muted` | Neutral secondary text, metadata timestamps, placeholder icons | `src/app/App.tsx`, `src/features/dashboard/DashboardPage.tsx`, `src/features/course-finder/CourseFinderPage.tsx` |
+| `--color-border` | `#e5e7eb` | `border-border`, `divide-border` | Subtle boundary lines, card borders, grid dividers | `src/app/App.tsx`, `src/features/dashboard/DashboardPage.tsx`, `src/features/degree-planner/DegreePlannerPage.tsx` |
 
 ### 2.2 Status & Functional Aliases
 
 | Token Name | Aliased Target | Hex Value | Semantic Function | Example In-Code Usage |
 | :--- | :--- | :--- | :--- | :--- |
-| `--color-warning` | `--color-gold` | `#d7b03d` | Cautionary state, timetable conflict event styling | `bg-warning/20 text-navy border-warning/50` (`src/data.ts`) |
-| `--color-danger` | `--color-orange` | `#ad5712` | Schedule clash alert, invalid drop highlight, notification badge | `bg-danger/10 text-danger border-danger/30` (`src/components/TimetableGrid.tsx`) |
+| `--color-warning` | `--color-gold` | `#d7b03d` | Cautionary state, timetable conflict event styling | `bg-warning/20 text-navy border-warning/50` (`src/shared/domain/models.ts`) |
+| `--color-danger` | `--color-orange` | `#ad5712` | Schedule clash alert, invalid drop highlight, notification badge | `bg-danger/10 text-danger border-danger/30` (`src/shared/timetable/TimetableGrid.tsx`) |
 
 ### 2.3 Opacity & Surface Tint Conventions
 
 The UI leverages Tailwind alpha modifiers for layered depth:
-* `bg-navy/8` or `bg-navy/10`: Subtle institutional badge background for required courses (`src/pages/CourseFinder.tsx`).
-* `bg-gold/10` or `bg-gold/20`: Elective course badge tints and modal pill backgrounds (`src/pages/CourseFinder.tsx`).
-* `bg-teal/10` or `bg-teal/20`: Completed status pill backgrounds and timetable event blocks (`src/pages/Dashboard.tsx`, `src/data.ts`).
-* `bg-danger/10`: Unified conflict notification banners (`src/components/TimetableGrid.tsx`) and invalid drag-over cells (`src/pages/DegreePlanner.tsx`).
-* `bg-white/10` with `backdrop-blur-sm`: Glassmorphism header pills over dark navy backgrounds (`src/pages/CourseFinder.tsx`).
+* `bg-navy/8` or `bg-navy/10`: Subtle institutional badge background for required courses (`src/features/course-finder/CourseFinderPage.tsx`).
+* `bg-gold/10` or `bg-gold/20`: Elective course badge tints and modal pill backgrounds (`src/features/course-finder/CourseFinderPage.tsx`).
+* `bg-teal/10` or `bg-teal/20`: Completed status pill backgrounds and timetable event blocks (`src/features/dashboard/DashboardPage.tsx`, `src/shared/domain/models.ts`).
+* `bg-danger/10`: Unified conflict notification banners (`src/shared/timetable/TimetableGrid.tsx`) and invalid drag-over cells (`src/features/degree-planner/DegreePlannerPage.tsx`).
+* `bg-white/10` with `backdrop-blur-sm`: Glassmorphism header pills over dark navy backgrounds (`src/features/course-finder/CourseFinderPage.tsx`).
 
 ---
 
@@ -87,11 +87,11 @@ h1, h2, h3, h4, h5, h6 {
 
 | Class Pattern | Size / Leading | Weight | Font Token | Found In |
 | :--- | :--- | :--- | :--- | :--- |
-| `text-4xl font-heading font-bold leading-tight` | 36px / 1.25 | 700 | `Poppins` | Login hero heading (`src/pages/Login.tsx`) |
-| `text-3xl font-heading font-bold` | 30px / 1.25 | 700 | `Poppins` | Dashboard stat counters (`src/pages/Dashboard.tsx`), CourseDetailView title (`src/pages/CourseFinder.tsx`), Login form title |
-| `text-2xl font-heading font-bold` | 24px / 1.3 | 700 | `Poppins` | Topbar header (`md:text-2xl` in `src/App.tsx`), modal course title (`src/pages/CourseFinder.tsx`) |
-| `text-xl font-heading font-bold` | 20px / 1.4 | 700 | `Poppins` | Topbar mobile title, workload metrics (`src/pages/CourseFinder.tsx`) |
-| `text-lg font-heading font-bold` | 18px / 1.4 | 700 | `Poppins` | Section titles, widget headers (`src/pages/Dashboard.tsx`, `src/pages/DegreePlanner.tsx`, `src/pages/Chatbot.tsx`) |
+| `text-4xl font-heading font-bold leading-tight` | 36px / 1.25 | 700 | `Poppins` | Login hero heading (`src/features/auth/LoginPage.tsx`) |
+| `text-3xl font-heading font-bold` | 30px / 1.25 | 700 | `Poppins` | Dashboard stat counters (`src/features/dashboard/DashboardPage.tsx`), CourseDetailView title (`src/features/course-finder/CourseFinderPage.tsx`), Login form title |
+| `text-2xl font-heading font-bold` | 24px / 1.3 | 700 | `Poppins` | Topbar header (`md:text-2xl` in `src/app/App.tsx`), modal course title (`src/features/course-finder/CourseFinderPage.tsx`) |
+| `text-xl font-heading font-bold` | 20px / 1.4 | 700 | `Poppins` | Topbar mobile title, workload metrics (`src/features/course-finder/CourseFinderPage.tsx`) |
+| `text-lg font-heading font-bold` | 18px / 1.4 | 700 | `Poppins` | Section titles, widget headers (`src/features/dashboard/DashboardPage.tsx`, `src/features/degree-planner/DegreePlannerPage.tsx`, `src/features/chatbot/ChatbotPage.tsx`) |
 | `text-base font-medium` | 16px / 1.5 | 500 | `Inter` | Primary interactive buttons, large modal copy |
 | `text-sm font-medium` / `text-sm text-foreground` | 14px / 1.5 | 400 / 500 | `Inter` | Standard body copy, form inputs, nav items, course descriptions |
 | `text-xs font-mono font-bold` | 12px / 1.4 | 700 | `JetBrains Mono` | Course identifiers (`II4042`), NIM (`1621123456`), timetable codes |
@@ -102,7 +102,7 @@ h1, h2, h3, h4, h5, h6 {
 
 ## 4. Layout & Structure
 
-### 4.1 Application Shell (`src/App.tsx`)
+### 4.1 Application Shell (`src/app/App.tsx`)
 
 The application layout is structured as a full-viewport responsive layout:
 * **Root Container:** `flex h-screen w-full bg-background overflow-hidden font-sans text-foreground`.
@@ -114,13 +114,13 @@ The application layout is structured as a full-viewport responsive layout:
 
 * **Standard Surface Card:** `bg-surface rounded-xl border border-border shadow-sm`.
 * **Interactive Hover Card:** `bg-surface rounded-xl border border-border p-4 hover:border-gold hover:shadow-md transition-all`.
-* **Decorative Blur Orbs:** Ambient radial gradients positioned in container corners (e.g. `w-24 h-24 bg-teal-light/10 rounded-full blur-2xl group-hover:bg-teal-light/20 transition-colors` in `src/pages/Dashboard.tsx`).
+* **Decorative Blur Orbs:** Ambient radial gradients positioned in container corners (e.g. `w-24 h-24 bg-teal-light/10 rounded-full blur-2xl group-hover:bg-teal-light/20 transition-colors` in `src/features/dashboard/DashboardPage.tsx`).
 
 ---
 
 ## 5. Component Inventory by Surface
 
-### 5.1 App Shell & Sidebar (`src/App.tsx`)
+### 5.1 App Shell & Sidebar (`src/app/App.tsx`)
 
 | Component | Styling & Classes | Behavior & States |
 | :--- | :--- | :--- |
@@ -129,7 +129,7 @@ The application layout is structured as a full-viewport responsive layout:
 | **User Profile Footer** | `flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-navy-light/50 text-teal-light hover:text-white` | Avatar in `bg-teal text-navy-dark` (13:1 AAA contrast); NIM in `font-mono text-muted`; logout trigger with `hover:text-danger` |
 | **Notification Bell** | `p-2 text-muted hover:text-navy hover:bg-background rounded-lg relative` | Fixed unread ping indicator: `w-2 h-2 bg-danger rounded-full border border-surface absolute top-1.5 right-1.5` |
 
-### 5.2 Login Surface (`src/pages/Login.tsx`)
+### 5.2 Login Surface (`src/features/auth/LoginPage.tsx`)
 
 | Component | Styling & Classes | Behavior & States |
 | :--- | :--- | :--- |
@@ -137,15 +137,15 @@ The application layout is structured as a full-viewport responsive layout:
 | **Input Fields** | `w-full pl-10 pr-4 py-3 rounded-xl border border-border outline-none transition-all` | Focus state: `focus:border-gold focus:ring-1 focus:ring-gold`; leading icon in `text-muted` |
 | **Submit Button** | `w-full py-3 px-4 bg-navy hover:bg-navy-light text-white rounded-xl font-medium transition-all` | Focus state: `focus:ring-2 focus:ring-offset-2 focus:ring-navy`; Loading state: `disabled:opacity-70` with CSS spinner `animate-spin` |
 
-### 5.3 Dashboard Surface (`src/pages/Dashboard.tsx`)
+### 5.3 Dashboard Surface (`src/features/dashboard/DashboardPage.tsx`)
 
 | Component | Styling & Classes | Behavior & States |
 | :--- | :--- | :--- |
 | **Metric Stat Cards** | `bg-surface rounded-xl p-5 border border-border shadow-sm relative overflow-hidden group` | 4-column responsive grid (`grid-cols-2 lg:grid-cols-4 gap-4`); animated progress track (`bg-border h-1.5 rounded-full` with `bg-teal`) |
-| **Timetable Widget** | `bg-surface rounded-xl border border-border shadow-sm overflow-hidden` | Uses shared `TimetableGrid` component (`src/components/TimetableGrid.tsx`) with `compact` prop; bounded at `max-height: 420px` |
+| **Timetable Widget** | `bg-surface rounded-xl border border-border shadow-sm overflow-hidden` | Uses shared `TimetableGrid` component (`src/shared/timetable/TimetableGrid.tsx`) with `compact` prop; bounded at `max-height: 420px` |
 | **Inline Conflict Alert** | `bg-danger/10 border border-danger/30 rounded-xl p-4 flex items-start gap-3` | Unified conflict banner style rendered by `TimetableGrid`; includes direct navigation link to Degree Planner |
 
-### 5.4 Course Finder Surface (`src/pages/CourseFinder.tsx`)
+### 5.4 Course Finder Surface (`src/features/course-finder/CourseFinderPage.tsx`)
 
 | Component | Styling & Classes | Behavior & States |
 | :--- | :--- | :--- |
@@ -155,7 +155,7 @@ The application layout is structured as a full-viewport responsive layout:
 | **Full Detail View** | `h-full flex flex-col animate-in fade-in duration-300` | Replaces catalog view on drill-down; navy hero header with `ArrowLeft` back action, description card, workload card, and prerequisite diagram |
 | **Prerequisite Diagram** | SVG container with dynamic bezier curves (`M... C...`) and markers | Node hierarchy: Base prereq (`#f9fafb`), Direct prereq (`#f0fdf8`, border `#93f08e`), Target course (`#0f3e32`, border `#d7b03d`) |
 
-### 5.5 Degree Planner Surface (`src/pages/DegreePlanner.tsx`)
+### 5.5 Degree Planner Surface (`src/features/degree-planner/DegreePlannerPage.tsx`)
 
 | Component | Styling & Classes | Behavior & States |
 | :--- | :--- | :--- |
@@ -164,7 +164,7 @@ The application layout is structured as a full-viewport responsive layout:
 | **Placed Course Card** | `p-3 rounded-lg border bg-surface flex gap-2 group transition-shadow hover:shadow-md select-none` | Completed: `border-teal-light/50`; Planned: `border-gold/50` + `Clock`; Locked: `border-navy/20` + `Lock`; Wishlist: `border-dashed border-border` |
 | **Pilihan Course Bank** | `bg-surface rounded-xl border border-gold/40 p-3 cursor-move w-[196px]` | Horizontal tray at bottom for unplaced elective courses; drag handle `GripVertical` revealed on hover |
 
-### 5.6 Compass AI Chatbot Surface (`src/pages/Chatbot.tsx`)
+### 5.6 Compass AI Chatbot Surface (`src/features/chatbot/ChatbotPage.tsx`)
 
 | Component | Styling & Classes | Behavior & States |
 | :--- | :--- | :--- |
@@ -174,9 +174,9 @@ The application layout is structured as a full-viewport responsive layout:
 | **Suggestion Chips** | `px-3 py-1.5 bg-surface border border-border rounded-full text-xs font-medium text-navy hover:border-navy hover:text-navy` | Displayed when message history length is 1; clicking fills input field |
 | **Chat Input Area** | `p-4 bg-surface border-t border-border` | Rounded-xl input with embedded send button (`bg-navy hover:bg-navy-light text-white disabled:opacity-50`) |
 
-### 5.7 Orphaned Components Note
+### 5.7 Legacy Component Note
 
-* **`src/pages/TimetableBuilder.tsx`:** This file represents a standalone timetable page created in earlier development. By design decision (2026-08-26), it is **orphaned** and disconnected from `src/App.tsx` routing. Its grid logic has been extracted into the shared `src/components/TimetableGrid.tsx` component, used by both `Dashboard.tsx` and `DegreePlanner.tsx`.
+* **Standalone Timetable Page:** Halaman tabel jadwal mandiri dari pengembangan awal sudah dihapus. Logika grid dipusatkan di `src/shared/timetable/TimetableGrid.tsx` dan dipakai oleh `DashboardPage.tsx` serta `DegreePlannerPage.tsx`.
 
 ---
 
@@ -184,9 +184,9 @@ The application layout is structured as a full-viewport responsive layout:
 
 ### 6.1 Schedule Conflict Styling
 
-Schedule conflict styling is driven by an intentional mock collision in `src/data.ts` (`II4042 Machine Learning` vs `II4045 Data Visualization` on Tuesday 10:00).
+Schedule conflict styling is driven by an intentional mock collision in `src/shared/domain/models.ts` (`II4042 Machine Learning` vs `II4045 Data Visualization` on Tuesday 10:00).
 
-* **Timetable Event Block:** `border-danger border-dashed bg-danger/10 z-10 animate-pulse` with an `AlertTriangle` icon in the top-right corner (`src/components/TimetableGrid.tsx`).
+* **Timetable Event Block:** `border-danger border-dashed bg-danger/10 z-10 animate-pulse` with an `AlertTriangle` icon in the top-right corner (`src/shared/timetable/TimetableGrid.tsx`).
 * **Conflict Banner (unified):** Both compact (Dashboard) and full (DegreePlanner) modes use the same component and style: `bg-danger/10 border border-danger/30 rounded-xl p-4 text-danger` rendered by `TimetableGrid`. Compact mode places the banner below the grid with a navigation link; full mode places it above.
 
 ### 6.2 Parity Constraint & Drag-and-Drop Signals
@@ -204,11 +204,11 @@ Elective courses are constrained by academic parity rules (odd semester courses 
 ### 6.3 Loading & Asynchronous Feedback
 
 * **Login Submission:** Clicking *Masuk ke Dashboard* simulates a 1000ms asynchronous authentication flow. The submit button disables (`disabled:opacity-70`) and renders an animated CSS border spinner (`w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin`).
-* **Chatbot Response:** Simulates a 1000ms delay before appending assistant replies (`src/pages/Chatbot.tsx:24`).
+* **Chatbot Response:** Simulates a 1000ms delay before appending assistant replies (`src/features/chatbot/ChatbotPage.tsx:24`).
 
 ### 6.4 Empty, Disabled & Locked States
 
-* **Course Catalog Empty Search:** When query or filters yield no results, a centered state renders `BookOpen` at 20% opacity with message: *Tidak ada mata kuliah yang sesuai filter.* (`src/pages/CourseFinder.tsx:110`).
+* **Course Catalog Empty Search:** When query or filters yield no results, a centered state renders `BookOpen` at 20% opacity with message: *Tidak ada mata kuliah yang sesuai filter.* (`src/features/course-finder/CourseFinderPage.tsx:110`).
 * **Course Already Added:** *Tambahkan ke Degree Planner* button switches to `bg-teal/10 text-teal border border-teal/30 cursor-default` with `CheckCircle2` icon and label *Sudah Ditambahkan*.
 * **Locked Courses:** Mandatory courses (`type === 'Wajib'`) and completed courses (`status === 'completed'`) cannot be dragged (`draggable={false}`, `cursor-default`, `Lock` icon, no delete button).
 * **Empty Planner Dropzone:** Empty semester displays a dashed placeholder (`border-2 border-dashed border-border rounded-lg text-muted`) labeled *Tarik matkul ke sini*.
@@ -221,7 +221,7 @@ All transitions in the application are subtle, hardware-accelerated, and strictl
 
 | Motion / Interaction | Class Names Used | Context & Purpose |
 | :--- | :--- | :--- |
-| **Page Mount Transitions** | `animate-in fade-in duration-500` | Smooth entry when switching pages in `src/App.tsx` |
+| **Page Mount Transitions** | `animate-in fade-in duration-500` | Smooth entry when switching pages in `src/app/App.tsx` |
 | **Detail View Mount** | `animate-in fade-in duration-300` | Smooth transition into full course detail |
 | **Modal Backdrop Entry** | `animate-in fade-in duration-150` | Overlay background fade |
 | **Modal Dialog Entry** | `animate-in zoom-in-95 duration-200` | Subtle scale-up effect on course modal open |
@@ -247,7 +247,7 @@ All transitions in the application are subtle, hardware-accelerated, and strictl
 | `--color-navy` (`#0f3e32`) | `--color-teal` (`#93f08e`) | 8.3:1 (AAA) | Badge text, chat bubble text, avatar text on teal backgrounds (contrast fix) |
 | `--color-navy-dark` (`#08221b`) | `--color-teal` (`#93f08e`) | 13.0:1 (AAA) | User chat bubble text, avatar initials on teal (contrast fix) |
 | `--color-danger` (`#ad5712`) | `--color-surface` (`#ffffff`) | 5.1:1 (AA) | Conflict alert copy on white cards |
-| `--color-danger` (`#ad5712`) | `bg-danger/10` over surface | 4.4:1 (borderline AA) | Conflict banner copy (`src/components/TimetableGrid.tsx`) |
+| `--color-danger` (`#ad5712`) | `bg-danger/10` over surface | 4.4:1 (borderline AA) | Conflict banner copy (`src/shared/timetable/TimetableGrid.tsx`) |
 
 **Resolved contrast issues:** Badge text previously using `text-teal-dark` (~1.9:1) and `text-gold-hover` (~2.6:1) has been migrated to `text-navy` (~12:1 AAA). Chat bubble text previously using `text-white` on `bg-teal` (~1.4:1) has been migrated to `text-navy-dark` (~13:1 AAA). All previously failing pairings now meet WCAG AA or AAA thresholds.
 
@@ -280,7 +280,7 @@ Tokens must be registered directly in `src/index.css` inside the `@theme` block.
 
 ### 9.2 Utility Class Composition & `cn()` Helper
 
-All dynamic and conditional class names must be composed using the `cn()` helper in `src/utils.ts`, which safely combines `clsx` and `tailwind-merge`:
+All dynamic and conditional class names must be composed using the `cn()` helper in `src/shared/utils.ts`, which safely combines `clsx` and `tailwind-merge`:
 
 ```tsx
 import { cn } from '../utils';
@@ -305,10 +305,10 @@ The following table documents intentional mockup boundaries implemented in the p
 
 | Feature / Area | Implementation File | Intentional Boundary / Mock Behavior |
 | :--- | :--- | :--- |
-| **Authentication Flow** | `src/pages/Login.tsx` | Accepts any non-empty input (NIM and password); simulates a 1000ms delay then switches `isLoggedIn` to `true`. |
-| **AI Chatbot Replies** | `src/pages/Chatbot.tsx` | Uses canned responses triggered by keyword matching (`data science`/`rekomendasi` and `krs`/`planning`); returns a default fallback reply for other inputs. |
-| **Dashboard Metrics** | `src/pages/Dashboard.tsx` | Stat values are static representations of a 5th-semester student profile (84/144 SKS, 58% progress, IPK 3.75, 7 planned courses). |
-| **Schedule Conflict** | `src/data.ts` | An intentional schedule collision is seeded on Tuesday 10:00 between `II4042 Machine Learning` and `II4045 Data Visualization` to exercise conflict styling. |
-| **Degree Planner Storage** | `src/pages/DegreePlanner.tsx` | Roadmap state initializes from `INITIAL_PLAN` in memory; page reload resets customizations. |
-| **Curriculum Catalog** | `src/courseData.ts` | Normalizes static JSON curriculum data from `/Ekstrak/*.json` via `import.meta.glob`; defaults to built-in mocks if unpopulated. |
-| **Orphaned Timetable** | `src/pages/TimetableBuilder.tsx` | Deprecated standalone timetable view; retained for code reference but disconnected from live routing. |
+| **Authentication Flow** | `src/features/auth/LoginPage.tsx` | Accepts any non-empty input (NIM and password); simulates a 1000ms delay then switches `isLoggedIn` to `true`. |
+| **AI Chatbot Replies** | `src/features/chatbot/ChatbotPage.tsx` | Uses canned responses triggered by keyword matching (`data science`/`rekomendasi` and `krs`/`planning`); returns a default fallback reply for other inputs. |
+| **Dashboard Metrics** | `src/features/dashboard/DashboardPage.tsx` | Stat values are static representations of a 5th-semester student profile (84/144 SKS, 58% progress, IPK 3.75, 7 planned courses). |
+| **Schedule Conflict** | `src/shared/domain/models.ts` | An intentional schedule collision is seeded on Tuesday 10:00 between `II4042 Machine Learning` and `II4045 Data Visualization` to exercise conflict styling. |
+| **Degree Planner Storage** | `src/features/degree-planner/DegreePlannerPage.tsx` | Roadmap state initializes from `INITIAL_PLAN` in memory; page reload resets customizations. |
+| **Curriculum Catalog** | `src/features/catalog/courseData.ts` | Normalizes static JSON curriculum data from `/Ekstrak/*.json` via `import.meta.glob`; defaults to built-in mocks if unpopulated. |
+| **Shared Timetable Grid** | `src/shared/timetable/TimetableGrid.tsx` | Satu implementasi grid dipakai Dashboard dan Degree Planner; tidak ada halaman timetable mandiri. |

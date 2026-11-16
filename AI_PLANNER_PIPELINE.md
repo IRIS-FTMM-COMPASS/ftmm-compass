@@ -16,7 +16,7 @@ Compass AI Study Planner adalah agen percakapan (*conversational agent*) yang be
    - LLM bertindak sebagai perencana (*planner*) dan antarmuka percakapan.
    - Validasi graf dependensi prasyarat (*prerequisite DAG*), paritas semester (Ganjil/Genap), dan batas maksimum SKS dihitung secara deterministik oleh program (Tools), bukan ditebak oleh LLM.
 3. **Structured UI Integration**:
-   - Output rencana studi dari AI dikonversi menjadi payload terstruktur (JSON) yang langsung dapat diterapkan ke antarmuka visual `DegreePlanner.tsx`.
+   - Output rencana studi dari AI dikonversi menjadi payload terstruktur (JSON) yang langsung dapat diterapkan ke antarmuka visual `DegreePlannerPage.tsx`.
 
 ---
 
@@ -61,7 +61,7 @@ Compass AI Study Planner adalah agen percakapan (*conversational agent*) yang be
                                                │ (User Klik Aksi)
                                                ▼
 ┌─────────────────────────────────────────────────────────────────────────────────────────────┐
-│ Frontend React State (App.tsx -> DegreePlanner.tsx: Roadmap Semester 1-8 Diperbarui)        │
+│ Frontend React State (App.tsx -> DegreePlannerPage.tsx: Roadmap Semester 1-8 Diperbarui)     │
 └─────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -136,7 +136,7 @@ Sebelum memicu tools perencanaan, agen harus melengkapi slot data berikut melalu
   ```
 
 ### Tool 3: `generate_degree_plan_payload`
-- **Fungsi**: Memformat rencana studi yang valid menjadi struktur state yang siap dikonsumsi langsung oleh `DegreePlanner.tsx`.
+- **Fungsi**: Memformat rencana studi yang valid menjadi struktur state yang siap dikonsumsi langsung oleh `DegreePlannerPage.tsx`.
 - **Output Format**:
   ```json
   {
@@ -172,14 +172,14 @@ Sebelum memicu tools perencanaan, agen harus melengkapi slot data berikut melalu
 
 ## 6. Kontrak Integrasi UI Frontend
 
-1. **Komponen Chatbot (`src/pages/Chatbot.tsx`)**:
+1. **Komponen Chatbot (`src/features/chatbot/ChatbotPage.tsx`)**:
    - Menerima pesan teks biasa dan pesan tipe khusus `plan_recommendation`.
    - Menampilkan kartu rekomendasi interaktif saat AI mengembalikan payload rencana studi.
    - Tombol **[Terapkan Rencana Ini ke Degree Planner]** memicu callback `onApplyPlan(planPayload)`.
-2. **State Global (`src/App.tsx`)**:
+2. **State Global (`src/app/App.tsx`)**:
    - Menyimpan `customPlan` yang diterima dari Chatbot.
    - Mengarahkan navigasi ke tab `degree-planner`.
-3. **Papan Visual (`src/pages/DegreePlanner.tsx`)**:
+3. **Papan Visual (`src/features/degree-planner/DegreePlannerPage.tsx`)**:
    - Memperbarui state `plan` dengan data dari AI dan menampilkan indikator visual bahwa rencana berasal dari rekomendasi Compass AI.
 
 ---

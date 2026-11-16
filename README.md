@@ -378,62 +378,29 @@ ftmm-compass-ui/
 │   │   └── planner.py             # Study plan synthesis & elective scoring engine
 │   └── tests/                     # Suite pytest (domain, endpoint, polling, chat, degree-plan)
 ├── src/                           # React 19 + TypeScript + Tailwind v4 SPA
-│   ├── App.tsx                    # Shell navigasi halaman & komposisi provider state
-│   ├── main.tsx                   # React DOM entrypoint
-│   ├── data.ts                    # Tipe model (Course, ScheduleItem, offering) & TIMETABLE_DAYS
-│   ├── courseData.ts              # fetchCatalog(): katalog dari backend, normalisasi tipe
+│   ├── app/                       # Shell aplikasi & komposisi global
+│   │   ├── App.tsx                # Navigasi halaman & komposisi provider state
+│   │   ├── main.tsx               # React DOM entrypoint
+│   │   └── components/            # Komponen shell (menu toggle, notifikasi, error boundary)
+│   ├── features/                  # Modul per domain bisnis
+│   │   ├── auth/                  # LoginPage, authService, session provider
+│   │   ├── catalog/               # catalog provider & fetchCatalog()
+│   │   ├── dashboard/             # DashboardPage, dashboardService, komponen widget, hooks
+│   │   ├── course-finder/         # CourseFinderPage, filter/list/modal, hooks
+│   │   ├── polling/               # Polling provider & pollingService
+│   │   ├── degree-planner/        # DegreePlannerPage, komponen, services, state planner
+│   │   ├── chatbot/               # ChatbotPage, chatService, MarkdownRenderer
+│   │   └── profile/               # ProfilePage, header/body/modal, hooks
+│   ├── shared/                    # Kode lintas-fitur tanpa dependensi ke features
+│   │   ├── api/                   # client.ts & session.ts
+│   │   ├── domain/                # models, academics, course, plan, prerequisites, timetable
+│   │   ├── academic-period/       # Provider & service periode akademik
+│   │   ├── timetable/             # TimetableGrid, ekspor ICS, share URL
+│   │   ├── ui/                    # BrandLogo & komponen UI kursus bersama
+│   │   └── utils.ts               # cn() class merger helper
+│   ├── assets/                    # Logo & aset statis
 │   ├── index.css                  # Tailwind v4 @theme design tokens (Navy, Gold, Teal)
-│   ├── utils.ts                   # cn() class merger helper
-│   ├── api/
-│   │   ├── client.ts              # Satu transport fetch: base URL, ApiError, authHeaders
-│   │   └── session.ts             # Akses token/sesi tersimpan
-│   ├── domain/                    # Aturan akademik murni (tanpa React)
-│   │   ├── academics.ts           # Batas SKS, konversi nilai, parity semester
-│   │   ├── course.ts              # Normalisasi tipe/parity mata kuliah
-│   │   ├── plan.ts                # Kontrak payload rencana studi
-│   │   ├── prerequisites.ts       # Evaluasi DAG prasyarat
-│   │   └── timetable.ts           # Deteksi bentrok jadwal
-│   ├── state/                     # Satu pemilik state per domain
-│   │   ├── session.tsx            # Sesi login & identitas pengguna
-│   │   ├── catalog.tsx            # Katalog & status pemuatan
-│   │   ├── polling.tsx            # Polling MK pilihan
-│   │   ├── academic.tsx           # Periode akademik aktif
-│   │   ├── planner.tsx            # Rencana studi aktif & jembatan ke draft
-│   │   ├── degreeDrafts.ts        # Draft rencana di server: muat, simpan, salin, hapus
-│   │   └── courseRecords.ts       # Transkrip: MK lulus terkunci di planner
-│   ├── services/                  # Binding endpoint per resource
-│   │   ├── authService.ts         # Login, profil, notifikasi
-│   │   ├── dashboardService.ts    # Telemetri dashboard
-│   │   ├── academicService.ts     # Periode akademik
-│   │   ├── degreePlanService.ts   # CRUD degree-plan (rencana studi tersimpan)
-│   │   ├── courseRecordService.ts # Transkrip MK: list, tandai lulus, batalkan
-│   │   └── pollingService.ts      # Periode & vote MK pilihan
-│   ├── pages/
-│   │   ├── Login.tsx              # Login ke /api/v1/auth/login (JWT)
-│   │   ├── Dashboard.tsx          # Statistik akademik & widget jadwal
-│   │   ├── CourseFinder.tsx       # Katalog kurikulum & filter
-│   │   ├── DegreePlanner.tsx      # Roadmap 8 semester drag-and-drop
-│   │   ├── Chatbot.tsx            # Compass AI (SSE + fallback rule engine)
-│   │   └── Profile.tsx            # Profil akademik & logout
-│   └── components/
-│       ├── TimetableGrid.tsx      # Grid jadwal mingguan & indikator konflik
-│       ├── NotificationDropdown.tsx # Daftar notifikasi akademik
-│       ├── MarkdownRenderer.tsx   # GFM markdown renderer for chat messages
-│       ├── course/                # Badge, workload grid, dan modal shell bersama
-│       ├── course-finder/
-│       │   ├── CourseDetailView.tsx     # Detail silabus & beban kerja
-│       │   ├── CourseQuickModal.tsx     # Preview cepat
-│       │   └── PrerequisiteDiagram.tsx  # Visualisasi DAG prasyarat (SVG)
-│       ├── degree-planner/
-│       │   ├── PlannerHeader.tsx        # Banner AI, legenda, hint drag
-│       │   ├── SemesterColumn.tsx       # Kolom semester, kartu MK, bank MK pilihan
-│       │   ├── CoursePickerModal.tsx    # Penambahan MK manual (dibatasi kurikulum mahasiswa)
-│       │   ├── CourseInspectModal.tsx   # Detail MK saat inspeksi
-│       │   ├── ClassSelectorPanel.tsx   # Pemilihan kelas/section per MK
-│       │   └── types.ts                 # Tipe planner & aturan parity/lock
-│       └── chatbot/
-│           ├── DegreePlanActionCard.tsx # Kartu penerapan rencana AI ke planner
-│           └── chatService.ts           # Chat types, SSE, & error sanitizer
+│   └── vite-env.d.ts              # Tipe environment Vite
 ├── database/                      # Canonical Database Baseline V2.1 RC1
 │   ├── schema_v2_1_rc1.sql        # PostgreSQL 16+ DDL (38 tables, 26 functions, 44 triggers)
 │   ├── schema_v2_1_rc1.dbml       # DBML diagram definition
