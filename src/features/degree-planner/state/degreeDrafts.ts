@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useReducer, useRef, useState } from "react"
 import { ApiError, apiErrorMessage } from "@/shared/api/client"
 import type { Course } from "@/shared/domain/models"
 import { normalizeCourse } from "@/shared/domain/course"
@@ -11,8 +11,15 @@ import {
   type PlannerCatalogItemDto,
 } from "@/features/degree-planner/services/degreePlanService"
 import { useSession } from "@/features/auth/session"
+import {
+  initialSaveState,
+  plansDiffer,
+  saveReducer,
+  type PlanEntryRef,
+} from "@/features/degree-planner/state/saveState"
 
 const LEGACY_KEY = "ftmm_compass_degree_drafts_v2"
+
 const DEFAULT_NAME = "Draft 1"
 const SAVE_DELAY_MS = 500
 
@@ -33,7 +40,10 @@ interface LegacyState {
 
 function planFromDto(items: DegreePlanItemDto[]): Record<number, PlanCourse[]> {
   const plan: Record<number, PlanCourse[]> = {}
-  for (const item of items) {
+  const ordered = [...items].sort(
+    (a, b) => a.semester - b.semester || a.code.localeCompare(b.code),
+  )
+  for (const item of ordered) {
     const course: PlanCourse = {
       id: item.id,
       code: item.code,
@@ -48,6 +58,21 @@ function planFromDto(items: DegreePlanItemDto[]): Record<number, PlanCourse[]> {
     plan[item.semester] = [...(plan[item.semester] ?? []), course]
   }
   return plan
+}
+
+function planEntries(plan: Record<number, PlanCourse[]>): PlanEntryRef[] {
+  return Object.entries(plan).flatMap(([semester, courses]) =>
+    courses
+      .filter((course) => Boolean(course.code))
+      .map((course) => ({ code: course.code, semester: Number(semester) })),
+  )
+}
+
+function dtoEntries(dto: DegreePlanDto): PlanEntryRef[] {
+  return dto.items.map((item) => ({
+    code: item.code,
+    semester: item.semester,
+  }))
 }
 
 function itemsFromPlan(
@@ -76,6 +101,12 @@ function draftFromDto(dto: DegreePlanDto): DegreePlanDraft {
   }
 }
 
+export interface PlanConflict {
+  title: string
+  message: string
+  confirmLabel: string
+}
+
 export interface DegreeDraftsReturn {
   drafts: DegreePlanDraft[]
   courses: Course[]
@@ -86,6 +117,9 @@ export interface DegreeDraftsReturn {
   isSaving: boolean
   lastSaved: Date | null
   saveError: string | null
+  planConflict: PlanConflict | null
+  confirmPlanConflict: () => Promise<void>
+  cancelPlanConflict: () => void
   setPlan: (
     updater: Record<number, PlanCourse[]> | ((
       prev: Record<number, PlanCourse[]>,
@@ -104,19 +138,22 @@ export function useDegreeDrafts(): DegreeDraftsReturn {
   const [drafts, setDrafts] = useState<DegreePlanDraft[]>([])
   const [activeDraftId, setActiveDraftId] = useState("")
   const [isLoading, setIsLoading] = useState(true)
-  const [isSaving, setIsSaving] = useState(false)
-  const [lastSaved, setLastSaved] = useState<Date | null>(null)
-  const [saveError, setSaveError] = useState<string | null>(null)
+  const [save, dispatchSave] = useReducer(saveReducer, initialSaveState)
+  const [planConflict, setPlanConflict] = useState<PlanConflict | null>(null)
   const [courses, setCourses] = useState<Course[]>([])
 
   const draftsRef = useRef(drafts)
   draftsRef.current = drafts
   const activeIdRef = useRef(activeDraftId)
   activeIdRef.current = activeDraftId
+  const planRef = useRef<Record<number, PlanCourse[]>>({})
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const flushRef = useRef<() => Promise<void>>(async () => {})
   const pendingRef = useRef(false)
-  const versionRef = useRef(0)
+  const revisionRef = useRef(0)
   const loadedRef = useRef(false)
+  const conflictActionRef = useRef<(() => Promise<void>) | null>(null)
+  const conflictPendingRef = useRef(false)
 
   const activeDraft = drafts.find((draft) => draft.id === activeDraftId)
   const plan = activeDraft?.plan ?? {}
@@ -128,11 +165,25 @@ export function useDegreeDrafts(): DegreeDraftsReturn {
     }
   }, [])
 
+  const scheduleFlush = useCallback(
+    (delay: number) => {
+      clearTimer()
+      timerRef.current = setTimeout(() => {
+        timerRef.current = null
+        void flushRef.current()
+      }, delay)
+    },
+    [clearTimer],
+  )
+
   const persist = useCallback(
-    async (planId: string, nextPlan: Record<number, PlanCourse[]>) => {
+    async (
+      planId: string,
+      nextPlan: Record<number, PlanCourse[]>,
+      revision: number,
+    ) => {
       if (!planId) return
-      const version = versionRef.current
-      setIsSaving(true)
+      dispatchSave({ type: "save-start" })
       try {
         const dto = await degreePlanService.replaceItems(
           planId,
@@ -140,66 +191,97 @@ export function useDegreeDrafts(): DegreeDraftsReturn {
         )
         setDrafts((prev) =>
           prev.map((draft) =>
-            draft.id === dto.id && version === versionRef.current
+            draft.id === dto.id && revision === revisionRef.current
               ? draftFromDto(dto)
               : draft.id === dto.id
                 ? { ...draft, updatedAt: dto.updated_at }
                 : draft,
           ),
         )
-        setLastSaved(new Date())
-        setSaveError(null)
+        dispatchSave({ type: "save-success", revision, at: new Date() })
+        if (revision < revisionRef.current) {
+          pendingRef.current = true
+          scheduleFlush(0)
+        }
       } catch (error) {
-        setSaveError(
-          apiErrorMessage(error, "Gagal menyimpan rencana studi ke server"),
-        )
-      } finally {
-        setIsSaving(false)
+        dispatchSave({
+          type: "save-failure",
+          message: `Gagal menyimpan rencana: ${apiErrorMessage(error, "permintaan ke server gagal")}`,
+        })
       }
     },
-    [],
+    [scheduleFlush],
   )
 
   const flush = useCallback(async () => {
     clearTimer()
     if (!pendingRef.current) return
     pendingRef.current = false
-    const draft = draftsRef.current.find(
-      (item) => item.id === activeIdRef.current,
-    )
-    if (!draft) return
-    await persist(draft.id, draft.plan)
+    const draftId = activeIdRef.current
+    if (!draftId) return
+    await persist(draftId, planRef.current, revisionRef.current)
   }, [clearTimer, persist])
+  flushRef.current = flush
 
   const replaceDraft = useCallback((dto: DegreePlanDto) => {
     const next = draftFromDto(dto)
+    if (dto.id === activeIdRef.current) planRef.current = next.plan
     setDrafts((prev) =>
       prev.map((draft) => (draft.id === next.id ? next : draft)),
     )
   }, [])
 
-  const activate = useCallback(async (draftId: string) => {
-    setActiveDraftId(draftId)
-    try {
-      const dto = await degreePlanService.update(draftId, {
-        status: "active",
-      })
-      setDrafts((prev) =>
-        prev.map((draft) =>
-          draft.id === dto.id
-            ? { ...draft, status: dto.status }
-            : draft.status === "active"
-              ? { ...draft, status: "draft" }
-              : draft,
-        ),
-      )
-      setSaveError(null)
-    } catch (error) {
-      setSaveError(
-        apiErrorMessage(error, "Gagal mengaktifkan skenario rencana"),
-      )
-    }
-  }, [])
+  const requestCopy = useCallback(
+    async (planId: string, localPlan: Record<number, PlanCourse[]>) => {
+      const dto = await degreePlanService.get(planId)
+      return {
+        dto,
+        differs: plansDiffer(planEntries(localPlan), dtoEntries(dto)),
+      }
+    },
+    [],
+  )
+
+  const openConflict = useCallback(
+    (conflict: PlanConflict, action: () => Promise<void>, resume: boolean) => {
+      conflictActionRef.current = action
+      conflictPendingRef.current = resume
+      setPlanConflict(conflict)
+    },
+    [],
+  )
+
+  const activate = useCallback(
+    async (draftId: string, nextPlan: Record<number, PlanCourse[]>) => {
+      if (draftId === activeIdRef.current) return
+      planRef.current = nextPlan
+      setActiveDraftId(draftId)
+      try {
+        const dto = await degreePlanService.update(draftId, {
+          status: "active",
+        })
+        setDrafts((prev) =>
+          prev.map((draft) =>
+            draft.id === dto.id
+              ? { ...draft, status: dto.status }
+              : draft.status === "active"
+                ? { ...draft, status: "draft" }
+                : draft,
+          ),
+        )
+        dispatchSave({ type: "clear-error" })
+      } catch (error) {
+        dispatchSave({
+          type: "save-failure",
+          message: apiErrorMessage(
+            error,
+            "Gagal mengaktifkan skenario rencana",
+          ),
+        })
+      }
+    },
+    [],
+  )
 
   const createWithName = useCallback(
     async (name: string, items: DegreePlanItemInput[]) => {
@@ -239,26 +321,46 @@ export function useDegreeDrafts(): DegreeDraftsReturn {
       const nextDrafts = response.data.map(draftFromDto)
       const active =
         nextDrafts.find((draft) => draft.status === "active") ?? nextDrafts[0]
+      clearTimer()
+      pendingRef.current = false
+      planRef.current = active?.plan ?? {}
       setDrafts(nextDrafts)
-      setActiveDraftId(active.id)
-      setLastSaved(new Date())
-      setSaveError(null)
+      setActiveDraftId(active?.id ?? "")
+      setPlanConflict(null)
+      conflictActionRef.current = null
+      conflictPendingRef.current = false
+      dispatchSave({
+        type: "loaded",
+        revision: revisionRef.current,
+        at: new Date(),
+      })
     } catch (error) {
-      setSaveError(
-        apiErrorMessage(error, "Gagal memuat rencana studi dari server"),
-      )
+      dispatchSave({
+        type: "save-failure",
+        message: apiErrorMessage(
+          error,
+          "Gagal memuat rencana studi dari server",
+        ),
+      })
     } finally {
       setIsLoading(false)
     }
-  }, [createWithName])
+  }, [clearTimer, createWithName])
 
   useEffect(() => {
     if (!isLoggedIn) {
       loadedRef.current = false
       clearTimer()
+      pendingRef.current = false
+      revisionRef.current = 0
+      planRef.current = {}
+      conflictActionRef.current = null
+      conflictPendingRef.current = false
+      setPlanConflict(null)
       setDrafts([])
       setCourses([])
       setActiveDraftId("")
+      dispatchSave({ type: "cleared" })
       setIsLoading(false)
       return
     }
@@ -277,31 +379,28 @@ export function useDegreeDrafts(): DegreeDraftsReturn {
     ) => {
       const draftId = activeIdRef.current
       if (!draftId) return
-      versionRef.current += 1
+      const revision = ++revisionRef.current
+      const nextPlan =
+        typeof updater === "function" ? updater(planRef.current) : updater
+      planRef.current = nextPlan
       pendingRef.current = true
-      setIsSaving(true)
+      dispatchSave({ type: "edit", revision })
       setDrafts((prev) =>
-        prev.map((draft) => {
-          if (draft.id !== draftId) return draft
-          const nextPlan =
-            typeof updater === "function" ? updater(draft.plan) : updater
-          return { ...draft, plan: nextPlan }
-        }),
+        prev.map((draft) =>
+          draft.id === draftId ? { ...draft, plan: nextPlan } : draft,
+        ),
       )
-      clearTimer()
-      timerRef.current = setTimeout(() => {
-        timerRef.current = null
-        void flush()
-      }, SAVE_DELAY_MS)
+      scheduleFlush(SAVE_DELAY_MS)
     },
-    [clearTimer, flush],
+    [scheduleFlush],
   )
 
   const switchDraft = useCallback(
     async (draftId: string) => {
       if (draftId === activeIdRef.current) return
+      const target = draftsRef.current.find((draft) => draft.id === draftId)
       await flush()
-      await activate(draftId)
+      await activate(draftId, target?.plan ?? {})
     },
     [activate, flush],
   )
@@ -311,12 +410,17 @@ export function useDegreeDrafts(): DegreeDraftsReturn {
       await flush()
       try {
         const created = await createWithName(name, [])
-        setDrafts((prev) => [...prev, draftFromDto(created)])
-        await activate(created.id)
+        const next = draftFromDto(created)
+        setDrafts((prev) => [...prev, next])
+        await activate(created.id, next.plan)
       } catch (error) {
-        setSaveError(
-          apiErrorMessage(error, "Gagal membuat skenario rencana baru"),
-        )
+        dispatchSave({
+          type: "save-failure",
+          message: apiErrorMessage(
+            error,
+            "Gagal membuat skenario rencana baru",
+          ),
+        })
       }
     },
     [activate, createWithName, flush],
@@ -333,28 +437,62 @@ export function useDegreeDrafts(): DegreeDraftsReturn {
         `${source.name} (Salinan)`,
         itemsFromPlan(source.plan),
       )
-      setDrafts((prev) => [...prev, draftFromDto(created)])
-      await activate(created.id)
+      const next = draftFromDto(created)
+      setDrafts((prev) => [...prev, next])
+      await activate(created.id, next.plan)
     } catch (error) {
-      setSaveError(apiErrorMessage(error, "Gagal menyalin skenario rencana"))
+      dispatchSave({
+        type: "save-failure",
+        message: apiErrorMessage(error, "Gagal menyalin skenario rencana"),
+      })
     }
   }, [activate, createWithName, flush])
 
   const resetCurrentDraft = useCallback(async () => {
     clearTimer()
+    const hadPending = pendingRef.current
     pendingRef.current = false
     const draftId = activeIdRef.current
     if (!draftId) return
+    const localPlan = planRef.current
     try {
-      const dto = await degreePlanService.get(draftId)
-      replaceDraft(dto)
-      setSaveError(null)
+      const { dto, differs } = await requestCopy(draftId, localPlan)
+      const apply = async () => {
+        replaceDraft(dto)
+        dispatchSave({
+          type: "discard",
+          revision: revisionRef.current,
+          at: new Date(),
+        })
+      }
+      if (differs) {
+        openConflict(
+          {
+            title: "Versi server berbeda",
+            message:
+              "Perubahan lokal pada skenario ini berbeda dengan salinan di server. Muat salinan server dan buang perubahan lokal?",
+            confirmLabel: "Muat versi server",
+          },
+          apply,
+          hadPending,
+        )
+        return
+      }
+      await apply()
     } catch (error) {
-      setSaveError(
-        apiErrorMessage(error, "Gagal memuat ulang skenario dari server"),
-      )
+      if (hadPending) {
+        pendingRef.current = true
+        scheduleFlush(SAVE_DELAY_MS)
+      }
+      dispatchSave({
+        type: "save-failure",
+        message: apiErrorMessage(
+          error,
+          "Gagal memuat ulang skenario dari server",
+        ),
+      })
     }
-  }, [clearTimer, replaceDraft])
+  }, [clearTimer, openConflict, replaceDraft, requestCopy, scheduleFlush])
 
   const deleteDraft = useCallback(
     async (draftId: string): Promise<boolean> => {
@@ -363,7 +501,10 @@ export function useDegreeDrafts(): DegreeDraftsReturn {
       try {
         await degreePlanService.remove(draftId)
       } catch (error) {
-        setSaveError(apiErrorMessage(error, "Gagal menghapus skenario rencana"))
+        dispatchSave({
+          type: "save-failure",
+          message: apiErrorMessage(error, "Gagal menghapus skenario rencana"),
+        })
         return false
       }
       const remaining = draftsRef.current.filter(
@@ -371,7 +512,7 @@ export function useDegreeDrafts(): DegreeDraftsReturn {
       )
       setDrafts(remaining)
       if (draftId === activeIdRef.current) {
-        await activate(remaining[0].id)
+        await activate(remaining[0].id, remaining[0].plan)
       }
       return true
     },
@@ -379,9 +520,56 @@ export function useDegreeDrafts(): DegreeDraftsReturn {
   )
 
   const retrySave = useCallback(async () => {
-    pendingRef.current = true
-    await flush()
-  }, [flush])
+    const draftId = activeIdRef.current
+    if (!draftId) return
+    const snapshot = planRef.current
+    const revision = revisionRef.current
+    try {
+      const { differs } = await requestCopy(draftId, snapshot)
+      const send = async () => {
+        dispatchSave({ type: "retry" })
+        await persist(draftId, snapshot, revision)
+      }
+      if (differs) {
+        openConflict(
+          {
+            title: "Rencana di server berubah",
+            message:
+              "Salinan di server berbeda dengan draf lokal. Timpa salinan server dengan draf ini?",
+            confirmLabel: "Timpa versi server",
+          },
+          send,
+          false,
+        )
+        return
+      }
+      await send()
+    } catch (error) {
+      dispatchSave({
+        type: "save-failure",
+        message: `Gagal memeriksa salinan server: ${apiErrorMessage(error, "permintaan ke server gagal")}`,
+      })
+    }
+  }, [openConflict, persist, requestCopy])
+
+  const confirmPlanConflict = useCallback(async () => {
+    const action = conflictActionRef.current
+    conflictActionRef.current = null
+    conflictPendingRef.current = false
+    setPlanConflict(null)
+    await action?.()
+  }, [])
+
+  const cancelPlanConflict = useCallback(() => {
+    conflictActionRef.current = null
+    const hadPending = conflictPendingRef.current
+    conflictPendingRef.current = false
+    setPlanConflict(null)
+    if (hadPending) {
+      pendingRef.current = true
+      scheduleFlush(SAVE_DELAY_MS)
+    }
+  }, [scheduleFlush])
 
   return {
     drafts,
@@ -390,9 +578,12 @@ export function useDegreeDrafts(): DegreeDraftsReturn {
     activeDraft,
     plan,
     isLoading,
-    isSaving,
-    lastSaved,
-    saveError,
+    isSaving: save.status === "saving",
+    lastSaved: save.lastSaved,
+    saveError: save.error,
+    planConflict,
+    confirmPlanConflict,
+    cancelPlanConflict,
     setPlan,
     switchDraft,
     createDraft,

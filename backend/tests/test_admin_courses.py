@@ -15,18 +15,27 @@ PAYLOAD = {
 }
 
 
-def _create_course(client, admin_headers, name=PAYLOAD["course_name"]) -> str:
+def _create_course(
+    client, admin_headers, name=PAYLOAD["course_name"], prerequisites=None
+) -> str:
     for _ in range(30):
         code = f"TST{random.randint(100, 999)}"
+        payload = {**PAYLOAD, "course_code": code, "course_name": name}
+        if prerequisites is not None:
+            payload["prerequisites"] = prerequisites
         response = client.post(
             "/api/v1/admin/courses",
             headers=admin_headers,
-            json={**PAYLOAD, "course_code": code, "course_name": name},
+            json=payload,
         )
         if response.status_code == 201:
             return code
         assert response.status_code == 409, response.text
     raise AssertionError("tidak mendapat kode mata kuliah unik untuk pengujian")
+
+
+def _delete_course(client, admin_headers, code):
+    client.delete(f"/api/v1/admin/courses/{code}", headers=admin_headers)
 
 
 @pytest.fixture
@@ -72,3 +81,83 @@ def test_admin_write_requires_admin_role(client, student_headers):
         },
     )
     assert response.status_code == 403
+
+
+def test_admin_create_persists_prerequisites_read_via_detail(client, admin_headers):
+    code = _create_course(client, admin_headers, prerequisites=["SID206"])
+    try:
+        response = client.get(f"/api/v1/courses/{code}")
+        assert response.status_code == 200
+        assert response.json()["prerequisites"] == ["Pengantar Basis Data"]
+    finally:
+        _delete_course(client, admin_headers, code)
+
+
+def test_admin_update_persists_prerequisites_and_refreshes_catalog(
+    client, admin_headers
+):
+    code = _create_course(client, admin_headers, prerequisites=["SID206"])
+    try:
+        response = client.put(
+            f"/api/v1/admin/courses/{code}",
+            headers=admin_headers,
+            json={
+                "course_name": "Mata Kuliah Uji Revisi",
+                "credits": 4,
+                "prerequisites": ["SID205", "AGI101"],
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["name"] == "Mata Kuliah Uji Revisi"
+
+        detail = client.get(f"/api/v1/courses/{code}").json()
+        assert detail["credits"] == 4
+        assert set(detail["prerequisites"]) == {
+            "Eksplorasi dan Visualisasi Data",
+            "Agama Islam 1",
+        }
+
+        listing = client.get(
+            "/api/v1/courses", params={"q": "Mata Kuliah Uji Revisi"}
+        ).json()
+        assert any(
+            course["code"] == code and course["credits"] == 4
+            for course in listing["courses"]
+        )
+    finally:
+        _delete_course(client, admin_headers, code)
+
+
+def test_admin_duplicate_code_returns_canonical_conflict(
+    client, admin_headers, temp_course
+):
+    response = client.post(
+        "/api/v1/admin/courses",
+        headers=admin_headers,
+        json={**PAYLOAD, "course_code": temp_course},
+    )
+    assert response.status_code == 409
+    error = response.json()["error"]
+    assert error["code"] == "duplicate_course_code"
+    assert error["message"]
+
+
+def test_admin_invalid_payload_returns_canonical_validation_error(
+    client, admin_headers
+):
+    response = client.post(
+        "/api/v1/admin/courses",
+        headers=admin_headers,
+        json={
+            **PAYLOAD,
+            "course_code": "TST901",
+            "credits": 99,
+            "recommended_semester": 0,
+        },
+    )
+    assert response.status_code == 422
+    body = response.json()
+    assert body["error"]["code"] == "validation_error"
+    fields = {item["field"] for item in body["error"]["details"]}
+    assert "body.credits" in fields
+    assert "body.recommended_semester" in fields
