@@ -1,7 +1,7 @@
 import uuid
 
 from rate_limit import limiter
-from tests.conftest import SEEDED_ADMIN, SEEDED_LECTURER, SEEDED_STUDENT
+from tests.conftest import SEEDED_STUDENT
 
 
 def test_login_rejects_wrong_password(client):
