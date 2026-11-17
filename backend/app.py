@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -119,6 +119,25 @@ for resource in (
 ):
     mount_resource(resource.router)
 
+info_router = APIRouter()
+
+
+@info_router.get("")
+@info_router.get("/")
+@info_router.get("/version")
+async def service_info():
+    return {
+        "service": app.title,
+        "version": app.version,
+        "api_version": "v1",
+        "docs": "/docs",
+        "health": "/api/v1/health",
+    }
+
+
+mount_resource(info_router)
+app.add_api_route("/", service_info, methods=["GET"], include_in_schema=False)
+
 # Dua path legacy dengan nama berbeda tetap dilayani tanpa salinan handler.
 app.add_api_route(
     "/api/plan/validate",
@@ -138,17 +157,23 @@ app.add_api_route(
 
 @app.exception_handler(RateLimitExceeded)
 def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    limit = getattr(exc, "limit", None)
+    item = getattr(limit, "limit", None)
+    get_expiry = getattr(item, "get_expiry", None)
+    retry_after = int(get_expiry()) if callable(get_expiry) else 60
     return JSONResponse(
         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        headers={"Retry-After": str(retry_after)},
         content={
             "error": {
                 "code": "rate_limit_exceeded",
-                "message": "Batas pengiriman pesan terlampaui (maksimal 20 request per menit).",
+                "message": f"Batas pengiriman pesan terlampaui. Coba lagi dalam {retry_after} detik.",
                 "retry_after": retry_after,
                 "details": [],
             }
         },
     )
+
 
 @app.exception_handler(ConnectionError)
 async def connection_error_handler(request: Request, exc: ConnectionError):
@@ -252,10 +277,23 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     )
 
 
+def internal_error_response() -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "error": {
+                "code": "internal_server_error",
+                "message": "Terjadi kesalahan internal. Silakan coba lagi nanti.",
+                "details": [],
+            }
+        },
+    )
+
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
     return internal_error_response()
+
 
 
 def find_free_port(start_port: int = 8001, max_port: int = 8050) -> int:
