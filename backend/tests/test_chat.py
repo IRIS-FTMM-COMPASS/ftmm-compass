@@ -13,6 +13,26 @@ def chatbot_url():
     settings.CHATBOT_SERVICE_URL = original
 
 
+def _sse_response():
+    async def fake_lines(*args, **kwargs):
+        yield 'data: {"token": "Halo"}'
+        yield 'data: {"done": true, "reply": "Halo"}'
+
+    class FakeResponse:
+        status_code = 200
+
+        def __init__(self):
+            self.aiter_lines = fake_lines
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    return FakeResponse()
+
+
 def test_circular_forwarding_is_blocked(client, chatbot_url):
     settings.CHATBOT_SERVICE_URL = "http://127.0.0.1:8001"
     response = client.post(
@@ -62,31 +82,75 @@ def test_chat_forward_passes_reply_and_profile(client, chatbot_url):
     assert body["routing_mode"] == "HYBRID"
 
 
-def test_stream_endpoint_emits_sse(client, chatbot_url):
+def test_stream_requires_authentication(client, chatbot_url):
+    settings.CHATBOT_SERVICE_URL = "http://chatbot.test"
+    response = client.post(
+        "/api/v1/chat/stream",
+        json={"message": "halo", "history": [], "student_profile": {}},
+    )
+    assert response.status_code == 401
+
+
+def test_stream_identity_comes_from_token(client, chatbot_url, student_headers):
     settings.CHATBOT_SERVICE_URL = "http://chatbot.test"
 
-    async def fake_lines(*args, **kwargs):
-        for payload in (
-            'data: {"token": "Halo"}',
-            'data: {"done": true, "reply": "Halo"}',
-        ):
-            yield payload
-
-    class FakeResponse:
-        status_code = 200
-
-        def __init__(self):
-            self.aiter_lines = fake_lines
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *exc):
-            return False
-
-    with patch("httpx.AsyncClient.stream", return_value=FakeResponse()):
+    claimed_id = "00000000-0000-0000-0000-000000000001"
+    with (
+        patch("httpx.AsyncClient.stream", return_value=_sse_response()),
+        patch("api.chat.log_chat_metadata", new_callable=AsyncMock) as log_metadata,
+    ):
         response = client.post(
             "/api/v1/chat/stream",
+            headers=student_headers,
+            json={
+                "message": "halo",
+                "history": [],
+                "student_profile": {},
+                "user_id": claimed_id,
+            },
+        )
+    assert response.status_code == 200
+    assert str(log_metadata.call_args.kwargs["user_id"]) != claimed_id
+
+
+def test_stream_connection_limit_returns_503(client, chatbot_url, student_headers):
+    settings.CHATBOT_SERVICE_URL = "http://chatbot.test"
+    from stream_control import stream_tracker
+
+    original = stream_tracker.max_connections
+    stream_tracker.max_connections = 0
+    try:
+        response = client.post(
+            "/api/v1/chat/stream",
+            headers=student_headers,
+            json={"message": "halo", "history": [], "student_profile": {}},
+        )
+    finally:
+        stream_tracker.max_connections = original
+    assert response.status_code == 503
+
+
+def test_health_reports_stream_metrics(client):
+    from stream_control import stream_tracker
+
+    stream_tracker.first_token_latency_ms = 12.5
+    stream_tracker.last_stream_duration_ms = 480.0
+    try:
+        body = client.get("/api/v1/health").json()
+    finally:
+        stream_tracker.first_token_latency_ms = None
+        stream_tracker.last_stream_duration_ms = None
+    assert body["active_streams"] == 0
+    assert body["first_token_latency_ms"] == 12.5
+    assert body["last_stream_duration_ms"] == 480.0
+
+
+def test_stream_endpoint_emits_sse(client, chatbot_url, student_headers):
+    settings.CHATBOT_SERVICE_URL = "http://chatbot.test"
+    with patch("httpx.AsyncClient.stream", return_value=_sse_response()):
+        response = client.post(
+            "/api/v1/chat/stream",
+            headers=student_headers,
             json={"message": "halo", "history": [], "student_profile": {}},
         )
     assert response.status_code == 200

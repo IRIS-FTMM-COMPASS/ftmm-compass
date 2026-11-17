@@ -4,12 +4,16 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Sumber:** kartu Trello #142 — Mantra, normal, due 23 Nov 2026.
 
-- [ ] Keputusan pemisahan data demo ditulis bersama alasannya; hanya satu strategi yang diterapkan.
-- [ ] Backend start tanpa data demo dan semua rangkaian pengujian tetap lulus.
-- [ ] Katalog publik tidak mengembalikan kode contoh KIK101 dan tidak menampilkan kode polling demo yang sama dengan mata kuliah resmi.
-- [ ] Akun tes yang dibutuhkan pengujian otomatis berasal dari fixture, bukan dari kurikulum demo aktif.
-- [ ] Cara menjalankan mode demo didokumentasikan untuk pengembang.
+- [x] Keputusan pemisahan data demo ditulis bersama alasannya; hanya satu strategi yang diterapkan.
+- [x] Backend start tanpa data demo dan semua rangkaian pengujian tetap lulus.
+- [x] Katalog publik tidak mengembalikan kode contoh KIK101 dan tidak menampilkan kode polling demo yang sama dengan mata kuliah resmi.
+- [x] Akun tes yang dibutuhkan pengujian otomatis berasal dari fixture, bukan dari kurikulum demo aktif.
+- [x] Cara menjalankan mode demo didokumentasikan untuk pengembang.
+
+## Comments
+
+- Resolved 2026-11-17. AUTO_SEED default changed to false in backend/settings.py; strategy documented in docs/demo-data-policy.md; regression test test_public_catalog_excludes_demo_only_codes passes.

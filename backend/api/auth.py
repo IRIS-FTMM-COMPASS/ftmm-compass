@@ -1,14 +1,18 @@
 """Router HTTP. Setiap modul didaftarkan dua kali oleh app.py (v1 dan legacy)."""
 
 import sys
+from functools import wraps
+import secrets
+import uuid
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(line_buffering=True)
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(line_buffering=True)
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import JSONResponse
 from datetime import datetime, timezone
-from sqlalchemy import select, or_, and_, update, cast, String
+from sqlalchemy import and_, cast, func, inspect, or_, select, String, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from schemas import (
@@ -19,17 +23,140 @@ from schemas import (
     UserStudentProfileResponse,
     NotificationItemResponse,
     NotificationListResponse,
+    RegisterRequest,
+    RegisterResponse,
+    RecoverRequest,
+    RecoverResponse,
+    ChangePasswordRequest,
+    ChangePasswordResponse,
+    AccountResponse,
+    AccountListResponse,
+    AccountCreateRequest,
+    AccountCreateResponse,
+    AccountUpdateRequest,
+    AccountUpdateResponse,
+    ResetPasswordResponse,
 )
 from database import get_db
 from models import (
     User,
     StudentProfile as StudentProfileModel,
+    StudyProgram,
+    AcademicPeriod,
+    Curriculum,
+    StudentCurriculumAssignment,
     UserNotification,
 )
-from auth import authenticate_user, create_access_token, get_current_user
+from auth import (
+    authenticate_user,
+    bump_token_version,
+    create_access_token,
+    find_user_by_recovery_code,
+    get_current_user,
+    get_password_hash,
+    get_token_version,
+    new_recovery_code,
+    save_recovery_code,
+    verify_password,
+)
+from api.errors import error_response
+from rate_limit import limiter
+from slowapi.errors import RateLimitExceeded
 
 
 router = APIRouter()
+
+
+def _retry_after_seconds(exc: RateLimitExceeded) -> int:
+    try:
+        limit = getattr(exc, "limit", None)
+        item = getattr(limit, "limit", None)
+        get_expiry = getattr(item, "get_expiry", None)
+        if callable(get_expiry):
+            return max(1, int(get_expiry()))
+    except (TypeError, ValueError):
+        pass
+    return 60
+
+
+def auth_rate_limit(rate: str):
+    """Batas laju hanya untuk endpoint autentikasi yang diberi penanda."""
+
+    def decorator(func):
+        limited = limiter.limit(rate)(func)
+
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            try:
+                return await limited(*args, **kwargs)
+            except RateLimitExceeded as exc:
+                retry_after = _retry_after_seconds(exc)
+                message = (
+                    "Terlalu banyak permintaan autentikasi. "
+                    f"Coba lagi dalam {retry_after} detik."
+                )
+                return error_response(
+                    status.HTTP_429_TOO_MANY_REQUESTS,
+                    "rate_limited",
+                    message,
+                    detail="Batas laju autentikasi terlampaui.",
+                    retry_after=retry_after,
+                    top_level={"retry_after": retry_after},
+                    headers={"Retry-After": str(retry_after)},
+                )
+
+        return wrapper
+
+    return decorator
+
+
+def _field_error(field: str, message: str, code: str) -> JSONResponse:
+    return error_response(
+        getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", status.HTTP_422_UNPROCESSABLE_ENTITY),
+        "validation_error",
+        "Data yang dikirim tidak valid.",
+        detail="Data yang dikirim tidak valid.",
+        details=[{"field": field, "message": message, "code": code}],
+    )
+
+
+def _derive_current_semester(admission_year: int, period) -> int:
+    now = datetime.now()
+    year = period.academic_year_start if period is not None else now.year
+    term = period.term if period is not None else ("ganjil" if now.month < 8 else "genap")
+    offset = 1 if str(term).lower() == "ganjil" else 2
+    return max(1, min(14, (year - admission_year) * 2 + offset))
+
+
+def _require_admin(current_user: User) -> None:
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Akses manajemen akun hanya tersedia untuk admin.",
+        )
+
+
+def _account_response(
+    user: User, student_number: str | None = None
+) -> AccountResponse:
+    if student_number is None and "student_profile" not in inspect(user).unloaded:
+        profile = user.student_profile
+        if profile is not None:
+            student_number = profile.student_number
+    return AccountResponse(
+        user_id=str(user.user_id),
+        email=user.email,
+        full_name=user.full_name,
+        role=user.role,
+        is_active=user.is_active,
+        status="active" if user.is_active else "inactive",
+        student_number=student_number,
+        created_at=user.created_at.isoformat() if user.created_at else None,
+    )
+
+
+def _temporary_password() -> str:
+    return f"Tmp{secrets.token_urlsafe(9)}!"
 
 
 def _build_user_response(user: User) -> UserResponse:
@@ -94,21 +221,235 @@ def _build_user_response(user: User) -> UserResponse:
 
 
 @router.post("/auth/login", response_model=LoginResponse)
-async def v1_login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
-    user = await authenticate_user(db, request.identifier, request.password)
+@auth_rate_limit("5/minute")
+async def v1_login(
+    request: Request,
+    payload: LoginRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    user = await authenticate_user(db, payload.identifier, payload.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="NIM/Email atau kata sandi tidak valid",
         )
 
-    access_token = create_access_token(data={"sub": str(user.user_id), "role": user.role})
+    version = await get_token_version(db, user.user_id)
+    access_token = create_access_token(
+        data={"sub": str(user.user_id), "role": user.role, "ver": version}
+    )
 
     return LoginResponse(
         access_token=access_token,
         token_type="bearer",
         expires_in=86400,
         user=_build_user_response(user),
+    )
+
+
+@router.post(
+    "/auth/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED
+)
+@auth_rate_limit("3/minute")
+async def v1_register(
+    request: Request,
+    payload: RegisterRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    email = payload.email.strip().lower()
+    if (
+        email.count("@") != 1
+        or not email.endswith("@ftmm.unair.ac.id")
+        or not email.split("@")[0].strip()
+    ):
+        return _field_error(
+            "email",
+            "Email harus menggunakan domain @ftmm.unair.ac.id.",
+            "invalid_email_domain",
+        )
+
+    if payload.admission_year < 2000 or payload.admission_year > datetime.now().year + 1:
+        return _field_error(
+            "admission_year",
+            "Tahun angkatan di luar rentang yang didukung.",
+            "invalid_admission_year",
+        )
+
+    student_number = payload.student_number.strip()
+    if not student_number:
+        return _field_error(
+            "student_number", "NIM wajib diisi.", "invalid_student_number"
+        )
+
+    existing_email = (
+        await db.execute(select(User).where(User.email == email))
+    ).scalars().first()
+    if existing_email is not None:
+        return _field_error("email", "Email sudah terdaftar.", "duplicate_email")
+
+    existing_nim = (
+        await db.execute(
+            select(StudentProfileModel).where(
+                StudentProfileModel.student_number == student_number
+            )
+        )
+    ).scalars().first()
+    if existing_nim is not None:
+        return _field_error(
+            "student_number", "NIM sudah terdaftar.", "duplicate_student_number"
+        )
+
+    program_stmt = select(StudyProgram).where(StudyProgram.is_active.is_(True))
+    if payload.study_program_code:
+        program_stmt = program_stmt.where(
+            StudyProgram.program_code
+            == payload.study_program_code.strip().upper()
+        )
+    program = (
+        await db.execute(program_stmt.order_by(StudyProgram.program_code))
+    ).scalars().first()
+    if program is None:
+        return _field_error(
+            "study_program_code",
+            "Program studi aktif tidak ditemukan.",
+            "unknown_study_program",
+        )
+
+    active_period = (
+        await db.execute(
+            select(AcademicPeriod)
+            .where(AcademicPeriod.is_active.is_(True))
+            .order_by(AcademicPeriod.academic_year_start.desc())
+        )
+    ).scalars().first()
+    semester = _derive_current_semester(payload.admission_year, active_period)
+
+    recovery_code = new_recovery_code()
+    user = User(
+        email=email,
+        full_name=payload.full_name.strip(),
+        password_hash=get_password_hash(payload.password),
+        role="student",
+        is_active=True,
+    )
+    db.add(user)
+    await db.flush()
+    await save_recovery_code(db, user.user_id, recovery_code)
+
+    profile = StudentProfileModel(
+        user_id=user.user_id,
+        study_program_id=program.study_program_id,
+        student_number=student_number,
+        admission_year=payload.admission_year,
+        current_semester=semester,
+    )
+    db.add(profile)
+    user.student_profile = profile
+    profile.study_program = program
+
+    curriculum = (
+        await db.execute(
+            select(Curriculum)
+            .where(
+                Curriculum.study_program_id == program.study_program_id,
+                Curriculum.is_active.is_(True),
+            )
+            .order_by(Curriculum.curriculum_year.desc())
+        )
+    ).scalars().first()
+    if curriculum is not None:
+        db.add(
+            StudentCurriculumAssignment(
+                user_id=user.user_id,
+                curriculum_id=curriculum.curriculum_id,
+                is_current=True,
+                assignment_source="cohort_rule",
+            )
+        )
+
+    access_token = create_access_token(
+        data={"sub": str(user.user_id), "role": user.role, "ver": 0}
+    )
+    await db.commit()
+    return RegisterResponse(
+        access_token=access_token,
+        token_type="bearer",
+        expires_in=86400,
+        user=_build_user_response(user),
+        recovery_code=recovery_code,
+    )
+
+
+@router.post("/auth/recover", response_model=RecoverResponse)
+@auth_rate_limit("3/minute")
+async def v1_recover(
+    request: Request,
+    payload: RecoverRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    code = payload.recovery_code.strip()
+    user_id = await find_user_by_recovery_code(db, code)
+    if user_id is None:
+        return error_response(
+            status.HTTP_400_BAD_REQUEST,
+            "invalid_recovery_code",
+            "Kode pemulihan tidak valid.",
+            detail="Kode pemulihan tidak valid.",
+        )
+
+    user = (
+        await db.execute(select(User).where(User.user_id == user_id))
+    ).scalars().first()
+    if user is None:
+        return error_response(
+            status.HTTP_400_BAD_REQUEST,
+            "invalid_recovery_code",
+            "Kode pemulihan tidak valid.",
+            detail="Kode pemulihan tidak valid.",
+        )
+
+    user.password_hash = get_password_hash(payload.new_password)
+    rotated_code = new_recovery_code()
+    await save_recovery_code(db, user.user_id, rotated_code)
+    await bump_token_version(db, user.user_id)
+    await db.commit()
+    return RecoverResponse(
+        message="Kata sandi berhasil dipulihkan dan kode pemulihan diperbarui.",
+        recovery_code=rotated_code,
+    )
+
+
+@router.post("/auth/change-password", response_model=ChangePasswordResponse)
+async def v1_change_password(
+    payload: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not current_user.password_hash or not verify_password(
+        payload.current_password, current_user.password_hash
+    ):
+        return error_response(
+            status.HTTP_400_BAD_REQUEST,
+            "invalid_current_password",
+            "Kata sandi saat ini tidak valid.",
+            detail="Kata sandi saat ini tidak valid.",
+        )
+
+    current_user.password_hash = get_password_hash(payload.new_password)
+    version = await bump_token_version(db, current_user.user_id)
+    access_token = create_access_token(
+        data={
+            "sub": str(current_user.user_id),
+            "role": current_user.role,
+            "ver": version,
+        }
+    )
+    await db.commit()
+    return ChangePasswordResponse(
+        access_token=access_token,
+        token_type="bearer",
+        expires_in=86400,
+        message="Kata sandi berhasil diubah. Gunakan token baru untuk sesi ini.",
     )
 
 
@@ -142,6 +483,154 @@ async def v1_update_profile(
     refreshed_user = res.scalars().first() or current_user
     return _build_user_response(refreshed_user)
 
+
+@router.get("/admin/accounts", response_model=AccountListResponse)
+async def list_accounts(
+    search: str = "",
+    role: str | None = None,
+    status_filter: str | None = Query(None, alias="status"),
+    page: int = 1,
+    page_size: int = 20,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_admin(current_user)
+    page = max(1, page)
+    page_size = max(1, min(100, page_size))
+
+    base = select(User).outerjoin(
+        StudentProfileModel, User.user_id == StudentProfileModel.user_id
+    )
+    count_stmt = select(func.count()).select_from(User).outerjoin(
+        StudentProfileModel, User.user_id == StudentProfileModel.user_id
+    )
+
+    if search.strip():
+        term = f"%{search.strip()}%"
+        condition = or_(
+            User.email.ilike(term),
+            User.full_name.ilike(term),
+            StudentProfileModel.student_number.ilike(term),
+        )
+        base = base.where(condition)
+        count_stmt = count_stmt.where(condition)
+    if role and role.strip():
+        base = base.where(User.role == role.strip().lower())
+        count_stmt = count_stmt.where(User.role == role.strip().lower())
+    if status_filter and status_filter.strip():
+        is_active = status_filter.strip().lower() in ("active", "aktif", "true", "1")
+        base = base.where(User.is_active.is_(is_active))
+        count_stmt = count_stmt.where(User.is_active.is_(is_active))
+
+    total = int((await db.execute(count_stmt)).scalar_one())
+    users = (
+        await db.execute(
+            base.options(selectinload(User.student_profile))
+            .order_by(User.created_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+    ).scalars().unique().all()
+    return AccountListResponse(
+        data=[_account_response(user) for user in users],
+        meta={
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "pages": (total + page_size - 1) // page_size,
+        },
+    )
+
+
+@router.post(
+    "/admin/accounts",
+    response_model=AccountCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_account(
+    payload: AccountCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_admin(current_user)
+    email = payload.email.strip().lower()
+    if not email or "@" not in email:
+        return _field_error("email", "Email tidak valid.", "invalid_email")
+
+    existing = (
+        await db.execute(select(User).where(User.email == email))
+    ).scalars().first()
+    if existing is not None:
+        return _field_error("email", "Email sudah terdaftar.", "duplicate_email")
+
+    temporary_password = payload.password or _temporary_password()
+    user = User(
+        email=email,
+        full_name=payload.full_name.strip(),
+        password_hash=get_password_hash(temporary_password),
+        role=payload.role,
+        is_active=True,
+    )
+    db.add(user)
+    await db.flush()
+    await db.commit()
+    return AccountCreateResponse(
+        data=_account_response(user),
+        temporary_password=None if payload.password else temporary_password,
+    )
+
+
+@router.patch("/admin/accounts/{user_id}", response_model=AccountUpdateResponse)
+async def update_account(
+    user_id: uuid.UUID,
+    payload: AccountUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_admin(current_user)
+    user = (
+        await db.execute(
+            select(User)
+            .options(selectinload(User.student_profile))
+            .where(User.user_id == user_id)
+        )
+    ).scalars().first()
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Akun tidak ditemukan."
+        )
+    user.is_active = payload.is_active
+    await db.commit()
+    return AccountUpdateResponse(data=_account_response(user))
+
+
+@router.post(
+    "/admin/accounts/{user_id}/reset-password",
+    response_model=ResetPasswordResponse,
+)
+async def reset_account_password(
+    user_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_admin(current_user)
+    user = (
+        await db.execute(select(User).where(User.user_id == user_id))
+    ).scalars().first()
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Akun tidak ditemukan."
+        )
+
+    temporary_password = _temporary_password()
+    user.password_hash = get_password_hash(temporary_password)
+    await bump_token_version(db, user.user_id)
+    await db.commit()
+    return ResetPasswordResponse(
+        message="Kata sandi sementara telah dibuat. Sesi lama akun ini dicabut.",
+        temporary_password=temporary_password,
+    )
+
 def _format_relative_time(dt: datetime) -> str:
     now = datetime.now(dt.tzinfo or timezone.utc)
     diff = now - dt
@@ -158,6 +647,15 @@ def _format_relative_time(dt: datetime) -> str:
     return dt.strftime("%d %b %Y")
 
 
+def _visible_notification_filter(current_user: User):
+    """Satu-satunya definisi notifikasi yang boleh dilihat dan diubah pengguna."""
+    return or_(
+        UserNotification.user_id == current_user.user_id,
+        UserNotification.target_role == current_user.role,
+        and_(UserNotification.user_id == None, UserNotification.target_role == None),
+    )
+
+
 @router.get("/notifications/me", response_model=NotificationListResponse)
 async def get_my_notifications(
     current_user: User = Depends(get_current_user),
@@ -165,13 +663,7 @@ async def get_my_notifications(
 ):
     stmt = (
         select(UserNotification)
-        .where(
-            or_(
-                UserNotification.user_id == current_user.user_id,
-                UserNotification.target_role == current_user.role,
-                and_(UserNotification.user_id == None, UserNotification.target_role == None),
-            )
-        )
+        .where(_visible_notification_filter(current_user))
         .order_by(UserNotification.created_at.desc())
     )
     rows = (await db.execute(stmt)).scalars().all()
@@ -201,7 +693,8 @@ async def mark_notification_read(
     db: AsyncSession = Depends(get_db),
 ):
     stmt = select(UserNotification).where(
-        cast(UserNotification.notification_id, String) == notification_id
+        cast(UserNotification.notification_id, String) == notification_id,
+        _visible_notification_filter(current_user),
     )
     notif = (await db.execute(stmt)).scalars().first()
     if not notif:
@@ -221,12 +714,7 @@ async def mark_all_notifications_read(
 ):
     stmt = (
         update(UserNotification)
-        .where(
-            or_(
-                UserNotification.user_id == current_user.user_id,
-                UserNotification.target_role == current_user.role,
-            )
-        )
+        .where(_visible_notification_filter(current_user))
         .values(is_read=True)
     )
     await db.execute(stmt)

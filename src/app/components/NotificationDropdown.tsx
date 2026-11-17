@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react"
 import { Bell, Check, Clock, AlertTriangle, BookOpen } from "lucide-react"
 import { cn } from "@/shared/utils"
 
-import { apiFetch } from "@/shared/api/client"
+import { apiFetch, apiErrorMessage } from "@/shared/api/client"
 import { type AuthUser } from "@/features/auth/authService"
 
 export interface AcademicNotification {
@@ -23,9 +23,12 @@ export default function NotificationDropdown({
 }: NotificationDropdownProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [notifications, setNotifications] = useState<AcademicNotification[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     let mounted = true
+    setError(null)
     apiFetch<{
       items: {
         id: string
@@ -49,13 +52,18 @@ export default function NotificationDropdown({
           })),
         )
       })
-      .catch(() => {
-        if (mounted) setNotifications([])
+      .catch((cause: unknown) => {
+        if (mounted) {
+          setNotifications([])
+          setError(
+            apiErrorMessage(cause, "Notifikasi tidak dapat dimuat. Coba lagi."),
+          )
+        }
       })
     return () => {
       mounted = false
     }
-  }, [currentUser?.role])
+  }, [currentUser?.role, attempt])
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   const unreadCount = notifications.filter((n) => !n.isRead).length
@@ -155,7 +163,18 @@ export default function NotificationDropdown({
           </div>
 
           <div className="max-h-80 overflow-y-auto divide-y divide-border/60">
-            {notifications.length === 0 ? (
+            {error ? (
+              <div role="alert" className="p-5 text-center text-sm text-navy">
+                <p className="mb-3">{error}</p>
+                <button
+                  type="button"
+                  onClick={() => setAttempt((value) => value + 1)}
+                  className="min-h-11 px-4 rounded-lg bg-navy text-white font-medium hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold"
+                >
+                  Coba lagi
+                </button>
+              </div>
+            ) : notifications.length === 0 ? (
               <div className="p-6 text-center text-muted text-sm">
                 Tidak ada notifikasi saat ini.
               </div>

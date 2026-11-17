@@ -16,12 +16,14 @@ def error_response(
     details: Sequence[Mapping[str, Any]] = (),
     detail: Any = _NO_DETAIL,
     headers: Mapping[str, str] | None = None,
+    top_level: Mapping[str, Any] | None = None,
     **extra: Any,
 ) -> JSONResponse:
     error = {"code": code, "message": message, **extra, "details": list(details)}
-    content: dict[str, Any] = {"error": error}
+    content: dict[str, Any] = dict(top_level or {})
+    content["error"] = error
     if detail is not _NO_DETAIL:
-        content = {"detail": detail, **content}
+        content["detail"] = detail
     return JSONResponse(
         status_code=status_code,
         headers=dict(headers) if headers is not None else None,

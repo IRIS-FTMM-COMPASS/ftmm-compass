@@ -20,8 +20,14 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
     myVotes: studentVotes,
     error: pollingError,
   } = usePolling()
-  const { dashboardData, isLoading, displayedSchedule, hasConflict } =
-    useDashboardData(user)
+  const {
+    dashboardData,
+    isLoading,
+    displayedSchedule,
+    hasConflict,
+    error,
+    retry,
+  } = useDashboardData(user)
   const {
     selectedProdi,
     setSelectedProdi,
@@ -45,6 +51,21 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
+      {error && (
+        <div
+          role="alert"
+          className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 rounded-xl border border-orange/30 bg-orange/10 text-sm text-navy"
+        >
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={retry}
+            className="min-h-11 px-4 rounded-lg bg-navy text-white font-medium hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold"
+          >
+            Coba lagi
+          </button>
+        </div>
+      )}
       <DashboardStats
         dashboardData={dashboardData}
         pollingPeriod={pollingPeriod}

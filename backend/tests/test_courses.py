@@ -1,9 +1,42 @@
+"""Kontrak sumber katalog publik: database dengan fallback lokal."""
+
+from unittest.mock import AsyncMock, patch
+
 def test_catalog_lists_all_programs(client):
     response = client.get("/api/v1/courses")
     assert response.status_code == 200
     body = response.json()
     assert body["total_courses"] >= 50
     assert len({course["program"] for course in body["courses"]}) == 5
+
+
+def test_catalog_reports_database_source(client):
+    response = client.get(
+        "/api/v1/courses",
+        params={"prodi": "Teknologi Sains Data", "page": 1, "per_page": 5},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] == "database"
+    assert {"data", "meta", "links", "program_studi"} <= set(body)
+
+
+def test_catalog_falls_back_to_local_source(client):
+    with patch("catalog.build_catalog_from_db", new_callable=AsyncMock) as builder:
+        builder.side_effect = RuntimeError("database unavailable")
+        response = client.get("/api/v1/courses", params={"page": 1, "per_page": 5})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] == "local_fallback"
+    assert {"data", "meta", "links", "program_studi"} <= set(body)
+    assert body["meta"]["total"] > 0
+
+
+def test_public_catalog_excludes_demo_only_codes(client):
+    response = client.get("/api/v1/courses")
+    assert response.status_code == 200
+    codes = {course["code"] for course in response.json()["courses"]}
+    assert "KIK101" not in codes
 
 
 def test_course_detail_returns_canonical_course(client):

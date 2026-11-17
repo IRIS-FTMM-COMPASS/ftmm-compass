@@ -1,6 +1,6 @@
 # Spec: Eksekusi Kartu Sprint 9 dan Carryover Sprint 8 di Repo UI
 
-Status: ready-for-agent
+Status: resolved
 Feature slug: `sprint9-ui-repo-execution`
 Source: grilling 2026-11-17 (Q1–Q7), pembacaan langsung board Trello `FTMM COMPASS` lewat MCP, dan deskripsi lengkap kartu.
 
@@ -100,3 +100,8 @@ Buat 14 tiket vertikal sebagai irisan tracer yang menembus data, API, antarmuka,
 - Seluruh teks antarmuka memakai Bahasa Indonesia formal dan ramah; warna memakai token `@theme` serta helper `cn()`.
 - Format tiket mengikuti skill `to-tickets`: `What to build`, `Blocked by`, `Status`, dan kriteria penerimaan yang dapat diamati; provenansi kartu Trello tetap dicantumkan tanpa path kode.
 - Persetujuan granularitas, blocking edges, dan tidak ada penggabungan atau pemecahan tambahan diperoleh dari sesi grilling 2026-11-17.
+
+## Catatan Implementasi
+
+- 2026-11-17: ke-14 tiket diimplementasikan dan ditutup. Backend 160 pengujian lulus, build produksi berhasil, migrasi `c4d2e6f8a1b3` dan `f3c9d1a7b2e8` terverifikasi naik-turun.
+- Verifikasi browser dilakukan pada Chromium dan WebKit di 375/768/1280 px. Firefox tidak tersedia pada alat browser yang terpasang; keterbatasan ini tercatat di laporan T14.

@@ -12,7 +12,7 @@ import {
   sanitizeErrorMessage,
   QUICK_PROMPTS,
 } from "@/features/chatbot/chatService"
-import { API_BASE, ApiError, apiFetch } from "@/shared/api/client"
+import { API_BASE, ApiError, apiFetch, authHeaders } from "@/shared/api/client"
 import type { DegreePlanPayload } from "@/shared/domain/plan"
 import DegreePlanActionCard from "@/features/chatbot/components/DegreePlanActionCard"
 
@@ -129,7 +129,7 @@ export default function Chatbot({
     try {
       const streamRes = await fetch(`${API_BASE}${CHAT_STREAM_PATH}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify(chatBody),
       })
 
@@ -277,24 +277,25 @@ export default function Chatbot({
 
   return (
     <div className="h-full flex flex-col bg-surface border border-border rounded-xl shadow-sm overflow-hidden animate-in fade-in duration-500">
-      <div className="p-4 border-b border-border bg-navy text-white flex justify-between items-center relative overflow-hidden flex-shrink-0">
+      <div className="p-4 border-b border-border bg-navy text-white flex justify-between items-center gap-2 relative overflow-hidden flex-shrink-0">
         <div className="absolute -right-10 -top-10 w-40 h-40 bg-gold/20 rounded-full blur-3xl" />
-        <div className="flex items-center gap-3 relative z-10">
-          <div className="w-10 h-10 rounded-full bg-gold/20 flex items-center justify-center text-gold border border-gold/40">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0 relative z-10">
+          <div className="w-9 h-9 sm:w-10 sm:h-10 flex-shrink-0 rounded-full bg-gold/20 flex items-center justify-center text-gold border border-gold/40">
             <Bot className="w-5 h-5" />
           </div>
-          <div>
-            <h3 className="font-heading font-bold text-base flex items-center gap-2">
-              FTMM Compass AI
-              <Sparkles className="w-4 h-4 text-gold" />
+          <div className="min-w-0">
+            <h3 className="font-heading font-bold text-sm sm:text-base flex items-center gap-2 whitespace-nowrap">
+              <span className="hidden sm:inline">FTMM Compass AI</span>
+              <span className="sm:hidden">Compass AI</span>
+              <Sparkles className="hidden sm:block w-4 h-4 text-gold" />
             </h3>
-            <p className="text-xs text-teal-light font-mono">
+            <p className="hidden sm:block text-xs text-teal-light font-mono truncate">
               Academic Advisor & Study Planner Engine
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2.5 relative z-10">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
             <span
               className={cn(
                 "w-2 h-2 rounded-full",
@@ -303,20 +304,27 @@ export default function Chatbot({
                   : "bg-warning animate-pulse",
               )}
             />
-            <span className="text-xs font-mono text-white/80">
-              {backendStatus?.chatbot_service_online
-                ? `Live • ${backendStatus.chatbot_model || "Hybrid Engine"}`
-                : "Rule Engine Fallback"}
+            <span className="text-xs font-mono text-white/80 whitespace-nowrap">
+              <span className="sm:hidden">
+                {backendStatus?.chatbot_service_online ? "Live" : "Mode aturan"}
+              </span>
+              <span className="hidden sm:inline">
+                {backendStatus?.chatbot_service_online
+                  ? `Live • ${backendStatus.chatbot_model || "Hybrid Engine"}`
+                  : "Rule Engine Fallback"}
+              </span>
             </span>
           </div>
           <button
             type="button"
             onClick={onResetChat}
             title="Reset percakapan ke awal"
-            className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg bg-white/10 hover:bg-white/20 text-white/90 hover:text-white transition-colors cursor-pointer border border-white/10"
+            className="flex items-center justify-center gap-1.5 min-h-11 min-w-11 px-2.5 text-xs rounded-lg bg-white/10 hover:bg-white/20 text-white/90 hover:text-white transition-colors cursor-pointer border border-white/10 focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-1 focus-visible:ring-offset-navy"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Reset Chat</span>
+            <span className="hidden sm:inline whitespace-nowrap">
+              Reset Chat
+            </span>
           </button>
         </div>
       </div>
@@ -341,10 +349,10 @@ export default function Chatbot({
               {msg.role === "user" ? "ME" : "AI"}
             </div>
 
-            <div className="flex flex-col gap-2 max-w-full">
+            <div className="flex flex-col gap-2 max-w-full min-w-0">
               <div
                 className={cn(
-                  "p-4 rounded-2xl text-sm leading-relaxed shadow-sm",
+                  "p-4 rounded-2xl text-sm leading-relaxed shadow-sm break-words",
                   msg.role === "user"
                     ? "bg-teal text-navy-dark rounded-tr-none font-medium"
                     : "bg-surface border border-border text-foreground rounded-tl-none",
@@ -385,11 +393,11 @@ export default function Chatbot({
         ))}
 
         {isLoading && (
-          <div className="flex gap-3 max-w-[80%] animate-in fade-in duration-300">
+          <div className="flex gap-3 max-w-[85%] md:max-w-[75%] animate-in fade-in duration-300">
             <div className="w-8 h-8 rounded-full bg-navy text-white flex items-center justify-center flex-shrink-0 mt-1 shadow-sm text-xs font-bold">
               AI
             </div>
-            <div className="p-4 rounded-2xl bg-surface border border-border text-foreground rounded-tl-none shadow-sm flex items-center gap-2">
+            <div className="p-4 rounded-2xl bg-surface border border-border text-foreground rounded-tl-none shadow-sm flex items-center gap-2 min-w-0">
               <span className="w-2 h-2 rounded-full bg-gold animate-pulse" />
               <span className="w-2 h-2 rounded-full bg-gold animate-pulse delay-150" />
               <span className="w-2 h-2 rounded-full bg-gold animate-pulse delay-300" />
@@ -404,13 +412,13 @@ export default function Chatbot({
       </div>
 
       {messages.length <= 2 && (
-        <div className="px-6 py-3 flex gap-2 overflow-x-auto scrollbar-hide border-t border-border bg-background/50 flex-shrink-0">
+        <div className="px-6 py-2 flex gap-2 overflow-x-auto scrollbar-hide border-t border-border bg-background/50 flex-shrink-0">
           {QUICK_PROMPTS.map((prompt, i) => (
             <button
               key={i}
               type="button"
               onClick={() => handleSend(prompt)}
-              className="px-3 py-1.5 bg-surface border border-border hover:border-gold hover:text-navy text-xs rounded-full whitespace-nowrap text-muted transition-all shadow-2xs cursor-pointer flex-shrink-0"
+              className="min-h-11 px-4 py-2 bg-surface border border-border hover:border-gold hover:text-navy text-xs rounded-full whitespace-nowrap text-muted transition-all shadow-2xs cursor-pointer flex-shrink-0 focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2"
             >
               💡 {prompt}
             </button>
@@ -426,14 +434,14 @@ export default function Chatbot({
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
             placeholder="Ketik pertanyaan atau permintaan rencana studi Anda..."
-            className="w-full pl-4 pr-12 py-3 bg-background border border-border rounded-xl focus:border-gold focus:ring-1 focus:ring-gold outline-hidden text-sm font-sans transition-all"
+            className="w-full pl-4 pr-14 py-3 bg-background border border-border rounded-xl focus:border-gold focus:ring-1 focus:ring-gold outline-hidden text-sm font-sans transition-all"
             disabled={isLoading}
           />
           <button
             type="button"
             onClick={() => handleSend()}
             disabled={!input.trim() || isLoading}
-            className="absolute right-2 p-2 bg-navy text-gold rounded-lg hover:bg-navy-light disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+            className="absolute right-2 min-h-11 min-w-11 flex items-center justify-center bg-navy text-gold rounded-lg hover:bg-navy-light disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-1"
           >
             <Send className="w-4 h-4" />
           </button>

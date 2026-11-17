@@ -71,7 +71,7 @@ def isolated_db(client):
 
     app_module.app.dependency_overrides[get_db] = override_get_db
     try:
-        yield
+        yield connection, transaction, session
     finally:
         app_module.app.dependency_overrides.pop(get_db, None)
 
@@ -81,6 +81,13 @@ def isolated_db(client):
             await connection.close()
 
         client.portal.call(end)
+
+
+@pytest.fixture
+def db_session(isolated_db):
+    """Sesi transaksional yang sama dipakai endpoint lewat dependency override."""
+    yield isolated_db[2]
+
 
 
 def _login(client: TestClient, credentials: tuple[str, str]) -> str:

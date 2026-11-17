@@ -115,7 +115,7 @@ export default function DashboardMainPanel({
         </div>
       ) : (
         <div className="bg-surface rounded-xl border border-border shadow-sm overflow-hidden">
-          <div className="p-5 border-b border-border flex items-center justify-between">
+          <div className="p-5 border-b border-border flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-3">
               <Calendar className="w-5 h-5 text-navy" />
               <h3 className="font-heading font-bold text-lg text-navy">
@@ -135,7 +135,7 @@ export default function DashboardMainPanel({
             {user?.role === "student" && (
               <button
                 onClick={() => onNavigate("degree-planner")}
-                className="text-sm font-medium text-navy hover:text-gold transition-colors flex items-center gap-1 cursor-pointer"
+                className="min-h-11 min-w-11 px-3 whitespace-nowrap shrink-0 text-sm font-medium text-navy hover:text-gold transition-colors flex items-center gap-1 cursor-pointer"
               >
                 Buka di Degree Planner <ChevronRight className="w-4 h-4" />
               </button>
