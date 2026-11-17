@@ -4,11 +4,15 @@
 
 **Blocked by:** 03 — Jadwal kelas nyata tersedia di planner.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Endpoint validasi jadwal menerima periode akademik dan daftar pasangan mata kuliah–section, lalu mengembalikan daftar bentrok dan alternatif bebas bentrok dari database.
-- [ ] Memilih dua section yang bertabrakan memunculkan banner peringatan yang menyebut nama mata kuliah dan rincian jam, dengan penanda teks dan warna.
-- [ ] Panel alternatif menampilkan sedikitnya satu kelas paralel yang benar-benar bebas bentrok.
-- [ ] Tombol "Terapkan Solusi" mengganti section terpilih dan grid jadwal diperbarui seketika tanpa memuat ulang halaman.
-- [ ] Tidak ada error pada console browser selama alur resolusi bentrok.
-- [ ] Test API membuktikan deteksi irisan jam dan penyaringan alternatif; seluruhnya lulus.
+- [x] Endpoint validasi jadwal menerima periode akademik dan daftar pasangan mata kuliah–section, lalu mengembalikan daftar bentrok dan alternatif bebas bentrok dari database.
+- [x] Memilih dua section yang bertabrakan memunculkan banner peringatan yang menyebut nama mata kuliah dan rincian jam, dengan penanda teks dan warna.
+- [x] Panel alternatif menampilkan sedikitnya satu kelas paralel yang benar-benar bebas bentrok.
+- [x] Tombol "Terapkan Solusi" mengganti section terpilih dan grid jadwal diperbarui seketika tanpa memuat ulang halaman.
+- [x] Tidak ada error pada console browser selama alur resolusi bentrok.
+- [x] Test API membuktikan deteksi irisan jam dan penyaringan alternatif; seluruhnya lulus.
+
+## Comments
+
+- Resolved 2026-11-17. `POST /class-sections/validations` mengembalikan pasangan bentrok dan alternatif; alternatif kini saling bebas bentrok saat diterapkan sekaligus, dengan regresi test dua alternatif bertabrakan. Banner memakai teks + warna dan tombol "Terapkan Solusi" memperbarui grid tanpa reload. Trello #138. Commit `5e51853`, `1e1a38f`.

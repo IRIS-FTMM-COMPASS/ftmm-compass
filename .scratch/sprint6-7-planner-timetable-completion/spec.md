@@ -1,6 +1,6 @@
 # Spec: Selesaikan Kartu Sprint 6–7 Hans/Mantra (Planner & Timetable)
 
-Status: ready-for-agent
+Status: resolved
 Feature slug: `sprint6-7-planner-timetable-completion`
 Source: hasil sesi grilling 2026-11-17 (Q1–Q14), verifikasi kode backend/frontend, dan deskripsi kartu Trello board `FTMM COMPASS`.
 
@@ -167,3 +167,9 @@ These two seams are proposed as the complete test surface; no lower-level unit s
 - The mobile work must define states across the whole width range, not only a phone and a desktop breakpoint, and must keep every interactive element keyboard reachable and visibly focused.
 - All user-facing text stays in formal but friendly Indonesian. No hardcoded color values are introduced; existing design tokens are reused.
 - Evidence comments follow the repository's concise technical Indonesian convention and avoid meta phrasing.
+
+## Resolution
+
+- Diselesaikan 2026-11-17 pada integration branch `integration/sprint6-7-planner-timetable-completion` (tip `b1751fc`) dengan commit atomik per tiket, merge --no-ff, dan tanpa push.
+- Semua sembilan tiket berstatus resolved; 104 test backend lulus, build/format lulus, review dua axis selesai dan seluruh temuan dapat diperbaiki.
+- Bukti browser 375/768/1280, unduhan ICS, dan log sinkron Trello tersimpan di `evidence/`. Kartu benchmark #127 sengaja tidak disentuh.
