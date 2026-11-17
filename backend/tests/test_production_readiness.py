@@ -1,35 +1,72 @@
-import settings
-import app as app_module
-from fastapi import Request
-from rate_limit import limiter
+import shlex
+from contextlib import contextmanager
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from pathlib import Path
+import app as app_module
+import settings
+from fastapi import Request
+from fastapi.testclient import TestClient
+from rate_limit import limiter
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _remove_probe(path: str) -> None:
-    app_module.app.router.routes[:] = [
-        route
-        for route in app_module.app.router.routes
-        if getattr(route, "path", None) != path
-    ]
+@contextmanager
+def _temporary_route(path: str, endpoint, methods=("GET",)):
+    original_routes = list(app_module.app.router.routes)
+    app_module.app.add_api_route(
+        path, endpoint, methods=list(methods), include_in_schema=False
+    )
+    try:
+        yield
+    finally:
+        app_module.app.router.routes[:] = original_routes
 
 
-def _service_block(compose: str, name: str) -> str:
+def _service_config(compose: str, name: str) -> dict[str, list[str] | str]:
     lines = compose.splitlines()
     start = lines.index(f"  {name}:")
-    end = next(
-        (
-            index
-            for index in range(start + 1, len(lines))
-            if lines[index].startswith("  ") and not lines[index].startswith("    ")
-        ),
-        len(lines),
-    )
-    return "\n".join(lines[start:end])
+    config: dict[str, list[str] | str] = {}
+    current: str | None = None
+    for line in lines[start + 1 :]:
+        if line and not line.startswith("    "):
+            break
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if not line.startswith("      "):
+            key, _, value = stripped.partition(":")
+            current = key.strip()
+            config[current] = value.strip() if value.strip() else []
+        elif current is not None and stripped.startswith("- "):
+            values = config[current]
+            assert isinstance(values, list)
+            values.append(shlex.split(stripped[2:].strip())[0])
+    return config
 
+
+def _dockerfile_steps(text: str) -> list[tuple[str, list[str]]]:
+    steps: list[tuple[str, list[str]]] = []
+    logical_lines: list[str] = []
+    pending = ""
+    for raw in text.splitlines():
+        line = raw.strip()
+        pending = line if not pending else f"{pending} {line}"
+        if pending.endswith("\\"):
+            pending = pending[:-1].rstrip()
+            continue
+        logical_lines.append(pending)
+        pending = ""
+    if pending:
+        logical_lines.append(pending)
+    for line in logical_lines:
+        code = line.split("#", 1)[0].strip()
+        if not code:
+            continue
+        instruction, _, arguments = code.partition(" ")
+        steps.append((instruction.upper(), shlex.split(arguments)))
+    return steps
 
 def test_unhandled_exception_returns_standard_envelope_without_details(client):
     path = "/__probe/unhandled"
@@ -37,11 +74,9 @@ def test_unhandled_exception_returns_standard_envelope_without_details(client):
     def explode():
         raise RuntimeError("secret internal detail: password=hunter2")
 
-    app_module.app.add_api_route(path, explode, methods=["GET"], include_in_schema=False)
-    try:
-        response = client.get(path)
-    finally:
-        _remove_probe(path)
+    with TestClient(app_module.app, raise_server_exceptions=False) as probe_client:
+        with _temporary_route(path, explode):
+            response = probe_client.get(path)
 
     assert response.status_code == 500
     body = response.json()
@@ -59,12 +94,9 @@ def test_rate_limit_response_carries_retry_hint(client):
     def probe(request: Request):
         return {"ok": True}
 
-    app_module.app.add_api_route(path, probe, methods=["GET"], include_in_schema=False)
-    try:
+    with _temporary_route(path, probe):
         first = client.get(path)
         second = client.get(path)
-    finally:
-        _remove_probe(path)
 
     assert first.status_code == 200
     assert second.status_code == 429
@@ -125,18 +157,23 @@ def test_stream_generator_stops_on_client_disconnect(client):
 def test_application_containers_are_hardened():
     compose = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     for service in ("gateway", "frontend"):
-        block = _service_block(compose, service)
-        assert "cap_drop:" in block
-        assert "- ALL" in block
-        assert "read_only: true" in block
-        assert "tmpfs:" in block
-        assert "no-new-privileges:true" in block
+        config = _service_config(compose, service)
+        assert config["cap_drop"] == ["ALL"]
+        assert config["read_only"] == "true"
+        assert config["tmpfs"]
+        assert "no-new-privileges:true" in config["security_opt"]
 
     for dockerfile in ("Dockerfile.backend", "Dockerfile.frontend"):
-        text = (REPO_ROOT / dockerfile).read_text(encoding="utf-8")
-        assert "USER appuser" in text
-        assert "-u 1001" in text or "-g 1001" in text
-        assert "USER root" not in text
+        steps = _dockerfile_steps((REPO_ROOT / dockerfile).read_text(encoding="utf-8"))
+        users = [args for instruction, args in steps if instruction == "USER"]
+        assert users == [["appuser"]]
+        numeric_ids = {
+            args[index + 1]
+            for _, args in steps
+            for index, flag in enumerate(args[:-1])
+            if flag in ("-u", "-g") and args[index + 1] == "1001"
+        }
+        assert numeric_ids == {"1001"}
 
 
 def test_root_and_version_info_match_across_route_tiers(client):
