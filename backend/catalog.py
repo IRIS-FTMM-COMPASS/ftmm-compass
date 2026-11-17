@@ -13,7 +13,7 @@ import re
 from collections import defaultdict
 from typing import Dict, List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from academics import parity_of, term_of
@@ -69,7 +69,7 @@ CURRICULUM_DOCS = {
 
 PRODI_CODES = {name: code for code, name in PROGRAM_NAMES.items()}
 
-COURSE_CODE_PATTERN = re.compile(r"^[A-Z]{2,4}\d{3}$")
+ADMIN_REQUIREMENT_NOTES = "admin_catalog"
 
 _CURRICULUM: Dict[str, List[CourseModel]] = {}
 _SOURCE = "empty"
@@ -195,25 +195,25 @@ def load_ekstrak(directory: str = EKSTRAK_DIR) -> Dict[str, List[CourseModel]]:
 
 async def _load_requirement_leaves(db: AsyncSession) -> Dict[str, List[str]]:
     """Prasyarat per curriculum_course_id dari pohon requirement di DB."""
-    from sqlalchemy import text
-
     rows = (
         await db.execute(
             text(
                 """
                 SELECT r.curriculum_course_id,
+                       r.notes,
+                       r.raw_expression,
                        n.node_type,
                        n.threshold_value,
                        ref_course.course_name,
                        ref_course.course_code
                 FROM course_requirement_rules r
-                JOIN course_requirement_nodes n
+                LEFT JOIN course_requirement_nodes n
                   ON n.course_requirement_rule_id = r.course_requirement_rule_id
                 LEFT JOIN curriculum_courses ref_cc
                   ON ref_cc.curriculum_course_id = n.referenced_curriculum_course_id
                 LEFT JOIN courses ref_course
                   ON ref_course.course_id = ref_cc.course_id
-                ORDER BY r.curriculum_course_id, n.node_order
+                ORDER BY r.curriculum_course_id, r.notes, n.node_order
                 """
             )
         )
@@ -222,6 +222,10 @@ async def _load_requirement_leaves(db: AsyncSession) -> Dict[str, List[str]]:
     leaves: Dict[str, List[str]] = defaultdict(list)
     for row in rows:
         node_type = row["node_type"]
+        if node_type is None:
+            if row["notes"] == ADMIN_REQUIREMENT_NOTES and row["raw_expression"]:
+                leaves[str(row["curriculum_course_id"])].append(row["raw_expression"])
+            continue
         label = row["course_name"] or row["course_code"]
         if node_type in ("course_passed", "course_taken_or_concurrent") and label:
             leaves[str(row["curriculum_course_id"])].append(label)
@@ -238,6 +242,118 @@ async def _load_requirement_leaves(db: AsyncSession) -> Dict[str, List[str]]:
                 f"Minimal semester {int(row['threshold_value'] or 0)}"
             )
     return leaves
+
+
+async def _resolve_prerequisite_references(
+    db: AsyncSession, keys: List[str], curriculum_id
+) -> Dict[str, object]:
+    if not keys:
+        return {}
+    rows = (
+        await db.execute(
+            text(
+                """
+                SELECT lower(c.course_code) AS code_key,
+                       lower(c.course_name) AS name_key,
+                       cc.curriculum_course_id
+                FROM curriculum_courses cc
+                JOIN courses c ON c.course_id = cc.course_id
+                WHERE lower(c.course_code) = ANY(:keys)
+                   OR lower(c.course_name) = ANY(:keys)
+                ORDER BY (cc.curriculum_id = :cid) DESC, c.course_code
+                """
+            ),
+            {"keys": keys, "cid": str(curriculum_id) if curriculum_id else None},
+        )
+    ).mappings().all()
+    refs: Dict[str, object] = {}
+    for row in rows:
+        refs.setdefault(row["code_key"], row["curriculum_course_id"])
+        refs.setdefault(row["name_key"], row["curriculum_course_id"])
+    return refs
+
+
+async def replace_prerequisites(
+    db: AsyncSession, curriculum_course_id, prerequisites: List[str]
+) -> None:
+    """Tulis ulang rule prasyarat satu matkul kurikulum dari daftar label admin."""
+    course_key = str(curriculum_course_id)
+    await db.execute(
+        text(
+            """
+            DELETE FROM course_requirement_nodes
+            WHERE course_requirement_rule_id IN (
+                SELECT course_requirement_rule_id FROM course_requirement_rules
+                WHERE curriculum_course_id = :cc
+            )
+            """
+        ),
+        {"cc": course_key},
+    )
+    await db.execute(
+        text("DELETE FROM course_requirement_rules WHERE curriculum_course_id = :cc"),
+        {"cc": course_key},
+    )
+
+    labels = list(
+        dict.fromkeys(label.strip() for label in prerequisites if label and label.strip())
+    )
+    if not labels:
+        return
+
+    curriculum_id = (
+        await db.execute(
+            text(
+                "SELECT curriculum_id FROM curriculum_courses WHERE curriculum_course_id = :cc"
+            ),
+            {"cc": course_key},
+        )
+    ).scalar_one_or_none()
+    refs = await _resolve_prerequisite_references(
+        db, [label.lower() for label in labels], curriculum_id
+    )
+
+    for label in labels:
+        rule_id = (
+            await db.execute(
+                text(
+                    """
+                    INSERT INTO course_requirement_rules
+                        (curriculum_course_id, raw_expression, notes)
+                    VALUES (:cc, :raw, :notes)
+                    RETURNING course_requirement_rule_id
+                    """
+                ),
+                {"cc": course_key, "raw": label, "notes": ADMIN_REQUIREMENT_NOTES},
+            )
+        ).scalar_one()
+        ref = refs.get(label.lower())
+        if ref is None:
+            continue
+        root_id = (
+            await db.execute(
+                text(
+                    """
+                    INSERT INTO course_requirement_nodes
+                        (course_requirement_rule_id, node_order, node_type)
+                    VALUES (:rule, 1, 'all')
+                    RETURNING course_requirement_node_id
+                    """
+                ),
+                {"rule": rule_id},
+            )
+        ).scalar_one()
+        await db.execute(
+            text(
+                """
+                INSERT INTO course_requirement_nodes
+                    (course_requirement_rule_id, parent_node_id, node_order,
+                     node_type, referenced_curriculum_course_id)
+                VALUES (:rule, :parent, 1, 'course_passed', :ref)
+                """
+            ),
+            {"rule": rule_id, "parent": root_id, "ref": ref},
+        )
 
 
 def _pick_richest(coverage: Dict[tuple[str, int], int]) -> Dict[str, int]:
