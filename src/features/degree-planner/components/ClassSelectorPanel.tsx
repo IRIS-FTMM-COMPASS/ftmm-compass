@@ -7,33 +7,37 @@ import {
   RotateCcw,
 } from "lucide-react"
 import { cn } from "@/shared/utils"
-import { CourseOffering, getOfferingForCourse } from "@/shared/domain/models"
+import { CourseOffering, formatTime } from "@/shared/domain/models"
 import type { TimetableConflict } from "@/shared/domain/timetable"
 import { PlacedCourse } from "@/features/degree-planner/types"
 
 interface ClassSelectorPanelProps {
   activeSemester: number
   semesterCourses: PlacedCourse[]
+  offerings: CourseOffering[]
   selectedSections: Record<string, string>
   onSelectSection: (courseId: string, sectionId: string) => void
   conflicts: TimetableConflict[]
   onAutoResolveConflicts?: () => void
+  periodLabel: string
+  sectionsStatus: "loading" | "ready" | "error"
+  sectionsError: string | null
+  onRetrySections: () => void
 }
 
 export default function ClassSelectorPanel({
   activeSemester,
   semesterCourses,
+  offerings,
   selectedSections,
   onSelectSection,
   conflicts,
   onAutoResolveConflicts,
+  periodLabel,
+  sectionsStatus,
+  sectionsError,
+  onRetrySections,
 }: ClassSelectorPanelProps) {
-  const offerings: CourseOffering[] = semesterCourses.map((course) => ({
-    ...getOfferingForCourse(course),
-    // Section dipilih per kartu rencana, jadi kuncinya id PlacedCourse (bukan kode katalog).
-    courseId: course.id,
-  }))
-
   const conflictingCourseIds = new Set<string>()
   conflicts.forEach((c) => {
     conflictingCourseIds.add(c.codeA)
@@ -103,6 +107,40 @@ export default function ClassSelectorPanel({
               Tambahkan matkul di tab Roadmap Studi terlebih dahulu.
             </p>
           </div>
+        ) : sectionsStatus === "loading" ? (
+          <div
+            role="status"
+            className="h-40 flex flex-col items-center justify-center text-center p-4 border border-dashed border-border rounded-xl"
+          >
+            <Clock className="w-8 h-8 text-muted/40 mb-2" />
+            <p className="text-xs font-medium text-navy">
+              Memuat jadwal kelas untuk {periodLabel}
+            </p>
+            <p className="text-[11px] text-muted mt-0.5">
+              Data section diambil dari akademik untuk setiap mata kuliah.
+            </p>
+          </div>
+        ) : sectionsStatus === "error" ? (
+          <div
+            role="alert"
+            className="p-4 border border-danger/30 bg-danger/5 rounded-xl"
+          >
+            <div className="flex items-center gap-2 text-danger">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              <p className="text-xs font-semibold">Jadwal kelas gagal dimuat</p>
+            </div>
+            <p className="text-[11px] text-foreground mt-1.5">
+              {sectionsError ?? "Data akademik tidak merespons."} Coba kembali
+              setelah koneksi pulih.
+            </p>
+            <button
+              type="button"
+              onClick={onRetrySections}
+              className="mt-3 min-h-11 px-3 text-xs font-semibold rounded-lg bg-navy text-white hover:bg-navy-light transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-navy focus-visible:outline-offset-2"
+            >
+              Coba muat ulang
+            </button>
+          </div>
         ) : (
           offerings.map((offering) => {
             const placedCourse = semesterCourses.find(
@@ -153,87 +191,114 @@ export default function ClassSelectorPanel({
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-                  {offering.sections.map((sec) => {
-                    const isSelected = currentSectionId === sec.sectionId
+                {offering.sections.length === 0 ? (
+                  <div className="p-3 rounded-lg border border-dashed border-border bg-surface">
+                    <p className="text-xs font-medium text-navy">
+                      Belum ada kelas untuk {offering.courseCode}
+                    </p>
+                    <p className="text-[11px] text-foreground mt-1">
+                      Section untuk {periodLabel} belum diterbitkan atau kode
+                      mata kuliah belum terdaftar di akademik. Periksa kembali
+                      setelah jadwal KRS tersedia, atau hubungi akademik prodi.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                    {offering.sections.map((sec) => {
+                      const isSelected = currentSectionId === sec.sectionId
 
-                    return (
-                      <button
-                        key={sec.sectionId}
-                        type="button"
-                        onClick={() =>
-                          onSelectSection(offering.courseId, sec.sectionId)
-                        }
-                        className={cn(
-                          "p-2.5 rounded-lg border text-left transition-all cursor-pointer flex flex-col justify-between gap-1",
-                          isSelected
-                            ? "bg-navy text-white border-navy shadow-2xs font-medium"
-                            : "bg-surface border-border hover:border-navy/30 text-foreground",
-                        )}
-                      >
-                        <div className="flex items-center justify-between w-full">
-                          <span
-                            className={cn(
-                              "font-bold text-xs",
-                              isSelected ? "text-gold" : "text-navy",
-                            )}
-                          >
-                            {sec.sectionCode}
-                          </span>
-                          <span
-                            className={cn(
-                              "text-[10px] font-mono",
-                              isSelected ? "text-white/80" : "text-muted",
-                            )}
-                          >
-                            {sec.enrolled}/{sec.capacity} Mhs
-                          </span>
-                        </div>
-
-                        <div
+                      return (
+                        <button
+                          key={sec.sectionId}
+                          type="button"
+                          onClick={() =>
+                            onSelectSection(offering.courseId, sec.sectionId)
+                          }
                           className={cn(
-                            "flex items-center gap-1 text-xs",
-                            isSelected ? "text-white" : "text-foreground",
-                          )}
-                        >
-                          <Clock
-                            className={cn(
-                              "w-3 h-3 flex-shrink-0",
-                              isSelected ? "text-gold" : "text-muted",
-                            )}
-                          />
-                          <span className="font-medium">
-                            {sec.schedule.day},{" "}
-                            {sec.schedule.start.toString().padStart(2, "0")}:00
-                            – {sec.schedule.end.toString().padStart(2, "0")}:00
-                          </span>
-                        </div>
-
-                        <div
-                          className={cn(
-                            "flex items-center justify-between text-[11px] pt-1 border-t",
+                            "p-2.5 rounded-lg border text-left transition-all cursor-pointer flex flex-col justify-between gap-1 focus-visible:outline-2 focus-visible:outline-navy focus-visible:outline-offset-2",
                             isSelected
-                              ? "border-white/15 text-white/80"
-                              : "border-border/60 text-muted",
+                              ? "bg-navy text-white border-navy shadow-2xs font-medium"
+                              : "bg-surface border-border hover:border-navy/30 text-foreground",
                           )}
                         >
-                          <span className="flex items-center gap-1 truncate max-w-[120px]">
-                            <MapPin className="w-3 h-3 flex-shrink-0" />
-                            {sec.schedule.room}
-                          </span>
-                          {sec.lecturer && (
+                          <div className="flex items-center justify-between w-full">
                             <span
-                              className="truncate max-w-[110px] text-[10px]"
-                              title={sec.lecturer}
+                              className={cn(
+                                "font-bold text-xs",
+                                isSelected ? "text-gold" : "text-navy",
+                              )}
                             >
-                              {sec.lecturer.split(",")[0]}
+                              {sec.sectionCode}
                             </span>
+                            {sec.capacity != null && (
+                              <span
+                                className={cn(
+                                  "text-[10px] font-mono",
+                                  isSelected ? "text-white/80" : "text-muted",
+                                )}
+                              >
+                                Kuota {sec.capacity}
+                              </span>
+                            )}
+                          </div>
+
+                          {sec.schedules.length === 0 ? (
+                            <p
+                              className={cn(
+                                "text-xs",
+                                isSelected ? "text-white" : "text-foreground",
+                              )}
+                            >
+                              Jadwal pertemuan belum ditetapkan.
+                            </p>
+                          ) : (
+                            <div className="w-full space-y-1.5">
+                              {sec.schedules.map((slot, index) => (
+                                <div
+                                  key={`${slot.dayOfWeek}-${slot.start}-${index}`}
+                                  className="w-full"
+                                >
+                                  <div
+                                    className={cn(
+                                      "flex items-center gap-1 text-xs",
+                                      isSelected
+                                        ? "text-white"
+                                        : "text-foreground",
+                                    )}
+                                  >
+                                    <Clock
+                                      className={cn(
+                                        "w-3 h-3 flex-shrink-0",
+                                        isSelected ? "text-gold" : "text-muted",
+                                      )}
+                                    />
+                                    <span className="font-medium">
+                                      {slot.day}, {formatTime(slot.start)}–
+                                      {formatTime(slot.end)}
+                                    </span>
+                                  </div>
+                                  <div
+                                    className={cn(
+                                      "flex items-center gap-1 text-[11px] pt-0.5",
+                                      isSelected
+                                        ? "text-white/80"
+                                        : "text-muted",
+                                    )}
+                                  >
+                                    <MapPin className="w-3 h-3 flex-shrink-0" />
+                                    <span className="truncate">
+                                      {slot.room}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           )}
-                        </div>
-                      </button>
-                    )
-                  })}
-                </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             )
           })

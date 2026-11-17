@@ -1,7 +1,13 @@
 import { useState, useEffect, useMemo } from "react"
 import { BookOpen, Calendar } from "lucide-react"
 import { cn } from "@/shared/utils"
-import { Course, TIMETABLE_DAYS } from "@/shared/domain/models"
+import {
+  Course,
+  TIMETABLE_DAYS,
+  type ClassSection,
+  getOfferingForCourse,
+  ScheduleItem,
+} from "@/shared/domain/models"
 import { SEMESTERS } from "@/shared/domain/academics"
 import { courseReligion } from "@/shared/domain/course"
 import TimetableGrid from "@/shared/timetable/TimetableGrid"
@@ -22,10 +28,14 @@ import CoursePickerModal from "@/features/degree-planner/components/CoursePicker
 import CourseInspectModal from "@/features/degree-planner/components/CourseInspectModal"
 import ClassSelectorPanel from "@/features/degree-planner/components/ClassSelectorPanel"
 import { markConflicts } from "@/shared/domain/timetable"
-import { getOfferingForCourse, ScheduleItem } from "@/shared/domain/models"
 import { usePlanner } from "@/features/degree-planner/state/planner"
 import { useSession } from "@/features/auth/session"
 import { useAcademicPeriod } from "@/shared/academic-period/academic"
+import { ApiError, apiErrorMessage } from "@/shared/api/client"
+import {
+  classSectionService,
+  mapClassSection,
+} from "@/features/degree-planner/services/classSectionService"
 
 export type { PlacedCourse } from "@/features/degree-planner/types"
 
@@ -84,6 +94,12 @@ export default function DegreePlanner({
   )
   const [selectedSections, setSelectedSections] =
     useState<Record<string, string>>({})
+  const [sectionsByCourse, setSectionsByCourse] =
+    useState<Record<string, ClassSection[]>>({})
+  const [sectionsStatus, setSectionsStatus] =
+    useState<"loading" | "ready" | "error">("loading")
+  const [sectionsError, setSectionsError] = useState<string | null>(null)
+  const [sectionsReload, setSectionsReload] = useState(0)
   const activeReligion = useMemo(() => {
     const completed = Object.values(completedBySemester).flat()
     for (const courses of [...Object.values(plan), completed]) {
@@ -347,6 +363,62 @@ export default function DegreePlanner({
     () => plan[activeTimetableSem] || [],
     [plan, activeTimetableSem],
   )
+  useEffect(() => {
+    const codes = [
+      ...new Set(
+        currentTimetableCourses.map((course) => course.code || course.id),
+      ),
+    ]
+    if (codes.length === 0) {
+      setSectionsByCourse({})
+      setSectionsStatus("ready")
+      setSectionsError(null)
+      return
+    }
+
+    const controller = new AbortController()
+    setSectionsStatus("loading")
+    setSectionsError(null)
+
+    Promise.all(
+      codes.map(async (code) => {
+        try {
+          const dtos = await classSectionService.list(code, controller.signal)
+          return [code, dtos.map(mapClassSection)] as const
+        } catch (error) {
+          if (controller.signal.aborted) throw error
+          if (error instanceof ApiError && error.status === 404) {
+            return [code, []] as const
+          }
+          throw error
+        }
+      }),
+    )
+      .then((entries) => {
+        setSectionsByCourse(Object.fromEntries(entries))
+        setSectionsStatus("ready")
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return
+        setSectionsError(
+          apiErrorMessage(error, "Jadwal kelas tidak dapat dimuat."),
+        )
+        setSectionsStatus("error")
+      })
+
+    return () => controller.abort()
+  }, [currentTimetableCourses, sectionsReload])
+
+  const offerings = useMemo(
+    () =>
+      currentTimetableCourses.map((course) =>
+        getOfferingForCourse(
+          course,
+          sectionsByCourse[course.code || course.id] ?? [],
+        ),
+      ),
+    [currentTimetableCourses, sectionsByCourse],
+  )
 
   const { dynamicSchedule, conflicts } = useMemo(() => {
     const COLOR_PALETTE = [
@@ -359,32 +431,33 @@ export default function DegreePlanner({
     ]
 
     const items: ScheduleItem[] = []
-    currentTimetableCourses.forEach((c, index) => {
-      const offering = getOfferingForCourse(c)
-      const chosenSectionId = selectedSections[c.id]
+    offerings.forEach((offering, index) => {
       const section =
-        offering.sections.find((s) => s.sectionId === chosenSectionId) ||
-        offering.sections[0]
+        offering.sections.find(
+          (candidate) =>
+            candidate.sectionId === selectedSections[offering.courseId],
+        ) ?? offering.sections[0]
+      if (!section) return
 
-      if (section) {
+      section.schedules.forEach((slot) => {
         items.push({
-          id: `${c.id}-${section.sectionId}`,
-          course: c.name,
-          code: c.code || c.id,
+          id: `${offering.courseId}-${section.sectionId}-${slot.dayOfWeek}-${slot.start}`,
+          course: offering.courseName,
+          code: offering.courseCode,
           sectionCode: section.sectionCode,
-          day: section.schedule.day,
-          start: section.schedule.start,
-          duration: section.schedule.duration,
+          day: slot.day,
+          start: slot.start,
+          duration: slot.duration,
           color: COLOR_PALETTE[index % COLOR_PALETTE.length],
-          room: section.schedule.room,
+          room: slot.room,
           lecturer: section.lecturer,
         })
-      }
+      })
     })
 
     const foundConflicts = markConflicts(items)
     return { dynamicSchedule: items, conflicts: foundConflicts }
-  }, [currentTimetableCourses, selectedSections])
+  }, [offerings, selectedSections])
 
   // Jadwal semester aktif menjadi sumber untuk widget dashboard.
   useEffect(() => {
@@ -400,14 +473,13 @@ export default function DegreePlanner({
 
   const handleAutoResolveConflicts = () => {
     const updated = { ...selectedSections }
-    currentTimetableCourses.forEach((c) => {
-      const offering = getOfferingForCourse(c)
+    offerings.forEach((offering) => {
       if (offering.sections.length > 1) {
         const alternate = offering.sections.find(
-          (s) => s.sectionId !== updated[c.id],
+          (s) => s.sectionId !== updated[offering.courseId],
         )
         if (alternate) {
-          updated[c.id] = alternate.sectionId
+          updated[offering.courseId] = alternate.sectionId
         }
       }
     })
@@ -613,10 +685,15 @@ export default function DegreePlanner({
               <ClassSelectorPanel
                 activeSemester={activeTimetableSem}
                 semesterCourses={currentTimetableCourses}
+                offerings={offerings}
                 selectedSections={selectedSections}
                 onSelectSection={handleSelectSection}
                 conflicts={conflicts}
                 onAutoResolveConflicts={handleAutoResolveConflicts}
+                periodLabel={period?.label ?? "periode akademik aktif"}
+                sectionsStatus={sectionsStatus}
+                sectionsError={sectionsError}
+                onRetrySections={() => setSectionsReload((count) => count + 1)}
               />
             </div>
 
