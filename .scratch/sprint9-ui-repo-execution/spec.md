@@ -31,44 +31,53 @@ Di repo UI, masalah konkret yang masih terbuka:
 
 ## Solution
 
-Buat 17 tiket lokal, satu per kartu Trello yang lolos filter cakupan. Tiket memuat owner, label, due date, ketergantungan, dan kriteria penerimaan yang bisa dijalankan ulang. Tidak ada modifikasi Trello dan tidak ada implementasi kode dalam tahap ini.
+Buat 14 tiket vertikal sebagai irisan tracer yang menembus data, API, antarmuka, dan pengujian. Satu tiket mencakup satu perilaku yang bisa dibuktikan sendiri. Tidak ada modifikasi Trello dan tidak ada implementasi kode dalam tahap ini.
 
 ## Inventaris Tiket
 
-### Backend dan database
-
-| Tiket | Trello | Owner | Fokus |
+| Tiket | Kartu Trello | Owner | Perilaku yang dihasilkan |
 |---|---|---|---|
-| 01 | #62 | Mantra | Bug fixing semua endpoint |
-| 02 | #142 | Mantra | Pemisahan data demo dari katalog resmi |
-| 03 | #136 | Mantra | `GET /api/v1/courses` dari PostgreSQL + fallback |
-| 04 | #155 | Mantra | Registrasi, password, reset, admin users + migrasi |
-| 05 | #159 | Mantra | Pencabutan token lama via `token_version` |
-| 06 | #160 | Mantra | Rate limit login/register/reset |
-| 07 | #161 | Mantra | IDOR notifikasi dan mark-all |
-| 08 | #162 | Mantra, Darryl | Autentikasi, batas koneksi, metrik SSE |
-| 09 | #143 | Darryl | Kontrak wajib filter `timetable_id` |
-| 10 | #59 | Mantra | Caching katalog dan prasyarat (carryover) |
-| 11 | #60 | Darryl | Review schema dan indeks (carryover) |
+| 01 | #142 | Mantra | Katalog hanya berisi kurikulum resmi |
+| 02 | #136 | Mantra | Katalog dari database dengan fallback lokal |
+| 03 | #59 | Mantra | Cache katalog dengan invalidasi dari admin |
+| 04 | #155, #156 | Mantra, Hans | Registrasi sampai Dashboard |
+| 05 | #155, #156, #159 | Mantra, Hans | Pemulihan dan ganti password, token lama dicabut |
+| 06 | #155, #156 | Mantra, Hans | Manajemen akun admin dan RBAC |
+| 07 | #160 | Mantra | Batas laju autentikasi |
+| 08 | #163 | Hans | Sesi kedaluwarsa kembali ke login |
+| 09 | #161 | Mantra | Notifikasi hanya milik pengguna |
+| 10 | #162 | Mantra, Darryl | SSE diautentikasi dan terukur |
+| 11 | #166 | Hans | Error fetch dibedakan dari data kosong |
+| 12 | #143, #60 | Darryl | Kontrak bentrok jadwal dan indeks |
+| 13 | #62 | Mantra | Regresi kontrak API dua tier |
+| 14 | #58 | Hans | Responsive dan cross-browser final |
 
-### Frontend dan QA
+## Blocking Edges
 
-| Tiket | Trello | Owner | Fokus |
-|---|---|---|---|
-| 12 | #63 | Hans | Bug fixing semua halaman |
-| 13 | #156 | Hans | Registrasi, reset, ganti password, admin UI |
-| 14 | #163 | Hans | Reset sesi React saat 401/expiry |
-| 15 | #166 | Hans | Error vs empty di Dashboard dan Notifikasi |
-| 16 | #58 | Hans | Responsive dan cross-browser (carryover) |
-| 17 | #157 | Darryl | QA migrasi akun, RBAC, rate limit |
-
+| Tiket | Blocked by |
+|---|---|
+| 01 | None |
+| 02 | 01 |
+| 03 | 02 |
+| 04 | 01 |
+| 05 | 04 |
+| 06 | 05 |
+| 07 | 05 |
+| 08 | 05 |
+| 09 | None |
+| 10 | None |
+| 11 | None |
+| 12 | None |
+| 13 | 02, 04, 05, 06, 07, 09, 10, 12 |
+| 14 | 02, 04, 05, 06, 08, 11, 13 |
 ## Urutan Eksekusi
 
-1. #142 menentukan nasib seeder demo sebelum kredensial pada #155 diubah.
-2. #155 membuka jalur register/reset dan kontrak respons; #156, #157, #159, #160 bergantung padanya.
-3. #163 dan #166 adalah bagian dari #63 yang dipisah agar buktinya jelas.
-4. #136, #143, #59, #60, #161, #162 berdiri sendiri; #143 harus selesai sebelum endpoint timetable memakai view.
-5. #58 terakhir pada jalur frontend karena perubahan UI akun masih bergerak.
+1. Frontier awal: 01, 09, 10, 11, 12. Kelima tiket ini tidak punya blocker.
+2. 02 menyusul 01, lalu 03 menyusul 02. 04 juga menyusul 01.
+3. 05 menyusul 04; 06, 07, dan 08 menyusul 05.
+4. 13 menunggu seluruh perubahan endpoint selesai: 02, 04, 05, 06, 07, 09, 10, 12.
+5. 14 terakhir karena memeriksa semua perubahan antarmuka: 02, 04, 05, 06, 08, 11, 13.
+
 
 ## Kriteria Verifikasi Umum
 
@@ -89,3 +98,5 @@ Buat 17 tiket lokal, satu per kartu Trello yang lolos filter cakupan. Tiket memu
 - Branch kerja `chore/sprint9-ticket-scaffold` dibuat dari ref `upstream/main` lokal. Tidak ada push atau PR.
 - Due date #58, #59, #60 tetap 16 Nov 2026 sesuai metadata asli dan sengaja dibiarkan lewat; ini sinyal carryover, bukan perubahan tanggal.
 - Seluruh teks antarmuka memakai Bahasa Indonesia formal dan ramah; warna memakai token `@theme` serta helper `cn()`.
+- Format tiket mengikuti skill `to-tickets`: `What to build`, `Blocked by`, `Status`, dan kriteria penerimaan yang dapat diamati; provenansi kartu Trello tetap dicantumkan tanpa path kode.
+- Persetujuan granularitas, blocking edges, dan tidak ada penggabungan atau pemecahan tambahan diperoleh dari sesi grilling 2026-11-17.
