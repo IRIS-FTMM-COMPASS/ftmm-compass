@@ -82,6 +82,7 @@ services:
     tmpfs:
       - /tmp
       - /app/node_modules/.vite
+      - /app/node_modules/.vite-temp
       - /home/appuser/.cache
     networks:
       - default
