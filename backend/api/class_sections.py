@@ -233,21 +233,23 @@ def _schedule_overlaps(
     )
 
 
+def _compatible_with(
+    section: ClassSectionResponse, chosen: dict[str, ClassSectionResponse], code: str
+) -> bool:
+    return not any(
+        _schedule_overlaps(section.schedules, other.schedules)
+        for other_code, other in chosen.items()
+        if other_code != code
+    )
+
+
 @router.post("/class-sections/validations", response_model=ScheduleValidationResponse)
 async def validate_class_sections(
     request: ScheduleValidationRequest,
     _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    period_id = request.academic_period_id
-    if period_id is None:
-        period_id = (
-            await db.execute(
-                select(AcademicPeriod.academic_period_id).where(
-                    AcademicPeriod.is_active.is_(True)
-                )
-            )
-        ).scalars().first()
+    period_id = await _resolve_period_id(db, request.academic_period_id, required=True)
 
     codes = [selection.course_code for selection in request.selections]
     rows = (
@@ -357,30 +359,53 @@ async def validate_class_sections(
                         )
                     )
 
-    alternatives: list[AlternativeSectionResponse] = []
-    conflicting_codes = {code for code in selected if any(
-        code in (conflict.course_a_code, conflict.course_b_code)
-        for conflict in conflicts
-    )}
-    for code in sorted(conflicting_codes):
+    conflicting_codes = sorted(
+        code
+        for code in selected
+        if any(
+            code in (conflict.course_a_code, conflict.course_b_code)
+            for conflict in conflicts
+        )
+    )
+    candidates: dict[str, list[ClassSectionResponse]] = {}
+    for code in conflicting_codes:
         current_id = selected[code].section_id
-        for section in catalog[code]["sections"].values():
-            if section.section_id == current_id or not section.schedules:
-                continue
-            if any(
-                _schedule_overlaps(section.schedules, other.schedules)
-                for other_code, other in selected.items()
-                if other_code != code
-            ):
-                continue
-            alternatives.append(
-                AlternativeSectionResponse(
-                    course_code=code,
-                    course_name=catalog[code]["name"],
-                    replaces_section_id=current_id,
-                    section=section,
-                )
-            )
+        candidates[code] = [
+            section
+            for section in catalog[code]["sections"].values()
+            if section.section_id != current_id
+            and section.schedules
+            and _compatible_with(section, selected, code)
+        ]
+
+    # Satu solusi per matkul dipilih lebih dulu, lalu kandidat lain disaring
+    # terhadap solusi itu agar penerapan batch tidak menciptakan bentrok baru.
+    batch: dict[str, ClassSectionResponse] = {}
+    for code in conflicting_codes:
+        compatible = [
+            section
+            for section in candidates[code]
+            if _compatible_with(section, batch, code)
+        ]
+        if compatible:
+            batch[code] = compatible[0]
+    for code in conflicting_codes:
+        candidates[code] = [
+            section
+            for section in candidates[code]
+            if _compatible_with(section, batch, code)
+        ]
+
+    alternatives = [
+        AlternativeSectionResponse(
+            course_code=code,
+            course_name=catalog[code]["name"],
+            replaces_section_id=selected[code].section_id,
+            section=section,
+        )
+        for code in conflicting_codes
+        for section in candidates[code]
+    ]
 
     return ScheduleValidationResponse(
         data=conflicts,
