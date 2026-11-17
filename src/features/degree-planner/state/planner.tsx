@@ -20,6 +20,7 @@ import {
 import type { PlacedCourse } from "@/features/degree-planner/types"
 import { parityOfSemester } from "@/shared/domain/academics"
 import { normalizeCourseType } from "@/shared/domain/course"
+import PlanConflictDialog from "@/features/degree-planner/components/PlanConflictDialog"
 
 interface PlannerContextValue
   extends DegreeDraftsReturn,
@@ -134,7 +135,14 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
   )
 
   return (
-    <PlannerContext.Provider value={value}>{children}</PlannerContext.Provider>
+    <PlannerContext.Provider value={value}>
+      {children}
+      <PlanConflictDialog
+        conflict={storage.planConflict}
+        onConfirm={() => void storage.confirmPlanConflict()}
+        onCancel={storage.cancelPlanConflict}
+      />
+    </PlannerContext.Provider>
   )
 }
 
