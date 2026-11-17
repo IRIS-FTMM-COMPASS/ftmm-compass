@@ -90,6 +90,15 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def internal_error_middleware(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except Exception:
+        return internal_error_response()
+
+
+
 def mount_resource(router):
     """Daftarkan resource yang sama pada tier kanonik dan legacy."""
     app.include_router(router, prefix="/api/v1", tags=["v1"])
@@ -135,6 +144,7 @@ def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
             "error": {
                 "code": "rate_limit_exceeded",
                 "message": "Batas pengiriman pesan terlampaui (maksimal 20 request per menit).",
+                "retry_after": retry_after,
                 "details": [],
             }
         },
@@ -241,6 +251,11 @@ async def http_exception_handler(request: Request, exc: HTTPException):
         },
     )
 
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    return internal_error_response()
 
 
 def find_free_port(start_port: int = 8001, max_port: int = 8050) -> int:
