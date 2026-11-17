@@ -185,6 +185,9 @@ async def handle_chat_stream(request: ChatRequest, client_request: Request | Non
     session_id = request.session_id or (client_request.headers.get("x-session-id") if client_request else None) or "default"
     user_id = _resolve_user_id(request, client_request)
 
+    async def client_gone() -> bool:
+        return client_request is not None and await client_request.is_disconnected()
+
     async def stream_generator() -> AsyncGenerator[str, None]:
         client = httpx.AsyncClient(timeout=settings.CHATBOT_TIMEOUT_SECONDS)
         start_time = time.perf_counter()
@@ -195,6 +198,9 @@ async def handle_chat_stream(request: ChatRequest, client_request: Request | Non
         latency_ms: float | None = None
 
         try:
+            if await client_gone():
+                return
+
             payload = {
                 "message": request.message,
                 "history": [{"role": m.role, "content": m.content} for m in request.history],
@@ -242,7 +248,14 @@ async def handle_chat_stream(request: ChatRequest, client_request: Request | Non
                     yield f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
                     return
 
-                async for line in response.aiter_lines():
+                lines = response.aiter_lines()
+                while True:
+                    if await client_gone():
+                        return
+                    try:
+                        line = await lines.__anext__()
+                    except StopAsyncIteration:
+                        break
                     if line:
                         yield f"{line}\n\n"
                         if line.startswith("data:"):

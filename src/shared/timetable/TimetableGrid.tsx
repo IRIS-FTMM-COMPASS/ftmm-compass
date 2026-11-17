@@ -13,10 +13,22 @@ import {
   copyTimetableShareUrl,
   getSharedTimetableFromLocation,
 } from "@/shared/timetable/timetableShare"
-import { exportTimetableToIcs } from "@/shared/timetable/icsExport"
+import {
+  exportTimetableToIcs,
+  type IcsExportFailure,
+} from "@/shared/timetable/icsExport"
 import { useAcademicPeriod } from "@/shared/academic-period/academic"
 
 const HOURS = Array.from({ length: 10 }, (_, i) => i + 7)
+const EXPORT_ERROR_MESSAGES: Record<IcsExportFailure, string> = {
+  "no-schedule":
+    "Belum ada jadwal untuk diekspor. Pilih kelas pada panel pemilihan kelas, lalu coba ekspor lagi.",
+  "no-period":
+    "Periode akademik belum tersedia. Muat ulang halaman; jika tetap kosong, hubungi admin akademik.",
+  "browser-unavailable":
+    "Ekspor tidak tersedia pada lingkungan ini. Buka halaman di browser lalu coba lagi.",
+  failed: "Berkas .ics gagal dibuat. Coba ekspor sekali lagi.",
+}
 
 interface TimetableGridProps {
   schedule: ScheduleItem[]
@@ -48,6 +60,7 @@ export default function TimetableGrid({
   const { period } = useAcademicPeriod()
   const [copied, setCopied] = useState(false)
   const [exported, setExported] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
   const [sharedData, setSharedData] = useState<{
     schedule: ScheduleItem[]
     semester?: number
@@ -75,8 +88,15 @@ export default function TimetableGrid({
   }
 
   const handleExportIcs = () => {
-    if (!period) return
-    const ok = exportTimetableToIcs(
+    if (!period) {
+      setExportError(EXPORT_ERROR_MESSAGES["no-period"])
+      return
+    }
+    if (displayedSchedule.length === 0) {
+      setExportError(EXPORT_ERROR_MESSAGES["no-schedule"])
+      return
+    }
+    const result = exportTimetableToIcs(
       displayedSchedule,
       `jadwal-kuliah-ftmm${semester ? `-sem${semester}` : ""}.ics`,
       {
@@ -84,10 +104,13 @@ export default function TimetableGrid({
         semesterWeeks: period.semester_weeks,
       },
     )
-    if (ok) {
-      setExported(true)
-      setTimeout(() => setExported(false), 2000)
+    if (!result.ok) {
+      setExportError(EXPORT_ERROR_MESSAGES[result.reason])
+      return
     }
+    setExportError(null)
+    setExported(true)
+    setTimeout(() => setExported(false), 2000)
   }
 
   const handlePrint = () => {
@@ -196,14 +219,9 @@ export default function TimetableGrid({
             <button
               type="button"
               onClick={handleExportIcs}
-              disabled={!period}
-              title={
-                period
-                  ? "Ekspor ke iCalendar (.ics) untuk Google Calendar / Apple Calendar"
-                  : "Periode akademik belum tersedia"
-              }
+              title="Ekspor ke iCalendar (.ics) untuk Google Calendar / Apple Calendar"
               className={cn(
-                "px-3 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed",
+                "px-3 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs",
                 exported
                   ? "bg-gold/20 text-navy border-gold/50"
                   : "bg-surface hover:bg-navy/5 text-navy border-border hover:border-navy/30",
@@ -223,6 +241,16 @@ export default function TimetableGrid({
               <span>Cetak Jadwal / Simpan PDF</span>
             </button>
           </div>
+        </div>
+      )}
+
+      {!compact && showActions && exportError && (
+        <div
+          role="alert"
+          className="mb-3 bg-danger/10 border border-danger/30 rounded-xl p-3 flex items-start gap-2.5 text-xs text-danger print:hidden"
+        >
+          <AlertTriangle className="w-4 h-4 text-danger flex-shrink-0 mt-0.5" />
+          <span>{exportError}</span>
         </div>
       )}
 
