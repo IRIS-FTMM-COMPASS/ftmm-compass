@@ -1,0 +1,51 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//FTMM UNAIR//FTMM Compass Academic Planner//ID
+CALSCALE:GREGORIAN
+METHOD:PUBLISH
+X-WR-CALNAME:Jadwal Perkuliahan FTMM UNAIR
+X-WR-TIMEZONE:Asia/Jakarta
+BEGIN:VTIMEZONE
+TZID:Asia/Jakarta
+X-LIC-LOCATION:Asia/Jakarta
+BEGIN:STANDARD
+TZOFFSETFROM:+0700
+TZOFFSETTO:+0700
+TZNAME:WIB
+DTSTART:19700101T000000
+END:STANDARD
+END:VTIMEZONE
+BEGIN:VEVENT
+UID:ftmm-TSD201-A-senin-8@compass.ftmm.unair.ac.id
+DTSTAMP:20261117T030820Z
+DTSTART;TZID=Asia/Jakarta:20260831T080000
+DTEND;TZID=Asia/Jakarta:20260831T103000
+RRULE:FREQ=WEEKLY;COUNT=16
+SUMMARY:[TSD201] Algoritma & Struktur Data (A)
+DESCRIPTION:Mata Kuliah: Algoritma & Struktur Data\nKode: TSD201\nKelas: A\nDosen: Dosen Pengampu FTMM\nRuang: Lab Komputasi A (Gedung Nano Lt. 2)\nDurasi: 2.5 Jam Perkuliahan
+LOCATION:Lab Komputasi A (Gedung Nano Lt. 2), Kampus C MERR FTMM Universitas Airlangga
+STATUS:CONFIRMED
+END:VEVENT
+BEGIN:VEVENT
+UID:ftmm-TSD203-A-selasa-13@compass.ftmm.unair.ac.id
+DTSTAMP:20261117T030820Z
+DTSTART;TZID=Asia/Jakarta:20260901T130000
+DTEND;TZID=Asia/Jakarta:20260901T153000
+RRULE:FREQ=WEEKLY;COUNT=16
+SUMMARY:[TSD203] Basis Data Sains Data (A)
+DESCRIPTION:Mata Kuliah: Basis Data Sains Data\nKode: TSD203\nKelas: A\nDosen: Dosen Pengampu FTMM\nRuang: Lab Komputasi B (Gedung Nano Lt. 2)\nDurasi: 2.5 Jam Perkuliahan
+LOCATION:Lab Komputasi B (Gedung Nano Lt. 2), Kampus C MERR FTMM Universitas Airlangga
+STATUS:CONFIRMED
+END:VEVENT
+BEGIN:VEVENT
+UID:ftmm-TSD206-A-kamis-13@compass.ftmm.unair.ac.id
+DTSTAMP:20261117T030820Z
+DTSTART;TZID=Asia/Jakarta:20260903T130000
+DTEND;TZID=Asia/Jakarta:20260903T144000
+RRULE:FREQ=WEEKLY;COUNT=16
+SUMMARY:[TSD206] Kalkulus Multivariabel (A)
+DESCRIPTION:Mata Kuliah: Kalkulus Multivariabel\nKode: TSD206\nKelas: A\nDosen: Dosen Pengampu FTMM\nRuang: Ruang Kuliah 3.01 (Gedung Nano)\nDurasi: 1.666666666666666 Jam Perkuliahan
+LOCATION:Ruang Kuliah 3.01 (Gedung Nano), Kampus C MERR FTMM Universitas Airlangga
+STATUS:CONFIRMED
+END:VEVENT
+END:VCALENDAR
