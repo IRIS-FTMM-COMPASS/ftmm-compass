@@ -10,9 +10,11 @@ import { cn } from "@/shared/utils"
 import { CourseOffering, formatTime } from "@/shared/domain/models"
 import type {
   ScheduleConflictDetail,
+  ScheduleValidationResult,
   SectionAlternative,
 } from "@/shared/domain/timetable"
 import { PlacedCourse } from "@/features/degree-planner/types"
+import type { ReloadableResource } from "@/features/degree-planner/state/useReloadableFetch"
 
 interface ClassSelectorPanelProps {
   activeSemester: number
@@ -21,15 +23,11 @@ interface ClassSelectorPanelProps {
   selectedSections: Record<string, string>
   onSelectSection: (courseId: string, sectionId: string) => void
   conflicts: ScheduleConflictDetail[]
-  alternatives: SectionAlternative[]
-  validationError: string | null
-  onRetryValidation: () => void
+  validationState: ReloadableResource<ScheduleValidationResult>
   onApplyAlternative: (alternative: SectionAlternative) => void
   onAutoResolveConflicts?: () => void
   periodLabel: string
-  sectionsStatus: "loading" | "ready" | "error"
-  sectionsError: string | null
-  onRetrySections: () => void
+  sectionsState: Pick<ReloadableResource<unknown>, "status" | "error" | "reload">
 }
 
 export default function ClassSelectorPanel({
@@ -39,16 +37,16 @@ export default function ClassSelectorPanel({
   selectedSections,
   onSelectSection,
   conflicts,
-  alternatives,
-  validationError,
-  onRetryValidation,
+  validationState,
   onApplyAlternative,
   onAutoResolveConflicts,
   periodLabel,
-  sectionsStatus,
-  sectionsError,
-  onRetrySections,
+  sectionsState,
 }: ClassSelectorPanelProps) {
+  const alternatives = validationState.data?.alternatives ?? []
+  const validationError = validationState.error
+  const sectionsStatus = sectionsState.status
+  const sectionsError = sectionsState.error
   const conflictingCourseIds = new Set<string>()
   conflicts.forEach((conflict) => {
     conflictingCourseIds.add(conflict.courseACode)
@@ -153,7 +151,7 @@ export default function ClassSelectorPanel({
           <p className="mt-1 text-[11px] text-foreground">{validationError}</p>
           <button
             type="button"
-            onClick={onRetryValidation}
+            onClick={validationState.reload}
             className="mt-2 min-h-11 px-3 rounded-lg bg-navy text-white text-xs font-semibold cursor-pointer hover:bg-navy-light focus-visible:outline-2 focus-visible:outline-navy focus-visible:outline-offset-2"
           >
             Coba validasi ulang
@@ -248,7 +246,7 @@ export default function ClassSelectorPanel({
             </p>
             <button
               type="button"
-              onClick={onRetrySections}
+              onClick={sectionsState.reload}
               className="mt-3 min-h-11 px-3 text-xs font-semibold rounded-lg bg-navy text-white hover:bg-navy-light transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-navy focus-visible:outline-offset-2"
             >
               Coba muat ulang

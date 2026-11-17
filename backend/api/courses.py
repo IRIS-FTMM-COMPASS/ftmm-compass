@@ -20,6 +20,7 @@ from schemas import (
     CourseSearchResponse,
     CourseSearchItem,
 )
+from api.errors import error_response
 from database import get_db
 from models import (
     User,
@@ -45,13 +46,7 @@ router = APIRouter()
 
 
 def _catalog_error(status_code: int, code: str, message: str) -> JSONResponse:
-    return JSONResponse(
-        status_code=status_code,
-        content={
-            "detail": message,
-            "error": {"code": code, "message": message, "details": []},
-        },
-    )
+    return error_response(status_code, code, message, detail=message)
 
 
 async def handle_list_courses(

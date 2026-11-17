@@ -1,13 +1,14 @@
 """Section kelas dan jadwal pertemuan. Didaftarkan dua kali oleh app.py (v1 dan legacy)."""
 
+from collections.abc import Iterable
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.errors import error_response
 from auth import get_current_user
 from database import get_db
 from models import (
@@ -48,6 +49,67 @@ class ClassSectionListResponse(BaseModel):
     meta: dict[str, int] = Field(default_factory=dict)
 
 
+def _schedule_response(schedule) -> SectionScheduleResponse:
+    day = schedule.day_of_week
+    return SectionScheduleResponse(
+        day_of_week=day,
+        day=DAY_NAMES[day - 1] if 1 <= day <= 5 else str(day),
+        start_time=schedule.start_time.strftime("%H:%M"),
+        end_time=schedule.end_time.strftime("%H:%M"),
+        room=schedule.room_name,
+    )
+
+
+def _section_response(section, component) -> ClassSectionResponse:
+    return ClassSectionResponse(
+        section_id=str(section.class_section_id),
+        section_code=section.section_code,
+        component_code=component.component_code,
+        component_type=component.component_type,
+        capacity=section.capacity,
+        enrollment_status=section.enrollment_status,
+    )
+
+
+def _assemble_sections(
+    rows: Iterable,
+) -> dict[str, ClassSectionResponse]:
+    sections: dict[str, ClassSectionResponse] = {}
+    for row in rows:
+        section, component, schedule = row[-3:]
+        key = str(section.class_section_id)
+        if key not in sections:
+            sections[key] = _section_response(section, component)
+        if schedule is not None:
+            sections[key].schedules.append(_schedule_response(schedule))
+    return sections
+
+
+async def _resolve_period_id(
+    db: AsyncSession, requested: UUID | None, *, required: bool = False
+) -> UUID | None:
+    if requested is not None:
+        return requested
+    period_id = (
+        await db.execute(
+            select(AcademicPeriod.academic_period_id).where(
+                AcademicPeriod.is_active.is_(True)
+            )
+        )
+    ).scalars().first()
+    if period_id is None and required:
+        raise HTTPException(
+            status_code=getattr(
+                status, "HTTP_422_UNPROCESSABLE_CONTENT", status.HTTP_422_UNPROCESSABLE_ENTITY
+            ),
+            detail=(
+                "Tidak ada periode akademik aktif. Hubungi admin untuk mengaktifkan "
+                "periode sebelum memvalidasi jadwal kelas."
+            ),
+        )
+    return period_id
+
+
 @router.get("/class-sections", response_model=ClassSectionListResponse)
 async def list_class_sections(
     course_code: str = Query(min_length=1, max_length=30),
@@ -60,27 +122,14 @@ async def list_class_sections(
     ).scalars().first()
     if course is None:
         message = f"Mata kuliah dengan kode {course_code} tidak ditemukan"
-        return JSONResponse(
-            status_code=status.HTTP_404_NOT_FOUND,
-            content={
-                "detail": message,
-                "error": {
-                    "code": "course_not_found",
-                    "message": message,
-                    "details": [],
-                },
-            },
+        return error_response(
+            status.HTTP_404_NOT_FOUND,
+            "course_not_found",
+            message,
+            detail=message,
         )
 
-    period_id = academic_period_id
-    if period_id is None:
-        period_id = (
-            await db.execute(
-                select(AcademicPeriod.academic_period_id).where(
-                    AcademicPeriod.is_active.is_(True)
-                )
-            )
-        ).scalars().first()
+    period_id = await _resolve_period_id(db, academic_period_id)
 
     rows = (
         await db.execute(
@@ -112,31 +161,7 @@ async def list_class_sections(
         )
     ).all()
 
-    sections: dict[str, ClassSectionResponse] = {}
-    for section, component, schedule in rows:
-        key = str(section.class_section_id)
-        if key not in sections:
-            sections[key] = ClassSectionResponse(
-                section_id=key,
-                section_code=section.section_code,
-                component_code=component.component_code,
-                component_type=component.component_type,
-                capacity=section.capacity,
-                enrollment_status=section.enrollment_status,
-            )
-        if schedule is not None:
-            day = schedule.day_of_week
-            sections[key].schedules.append(
-                SectionScheduleResponse(
-                    day_of_week=day,
-                    day=DAY_NAMES[day - 1] if 1 <= day <= 5 else str(day),
-                    start_time=schedule.start_time.strftime("%H:%M"),
-                    end_time=schedule.end_time.strftime("%H:%M"),
-                    room=schedule.room_name,
-                )
-            )
-
-    payload = list(sections.values())
+    payload = list(_assemble_sections(rows).values())
     return ClassSectionListResponse(
         data=payload, meta={"total": len(payload)}
     )
@@ -208,21 +233,23 @@ def _schedule_overlaps(
     )
 
 
+def _compatible_with(
+    section: ClassSectionResponse, chosen: dict[str, ClassSectionResponse], code: str
+) -> bool:
+    return not any(
+        _schedule_overlaps(section.schedules, other.schedules)
+        for other_code, other in chosen.items()
+        if other_code != code
+    )
+
+
 @router.post("/class-sections/validations", response_model=ScheduleValidationResponse)
 async def validate_class_sections(
     request: ScheduleValidationRequest,
     _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    period_id = request.academic_period_id
-    if period_id is None:
-        period_id = (
-            await db.execute(
-                select(AcademicPeriod.academic_period_id).where(
-                    AcademicPeriod.is_active.is_(True)
-                )
-            )
-        ).scalars().first()
+    period_id = await _resolve_period_id(db, request.academic_period_id, required=True)
 
     codes = [selection.course_code for selection in request.selections]
     rows = (
@@ -263,32 +290,16 @@ async def validate_class_sections(
         )
     ).all()
 
-    catalog: dict[str, dict] = {}
-    for code, course_name, section, component, schedule in rows:
-        course_data = catalog.setdefault(code, {"name": course_name, "sections": {}})
-        key = str(section.class_section_id)
-        section_data = course_data["sections"].setdefault(
-            key,
-            ClassSectionResponse(
-                section_id=key,
-                section_code=section.section_code,
-                component_code=component.component_code,
-                component_type=component.component_type,
-                capacity=section.capacity,
-                enrollment_status=section.enrollment_status,
-            ),
-        )
-        if schedule is not None:
-            day = schedule.day_of_week
-            section_data.schedules.append(
-                SectionScheduleResponse(
-                    day_of_week=day,
-                    day=DAY_NAMES[day - 1] if 1 <= day <= 5 else str(day),
-                    start_time=schedule.start_time.strftime("%H:%M"),
-                    end_time=schedule.end_time.strftime("%H:%M"),
-                    room=schedule.room_name,
-                )
-            )
+    grouped: dict[str, list] = {}
+    names: dict[str, str] = {}
+    for row in rows:
+        code, name = row[0], row[1]
+        names[code] = name
+        grouped.setdefault(code, []).append(row)
+    catalog = {
+        code: {"name": names[code], "sections": _assemble_sections(section_rows)}
+        for code, section_rows in grouped.items()
+    }
 
     missing_courses = [code for code in codes if code not in catalog]
     if missing_courses:
@@ -297,16 +308,11 @@ async def validate_class_sections(
             if len(missing_courses) > 1
             else f"Mata kuliah dengan kode {missing_courses[0]} tidak ditemukan"
         )
-        return JSONResponse(
-            status_code=status.HTTP_404_NOT_FOUND,
-            content={
-                "detail": message,
-                "error": {
-                    "code": "course_not_found",
-                    "message": message,
-                    "details": [],
-                },
-            },
+        return error_response(
+            status.HTTP_404_NOT_FOUND,
+            "course_not_found",
+            message,
+            detail=message,
         )
 
     selected: dict[str, ClassSectionResponse] = {}
@@ -353,30 +359,53 @@ async def validate_class_sections(
                         )
                     )
 
-    alternatives: list[AlternativeSectionResponse] = []
-    conflicting_codes = {code for code in selected if any(
-        code in (conflict.course_a_code, conflict.course_b_code)
-        for conflict in conflicts
-    )}
-    for code in sorted(conflicting_codes):
+    conflicting_codes = sorted(
+        code
+        for code in selected
+        if any(
+            code in (conflict.course_a_code, conflict.course_b_code)
+            for conflict in conflicts
+        )
+    )
+    candidates: dict[str, list[ClassSectionResponse]] = {}
+    for code in conflicting_codes:
         current_id = selected[code].section_id
-        for section in catalog[code]["sections"].values():
-            if section.section_id == current_id or not section.schedules:
-                continue
-            if any(
-                _schedule_overlaps(section.schedules, other.schedules)
-                for other_code, other in selected.items()
-                if other_code != code
-            ):
-                continue
-            alternatives.append(
-                AlternativeSectionResponse(
-                    course_code=code,
-                    course_name=catalog[code]["name"],
-                    replaces_section_id=current_id,
-                    section=section,
-                )
-            )
+        candidates[code] = [
+            section
+            for section in catalog[code]["sections"].values()
+            if section.section_id != current_id
+            and section.schedules
+            and _compatible_with(section, selected, code)
+        ]
+
+    # Satu solusi per matkul dipilih lebih dulu, lalu kandidat lain disaring
+    # terhadap solusi itu agar penerapan batch tidak menciptakan bentrok baru.
+    batch: dict[str, ClassSectionResponse] = {}
+    for code in conflicting_codes:
+        compatible = [
+            section
+            for section in candidates[code]
+            if _compatible_with(section, batch, code)
+        ]
+        if compatible:
+            batch[code] = compatible[0]
+    for code in conflicting_codes:
+        candidates[code] = [
+            section
+            for section in candidates[code]
+            if _compatible_with(section, batch, code)
+        ]
+
+    alternatives = [
+        AlternativeSectionResponse(
+            course_code=code,
+            course_name=catalog[code]["name"],
+            replaces_section_id=selected[code].section_id,
+            section=section,
+        )
+        for code in conflicting_codes
+        for section in candidates[code]
+    ]
 
     return ScheduleValidationResponse(
         data=conflicts,

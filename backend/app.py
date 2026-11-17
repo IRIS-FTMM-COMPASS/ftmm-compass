@@ -29,6 +29,7 @@ from api import (
     polling,
 )
 import settings
+from api.errors import error_response
 from catalog import refresh_from_db
 from rate_limit import limiter
 from schemas import DegreePlanPayload, PlanValidationResponse
@@ -89,15 +90,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.middleware("http")
-async def internal_error_middleware(request: Request, call_next):
-    try:
-        return await call_next(request)
-    except Exception:
-        return internal_error_response()
-
 
 
 def mount_resource(router):
@@ -163,89 +155,69 @@ def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
     item = getattr(limit, "limit", None)
     get_expiry = getattr(item, "get_expiry", None)
     retry_after = int(get_expiry()) if callable(get_expiry) else 60
-    return JSONResponse(
-        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+    return error_response(
+        status.HTTP_429_TOO_MANY_REQUESTS,
+        "rate_limit_exceeded",
+        f"Batas pengiriman pesan terlampaui. Coba lagi dalam {retry_after} detik.",
+        retry_after=retry_after,
         headers={"Retry-After": str(retry_after)},
-        content={
-            "error": {
-                "code": "rate_limit_exceeded",
-                "message": f"Batas pengiriman pesan terlampaui. Coba lagi dalam {retry_after} detik.",
-                "retry_after": retry_after,
-                "details": [],
-            }
-        },
     )
 
 
 @app.exception_handler(ConnectionError)
 async def connection_error_handler(request: Request, exc: ConnectionError):
     message = "Layanan Chatbot AI offline. Pastikan kontainer ftmm-compass-chatbot aktif di port 8000."
-    return JSONResponse(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+    return error_response(
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "upstream_service_unavailable",
+        message,
+        detail=message,
+        details=[{"message": str(exc)}],
         headers={"Retry-After": "5"},
-        content={
-            "detail": message,
-            "error": {
-                "code": "upstream_service_unavailable",
-                "message": message,
-                "details": [{"message": str(exc)}],
-            },
-        },
     )
 
 
 @app.exception_handler(httpx.ConnectError)
 async def httpx_connect_error_handler(request: Request, exc: httpx.ConnectError):
     message = "Layanan Chatbot AI offline. Pastikan kontainer ftmm-compass-chatbot aktif di port 8000."
-    return JSONResponse(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+    return error_response(
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "upstream_service_unavailable",
+        message,
+        detail=message,
+        details=[{"message": str(exc)}],
         headers={"Retry-After": "5"},
-        content={
-            "detail": message,
-            "error": {
-                "code": "upstream_service_unavailable",
-                "message": message,
-                "details": [{"message": str(exc)}],
-            },
-        },
     )
 
 
 @app.exception_handler(httpx.TimeoutException)
 async def httpx_timeout_handler(request: Request, exc: httpx.TimeoutException):
     message = "Waktu tunggu layanan Chatbot AI habis."
-    return JSONResponse(
-        status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-        content={
-            "detail": message,
-            "error": {
-                "code": "upstream_timeout",
-                "message": message,
-                "details": [{"message": str(exc)}],
-            },
-        },
+    return error_response(
+        status.HTTP_504_GATEWAY_TIMEOUT,
+        "upstream_timeout",
+        message,
+        detail=message,
+        details=[{"message": str(exc)}],
     )
 
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    return JSONResponse(
-        status_code=getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", status.HTTP_422_UNPROCESSABLE_ENTITY),
-        content={
-            "detail": "Request validation failed",
-            "error": {
-                "code": "validation_error",
-                "message": "Request validation failed",
-                "details": [
-                    {
-                        "field": ".".join(str(loc) for loc in err["loc"]),
-                        "message": err["msg"],
-                        "code": err["type"],
-                    }
-                    for err in exc.errors()
-                ],
-            },
-        },
+    message = "Request validation failed"
+    return error_response(
+        getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", status.HTTP_422_UNPROCESSABLE_ENTITY),
+        "validation_error",
+        message,
+        detail=message,
+        details=[
+            {
+                "field": ".".join(str(loc) for loc in err["loc"]),
+                "message": err["msg"],
+                "code": err["type"],
+            }
+            for err in exc.errors()
+        ],
     )
 
 
@@ -265,37 +237,26 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     else:
         code = "http_error"
 
-    return JSONResponse(
-        status_code=exc.status_code,
+    return error_response(
+        exc.status_code,
+        code,
+        str(exc.detail),
+        detail=exc.detail,
         headers=headers,
-        content={
-            "detail": exc.detail,
-            "error": {
-                "code": code,
-                "message": str(exc.detail),
-                "details": [],
-            },
-        },
     )
 
 
 def internal_error_response() -> JSONResponse:
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={
-            "error": {
-                "code": "internal_server_error",
-                "message": "Terjadi kesalahan internal. Silakan coba lagi nanti.",
-                "details": [],
-            }
-        },
+    return error_response(
+        status.HTTP_500_INTERNAL_SERVER_ERROR,
+        "internal_server_error",
+        "Terjadi kesalahan internal. Silakan coba lagi nanti.",
     )
 
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
     return internal_error_response()
-
 
 
 def find_free_port(start_port: int = 8001, max_port: int = 8050) -> int:

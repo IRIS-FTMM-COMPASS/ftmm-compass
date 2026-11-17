@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { BookOpen, Calendar } from "lucide-react"
 import { cn } from "@/shared/utils"
 import {
@@ -46,6 +46,13 @@ import {
   mapClassSection,
   type SectionSelectionInput,
 } from "@/features/degree-planner/services/classSectionService"
+import {
+  planValidationService,
+  type PlanValidationResult,
+} from "@/features/degree-planner/services/planValidationService"
+import { useReloadableFetch } from "@/features/degree-planner/state/useReloadableFetch"
+
+const EMPTY_SECTIONS: Record<string, ClassSection[]> = {}
 
 export type { PlacedCourse } from "@/features/degree-planner/types"
 
@@ -123,17 +130,13 @@ export default function DegreePlanner({
   )
   const [selectedSections, setSelectedSections] =
     useState<Record<string, string>>({})
-  const [sectionsByCourse, setSectionsByCourse] =
-    useState<Record<string, ClassSection[]>>({})
-  const [sectionsStatus, setSectionsStatus] =
-    useState<"loading" | "ready" | "error">("loading")
-  const [sectionsError, setSectionsError] = useState<string | null>(null)
-  const [sectionsReload, setSectionsReload] = useState(0)
-  const [validation, setValidation] = useState<ScheduleValidationResult | null>(
+  const [planValidation, setPlanValidation] =
+    useState<PlanValidationResult | null>(null)
+  const [planValidationPending, setPlanValidationPending] = useState(false)
+  const [planValidationError, setPlanValidationError] = useState<string | null>(
     null,
   )
-  const [validationError, setValidationError] = useState<string | null>(null)
-  const [validationReload, setValidationReload] = useState(0)
+  const planValidationController = useRef<AbortController | null>(null)
   const activeReligion = useMemo(() => {
     const completed = Object.values(completedBySemester).flat()
     for (const courses of [...Object.values(plan), completed]) {
@@ -397,51 +400,38 @@ export default function DegreePlanner({
     () => plan[activeTimetableSem] || [],
     [plan, activeTimetableSem],
   )
-  useEffect(() => {
-    const codes = [
+  const timetableCodes = useMemo(
+    () => [
       ...new Set(
         currentTimetableCourses.map((course) => course.code || course.id),
       ),
-    ]
-    if (codes.length === 0) {
-      setSectionsByCourse({})
-      setSectionsStatus("ready")
-      setSectionsError(null)
-      return
-    }
-
-    const controller = new AbortController()
-    setSectionsStatus("loading")
-    setSectionsError(null)
-
-    Promise.all(
-      codes.map(async (code) => {
-        try {
-          const dtos = await classSectionService.list(code, controller.signal)
-          return [code, dtos.map(mapClassSection)] as const
-        } catch (error) {
-          if (controller.signal.aborted) throw error
-          if (error instanceof ApiError && error.status === 404) {
-            return [code, []] as const
+    ],
+    [currentTimetableCourses],
+  )
+  const timetableCodeKey = timetableCodes.join("|")
+  const sectionsState = useReloadableFetch<Record<string, ClassSection[]>>(
+    (signal) => {
+      if (timetableCodes.length === 0) return null
+      return Promise.all(
+        timetableCodes.map(async (code) => {
+          try {
+            const dtos = await classSectionService.list(code, signal)
+            return [code, dtos.map(mapClassSection)] as const
+          } catch (error) {
+            if (signal.aborted) throw error
+            if (error instanceof ApiError && error.status === 404) {
+              return [code, []] as const
+            }
+            throw error
           }
-          throw error
-        }
-      }),
-    )
-      .then((entries) => {
-        setSectionsByCourse(Object.fromEntries(entries))
-        setSectionsStatus("ready")
-      })
-      .catch((error: unknown) => {
-        if (controller.signal.aborted) return
-        setSectionsError(
-          apiErrorMessage(error, "Jadwal kelas tidak dapat dimuat."),
-        )
-        setSectionsStatus("error")
-      })
-
-    return () => controller.abort()
-  }, [currentTimetableCourses, sectionsReload])
+        }),
+      ).then((entries) => Object.fromEntries(entries))
+    },
+    [timetableCodeKey],
+    "Jadwal kelas tidak dapat dimuat.",
+    EMPTY_SECTIONS,
+  )
+  const sectionsByCourse = sectionsState.data ?? EMPTY_SECTIONS
 
   const offerings = useMemo(
     () =>
@@ -454,42 +444,26 @@ export default function DegreePlanner({
     [currentTimetableCourses, sectionsByCourse],
   )
 
-  useEffect(() => {
-    if (sectionsStatus !== "ready") {
-      setValidation(null)
-      setValidationError(null)
-      return
-    }
-
-    const selections: SectionSelectionInput[] = offerings.flatMap(
-      (offering) => {
-        const sectionId =
-          selectedSections[offering.courseId] ?? offering.sections[0]?.sectionId
-        return sectionId ? [{ courseCode: offering.courseCode, sectionId }] : []
-      },
-    )
-    if (selections.length === 0) {
-      setValidation(null)
-      setValidationError(null)
-      return
-    }
-
-    const controller = new AbortController()
-    setValidation(null)
-    setValidationError(null)
-    classSectionService
-      .validate(selections, controller.signal)
-      .then((result) => {
-        if (!controller.signal.aborted) setValidation(result)
-      })
-      .catch((error: unknown) => {
-        if (controller.signal.aborted) return
-        setValidationError(
-          apiErrorMessage(error, "Validasi bentrok tidak dapat dimuat."),
-        )
-      })
-    return () => controller.abort()
-  }, [offerings, selectedSections, sectionsStatus, validationReload])
+  const validationState = useReloadableFetch<ScheduleValidationResult>(
+    (signal) => {
+      if (sectionsState.status !== "ready") return null
+      const selections: SectionSelectionInput[] = offerings.flatMap(
+        (offering) => {
+          const sectionId =
+            selectedSections[offering.courseId] ??
+            offering.sections[0]?.sectionId
+          return sectionId
+            ? [{ courseCode: offering.courseCode, sectionId }]
+            : []
+        },
+      )
+      if (selections.length === 0) return null
+      return classSectionService.validate(selections, signal)
+    },
+    [offerings, selectedSections, sectionsState.status],
+    "Validasi bentrok tidak dapat dimuat.",
+  )
+  const validation = validationState.data
 
   const { dynamicSchedule, conflicts } = useMemo(() => {
     const COLOR_PALETTE = [
@@ -567,13 +541,13 @@ export default function DegreePlanner({
     )
     if (!offering) return
 
-    setSectionsByCourse((prev) => {
-      const current = prev[alternative.courseCode] ?? []
+    sectionsState.update((prev) => {
+      const current = prev?.[alternative.courseCode] ?? []
       if (current.some((s) => s.sectionId === alternative.section.sectionId)) {
         return prev
       }
       return {
-        ...prev,
+        ...(prev ?? EMPTY_SECTIONS),
         [alternative.courseCode]: [...current, alternative.section],
       }
     })
@@ -591,6 +565,39 @@ export default function DegreePlanner({
       handleApplyAlternative(alternative)
     })
   }
+
+  useEffect(() => () => planValidationController.current?.abort(), [])
+
+  const handleValidatePlan = async () => {
+    planValidationController.current?.abort()
+    const controller = new AbortController()
+    planValidationController.current = controller
+    setPlanValidationPending(true)
+    setPlanValidation(null)
+    setPlanValidationError(null)
+    try {
+      const result = await planValidationService.validate(
+        {
+          program_studi:
+            user?.student_profile?.study_program ?? "Teknologi Sains Data",
+          semester_saat_ini: user?.student_profile?.current_semester ?? 1,
+          riwayat_matkul_lulus: [...completedKeys],
+          maks_sks_per_semester: 24,
+          plan,
+        },
+        controller.signal,
+      )
+      if (!controller.signal.aborted) setPlanValidation(result)
+    } catch (error) {
+      if (controller.signal.aborted) return
+      setPlanValidationError(
+        apiErrorMessage(error, "Validasi rencana gagal dijalankan."),
+      )
+    } finally {
+      if (!controller.signal.aborted) setPlanValidationPending(false)
+    }
+  }
+
   const renderSemesterColumn = (sem: number) => (
     <SemesterColumn
       key={sem}
@@ -667,6 +674,47 @@ export default function DegreePlanner({
               {recordError}
             </div>
           )}
+
+          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <button
+              type="button"
+              onClick={() => void handleValidatePlan()}
+              disabled={planValidationPending}
+              className="min-h-11 px-3 rounded-lg bg-navy text-white text-xs font-semibold cursor-pointer hover:bg-navy-light focus-visible:outline-2 focus-visible:outline-navy focus-visible:outline-offset-2 disabled:opacity-60"
+            >
+              {planValidationPending
+                ? "Memvalidasi rencana..."
+                : "Validasi Rencana Studi"}
+            </button>
+            <div aria-live="polite" className="text-xs text-navy">
+              {planValidation && (
+                <p className="font-semibold">
+                  Hasil validasi gateway:{" "}
+                  {planValidation.isValid
+                    ? `rencana valid, ${planValidation.totalCredits} SKS terencana`
+                    : "rencana belum valid"}
+                </p>
+              )}
+              {planValidation?.errors.map((message, index) => (
+                <p key={`${message}-${index}`} className="mt-0.5 text-danger">
+                  {message}
+                </p>
+              ))}
+              {planValidation?.warnings.map((message, index) => (
+                <p
+                  key={`${message}-${index}`}
+                  className="mt-0.5 text-foreground"
+                >
+                  {message}
+                </p>
+              ))}
+              {planValidationError && (
+                <p role="alert" className="mt-0.5 font-semibold text-danger">
+                  {planValidationError}
+                </p>
+              )}
+            </div>
+          </div>
 
           <SemesterSwitcher
             id="roadmap-semester"
@@ -824,14 +872,8 @@ export default function DegreePlanner({
                 conflicts={conflicts}
                 onAutoResolveConflicts={handleAutoResolveConflicts}
                 periodLabel={period?.label ?? "periode akademik aktif"}
-                sectionsStatus={sectionsStatus}
-                sectionsError={sectionsError}
-                onRetrySections={() => setSectionsReload((count) => count + 1)}
-                alternatives={validation?.alternatives ?? []}
-                validationError={validationError}
-                onRetryValidation={() =>
-                  setValidationReload((count) => count + 1)
-                }
+                sectionsState={sectionsState}
+                validationState={validationState}
                 onApplyAlternative={handleApplyAlternative}
               />
             </div>
