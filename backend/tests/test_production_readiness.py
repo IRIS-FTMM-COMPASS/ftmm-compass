@@ -85,6 +85,12 @@ def test_unhandled_exception_returns_standard_envelope_without_details(client):
     assert body["error"]["details"] == []
     assert "hunter2" not in response.text
     assert "Traceback" not in response.text
+    assert Exception in app_module.app.exception_handlers
+    assert not any(
+        getattr(middleware.kwargs.get("dispatch"), "__name__", "")
+        == "internal_error_middleware"
+        for middleware in app_module.app.user_middleware
+    )
 
 
 def test_rate_limit_response_carries_retry_hint(client):
