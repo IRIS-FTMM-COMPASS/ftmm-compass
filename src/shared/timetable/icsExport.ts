@@ -9,12 +9,15 @@ const DAY_OFFSETS: Record<string, number> = {
   sabtu: 5,
 }
 
-function formatIcsDateTime(date: Date, hours: number, minutes = 0): string {
+function formatIcsDateTime(date: Date, hours: number): string {
   const y = date.getFullYear().toString().padStart(4, "0")
   const m = (date.getMonth() + 1).toString().padStart(2, "0")
   const d = date.getDate().toString().padStart(2, "0")
-  const h = Math.floor(hours).toString().padStart(2, "0")
-  const min = Math.floor(minutes).toString().padStart(2, "0")
+  const totalMinutes = Math.round(hours * 60)
+  const h = Math.floor(totalMinutes / 60)
+    .toString()
+    .padStart(2, "0")
+  const min = (totalMinutes % 60).toString().padStart(2, "0")
   return `${y}${m}${d}T${h}${min}00`
 }
 
@@ -39,7 +42,7 @@ function parseIsoDate(value: string): Date {
   return new Date(year, month - 1, day)
 }
 
-function generateIcsCalendar(
+export function generateIcsCalendar(
   schedule: ScheduleItem[],
   options: IcsExportOptions,
 ): string {
@@ -114,13 +117,22 @@ function generateIcsCalendar(
   return lines.join("\r\n")
 }
 
+export type IcsExportFailure = "no-schedule" | "no-period" | "browser-unavailable" | "failed"
+
+export type IcsExportResult = { ok: true } | {
+  ok: false
+  reason: IcsExportFailure
+}
+
 export function exportTimetableToIcs(
   schedule: ScheduleItem[],
   filename = "jadwal-kuliah-ftmm.ics",
   options?: IcsExportOptions,
-): boolean {
-  if (typeof window === "undefined" || schedule.length === 0 || !options) {
-    return false
+): IcsExportResult {
+  if (schedule.length === 0) return { ok: false, reason: "no-schedule" }
+  if (!options) return { ok: false, reason: "no-period" }
+  if (typeof window === "undefined") {
+    return { ok: false, reason: "browser-unavailable" }
   }
 
   try {
@@ -136,8 +148,8 @@ export function exportTimetableToIcs(
     link.click()
     document.body.removeChild(link)
     URL.revokeObjectURL(url)
-    return true
+    return { ok: true }
   } catch {
-    return false
+    return { ok: false, reason: "failed" }
   }
 }

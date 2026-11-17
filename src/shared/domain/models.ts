@@ -56,10 +56,15 @@ export interface ClassScheduleSlot {
 export interface ClassSection {
   sectionId: string
   sectionCode: string
-  capacity: number
-  enrolled: number
+  capacity?: number | null
   lecturer?: string
-  schedule: ClassScheduleSlot
+  schedules: ClassScheduleSlot[]
+}
+
+export function formatTime(hour: number): string {
+  const whole = Math.floor(hour)
+  const minute = Math.round((hour - whole) * 60)
+  return `${String(whole).padStart(2, "0")}:${String(minute).padStart(2, "0")}`
 }
 
 export interface CourseOffering {
@@ -84,18 +89,20 @@ export interface ScheduleItem {
   lecturer?: string
 }
 
-/** Jadwal kelas belum tersedia di katalog; kelas diisi dari data akademik saat ada. */
-export function getOfferingForCourse(course: {
-  id: string
-  name: string
-  code?: string
-  credits: number
-}): CourseOffering {
+export function getOfferingForCourse(
+  course: {
+    id: string
+    name: string
+    code?: string
+    credits: number
+  },
+  sections: ClassSection[] = [],
+): CourseOffering {
   return {
     courseId: course.id,
     courseCode: course.code || course.id,
     courseName: course.name,
     credits: course.credits,
-    sections: [],
+    sections,
   }
 }

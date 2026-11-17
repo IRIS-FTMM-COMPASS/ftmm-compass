@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16.16-alpine3.24
     container_name: ftmm-compass-postgres
     restart: unless-stopped
     ports:
@@ -44,6 +44,11 @@ services:
       - ftmm-network
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
     deploy:
       resources:
         limits:
@@ -71,6 +76,14 @@ services:
         limits:
           cpus: "1.0"
           memory: 512M
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/node_modules/.vite
+      - /app/node_modules/.vite-temp
+      - /home/appuser/.cache
     networks:
       - default
 

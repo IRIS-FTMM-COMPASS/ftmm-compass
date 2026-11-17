@@ -117,7 +117,7 @@ export default function NotificationDropdown({
         aria-haspopup="true"
         aria-label={`Notifikasi akademik (${unreadCount} belum dibaca)`}
         className={cn(
-          "p-2 text-muted hover:text-navy hover:bg-background rounded-lg transition-colors relative focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50",
+          "min-h-11 min-w-11 flex items-center justify-center p-2 text-muted hover:text-navy hover:bg-background rounded-lg transition-colors relative focus-visible:ring-2 focus-visible:ring-gold/50",
           isOpen && "bg-background text-navy",
         )}
       >

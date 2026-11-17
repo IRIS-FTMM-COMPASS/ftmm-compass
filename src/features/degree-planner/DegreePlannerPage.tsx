@@ -1,10 +1,18 @@
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { BookOpen, Calendar } from "lucide-react"
 import { cn } from "@/shared/utils"
-import { Course, TIMETABLE_DAYS } from "@/shared/domain/models"
+import {
+  Course,
+  TIMETABLE_DAYS,
+  type ClassSection,
+  formatTime,
+  getOfferingForCourse,
+  ScheduleItem,
+} from "@/shared/domain/models"
 import { SEMESTERS } from "@/shared/domain/academics"
 import { courseReligion } from "@/shared/domain/course"
 import TimetableGrid from "@/shared/timetable/TimetableGrid"
+import DailyScheduleAccordion from "@/shared/timetable/DailyScheduleAccordion"
 import {
   PlacedCourse,
   SemesterState,
@@ -14,6 +22,7 @@ import {
   courseKey,
 } from "@/features/degree-planner/types"
 import PlannerHeader from "@/features/degree-planner/components/PlannerHeader"
+import SemesterSwitcher from "@/features/degree-planner/components/SemesterSwitcher"
 import {
   SemesterColumn,
   ElectiveCourseBank,
@@ -21,13 +30,47 @@ import {
 import CoursePickerModal from "@/features/degree-planner/components/CoursePickerModal"
 import CourseInspectModal from "@/features/degree-planner/components/CourseInspectModal"
 import ClassSelectorPanel from "@/features/degree-planner/components/ClassSelectorPanel"
-import { markConflicts } from "@/shared/domain/timetable"
-import { getOfferingForCourse, ScheduleItem } from "@/shared/domain/models"
+import {
+  markConflicts,
+  type ScheduleConflictDetail,
+  type ScheduleValidationResult,
+  type SectionAlternative,
+  type TimetableConflict,
+} from "@/shared/domain/timetable"
 import { usePlanner } from "@/features/degree-planner/state/planner"
 import { useSession } from "@/features/auth/session"
 import { useAcademicPeriod } from "@/shared/academic-period/academic"
+import { ApiError, apiErrorMessage } from "@/shared/api/client"
+import {
+  classSectionService,
+  mapClassSection,
+  type SectionSelectionInput,
+} from "@/features/degree-planner/services/classSectionService"
+import {
+  planValidationService,
+  type PlanValidationResult,
+} from "@/features/degree-planner/services/planValidationService"
+import { useReloadableFetch } from "@/features/degree-planner/state/useReloadableFetch"
+
+const EMPTY_SECTIONS: Record<string, ClassSection[]> = {}
 
 export type { PlacedCourse } from "@/features/degree-planner/types"
+
+function toConflictDetail(conflict: TimetableConflict): ScheduleConflictDetail {
+  return {
+    courseACode: conflict.codeA,
+    courseAName: conflict.courseA,
+    sectionAId: "",
+    sectionACode: conflict.sectionA,
+    courseBCode: conflict.codeB,
+    courseBName: conflict.courseB,
+    sectionBId: "",
+    sectionBCode: conflict.sectionB,
+    day: conflict.day,
+    start: formatTime(conflict.start),
+    end: formatTime(conflict.end),
+  }
+}
 
 export default function DegreePlanner({
   onNavigate,
@@ -65,6 +108,9 @@ export default function DegreePlanner({
     error: recordError,
   } = planner
   const [activeTab, setActiveTab] = useState<Tab>(initialTab || "roadmap")
+  const [activeRoadmapSem, setActiveRoadmapSem] = useState<number>(() =>
+    Math.min(8, Math.max(1, user?.student_profile?.current_semester ?? 1)),
+  )
 
   useEffect(() => {
     setActiveTab(initialTab || "roadmap")
@@ -84,6 +130,13 @@ export default function DegreePlanner({
   )
   const [selectedSections, setSelectedSections] =
     useState<Record<string, string>>({})
+  const [planValidation, setPlanValidation] =
+    useState<PlanValidationResult | null>(null)
+  const [planValidationPending, setPlanValidationPending] = useState(false)
+  const [planValidationError, setPlanValidationError] = useState<string | null>(
+    null,
+  )
+  const planValidationController = useRef<AbortController | null>(null)
   const activeReligion = useMemo(() => {
     const completed = Object.values(completedBySemester).flat()
     for (const courses of [...Object.values(plan), completed]) {
@@ -347,6 +400,70 @@ export default function DegreePlanner({
     () => plan[activeTimetableSem] || [],
     [plan, activeTimetableSem],
   )
+  const timetableCodes = useMemo(
+    () => [
+      ...new Set(
+        currentTimetableCourses.map((course) => course.code || course.id),
+      ),
+    ],
+    [currentTimetableCourses],
+  )
+  const timetableCodeKey = timetableCodes.join("|")
+  const sectionsState = useReloadableFetch<Record<string, ClassSection[]>>(
+    (signal) => {
+      if (timetableCodes.length === 0) return null
+      return Promise.all(
+        timetableCodes.map(async (code) => {
+          try {
+            const dtos = await classSectionService.list(code, signal)
+            return [code, dtos.map(mapClassSection)] as const
+          } catch (error) {
+            if (signal.aborted) throw error
+            if (error instanceof ApiError && error.status === 404) {
+              return [code, []] as const
+            }
+            throw error
+          }
+        }),
+      ).then((entries) => Object.fromEntries(entries))
+    },
+    [timetableCodeKey],
+    "Jadwal kelas tidak dapat dimuat.",
+    EMPTY_SECTIONS,
+  )
+  const sectionsByCourse = sectionsState.data ?? EMPTY_SECTIONS
+
+  const offerings = useMemo(
+    () =>
+      currentTimetableCourses.map((course) =>
+        getOfferingForCourse(
+          course,
+          sectionsByCourse[course.code || course.id] ?? [],
+        ),
+      ),
+    [currentTimetableCourses, sectionsByCourse],
+  )
+
+  const validationState = useReloadableFetch<ScheduleValidationResult>(
+    (signal) => {
+      if (sectionsState.status !== "ready") return null
+      const selections: SectionSelectionInput[] = offerings.flatMap(
+        (offering) => {
+          const sectionId =
+            selectedSections[offering.courseId] ??
+            offering.sections[0]?.sectionId
+          return sectionId
+            ? [{ courseCode: offering.courseCode, sectionId }]
+            : []
+        },
+      )
+      if (selections.length === 0) return null
+      return classSectionService.validate(selections, signal)
+    },
+    [offerings, selectedSections, sectionsState.status],
+    "Validasi bentrok tidak dapat dimuat.",
+  )
+  const validation = validationState.data
 
   const { dynamicSchedule, conflicts } = useMemo(() => {
     const COLOR_PALETTE = [
@@ -359,32 +476,52 @@ export default function DegreePlanner({
     ]
 
     const items: ScheduleItem[] = []
-    currentTimetableCourses.forEach((c, index) => {
-      const offering = getOfferingForCourse(c)
-      const chosenSectionId = selectedSections[c.id]
+    offerings.forEach((offering, index) => {
       const section =
-        offering.sections.find((s) => s.sectionId === chosenSectionId) ||
-        offering.sections[0]
+        offering.sections.find(
+          (candidate) =>
+            candidate.sectionId === selectedSections[offering.courseId],
+        ) ?? offering.sections[0]
+      if (!section) return
 
-      if (section) {
+      section.schedules.forEach((slot) => {
         items.push({
-          id: `${c.id}-${section.sectionId}`,
-          course: c.name,
-          code: c.code || c.id,
+          id: `${offering.courseId}-${section.sectionId}-${slot.dayOfWeek}-${slot.start}`,
+          course: offering.courseName,
+          code: offering.courseCode,
           sectionCode: section.sectionCode,
-          day: section.schedule.day,
-          start: section.schedule.start,
-          duration: section.schedule.duration,
+          day: slot.day,
+          start: slot.start,
+          duration: slot.end - slot.start,
           color: COLOR_PALETTE[index % COLOR_PALETTE.length],
-          room: section.schedule.room,
+          room: slot.room,
           lecturer: section.lecturer,
         })
-      }
+      })
     })
 
-    const foundConflicts = markConflicts(items)
-    return { dynamicSchedule: items, conflicts: foundConflicts }
-  }, [currentTimetableCourses, selectedSections])
+    const localConflicts = markConflicts(items)
+    const displayedConflicts: ScheduleConflictDetail[] = validation
+      ? validation.conflicts
+      : localConflicts.map(toConflictDetail)
+    if (validation) {
+      const conflictingSections = new Set<string>()
+      validation.conflicts.forEach((conflict) => {
+        conflictingSections.add(
+          `${conflict.courseACode}:${conflict.sectionACode}`,
+        )
+        conflictingSections.add(
+          `${conflict.courseBCode}:${conflict.sectionBCode}`,
+        )
+      })
+      items.forEach((item) => {
+        item.conflict = conflictingSections.has(
+          `${item.code}:${item.sectionCode}`,
+        )
+      })
+    }
+    return { dynamicSchedule: items, conflicts: displayedConflicts }
+  }, [offerings, selectedSections, validation])
 
   // Jadwal semester aktif menjadi sumber untuk widget dashboard.
   useEffect(() => {
@@ -398,21 +535,93 @@ export default function DegreePlanner({
     }))
   }
 
-  const handleAutoResolveConflicts = () => {
-    const updated = { ...selectedSections }
-    currentTimetableCourses.forEach((c) => {
-      const offering = getOfferingForCourse(c)
-      if (offering.sections.length > 1) {
-        const alternate = offering.sections.find(
-          (s) => s.sectionId !== updated[c.id],
-        )
-        if (alternate) {
-          updated[c.id] = alternate.sectionId
-        }
+  const handleApplyAlternative = (alternative: SectionAlternative) => {
+    const offering = offerings.find(
+      (candidate) => candidate.courseCode === alternative.courseCode,
+    )
+    if (!offering) return
+
+    sectionsState.update((prev) => {
+      const current = prev?.[alternative.courseCode] ?? []
+      if (current.some((s) => s.sectionId === alternative.section.sectionId)) {
+        return prev
+      }
+      return {
+        ...(prev ?? EMPTY_SECTIONS),
+        [alternative.courseCode]: [...current, alternative.section],
       }
     })
-    setSelectedSections(updated)
+    setSelectedSections((prev) => ({
+      ...prev,
+      [offering.courseId]: alternative.section.sectionId,
+    }))
   }
+
+  const handleAutoResolveConflicts = () => {
+    const applied = new Set<string>()
+    validation?.alternatives.forEach((alternative) => {
+      if (applied.has(alternative.courseCode)) return
+      applied.add(alternative.courseCode)
+      handleApplyAlternative(alternative)
+    })
+  }
+
+  useEffect(() => () => planValidationController.current?.abort(), [])
+
+  const handleValidatePlan = async () => {
+    planValidationController.current?.abort()
+    const controller = new AbortController()
+    planValidationController.current = controller
+    setPlanValidationPending(true)
+    setPlanValidation(null)
+    setPlanValidationError(null)
+    try {
+      const result = await planValidationService.validate(
+        {
+          program_studi:
+            user?.student_profile?.study_program ?? "Teknologi Sains Data",
+          semester_saat_ini: user?.student_profile?.current_semester ?? 1,
+          riwayat_matkul_lulus: [...completedKeys],
+          maks_sks_per_semester: 24,
+          plan,
+        },
+        controller.signal,
+      )
+      if (!controller.signal.aborted) setPlanValidation(result)
+    } catch (error) {
+      if (controller.signal.aborted) return
+      setPlanValidationError(
+        apiErrorMessage(error, "Validasi rencana gagal dijalankan."),
+      )
+    } finally {
+      if (!controller.signal.aborted) setPlanValidationPending(false)
+    }
+  }
+
+  const renderSemesterColumn = (sem: number) => (
+    <SemesterColumn
+      key={sem}
+      sem={sem}
+      courses={plan[sem] || []}
+      completedCourses={completedBySemester[sem] || []}
+      state={semState(sem)}
+      dragging={dragging}
+      dropTarget={dropTarget}
+      onDragOverColumn={handleDragOver}
+      onDropColumn={handleDrop}
+      onDragLeaveColumn={handleDragLeave}
+      onCardDragStart={handleDragStart}
+      onCardDragOver={handleCardDragOver}
+      onCardDrop={handleCardDrop}
+      onDragEnd={handleDragEnd}
+      onDeleteCourse={deleteCourse}
+      onOpenManualPicker={(s) => {
+        setPickerSem(s)
+        setPickerSearch("")
+      }}
+      onSelectCourse={(c) => setInspectCourse({ course: c, sem })}
+    />
+  )
 
   return (
     <div className="h-full flex flex-col animate-in fade-in duration-500">
@@ -427,7 +636,7 @@ export default function DegreePlanner({
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
               className={cn(
-                "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer",
+                "flex items-center gap-2 px-4 min-h-11 rounded-lg text-sm font-medium transition-all cursor-pointer",
                 activeTab === tab.key
                   ? "bg-navy text-white shadow-sm"
                   : "text-muted hover:text-navy",
@@ -466,33 +675,64 @@ export default function DegreePlanner({
             </div>
           )}
 
-          <div className="flex-1 overflow-x-auto pb-1 min-h-0">
-            <div className="flex gap-4 min-w-max h-full">
-              {SEMESTERS.map((sem) => (
-                <SemesterColumn
-                  key={sem}
-                  sem={sem}
-                  courses={plan[sem] || []}
-                  completedCourses={completedBySemester[sem] || []}
-                  state={semState(sem)}
-                  dragging={dragging}
-                  dropTarget={dropTarget}
-                  onDragOverColumn={handleDragOver}
-                  onDropColumn={handleDrop}
-                  onDragLeaveColumn={handleDragLeave}
-                  onCardDragStart={handleDragStart}
-                  onCardDragOver={handleCardDragOver}
-                  onCardDrop={handleCardDrop}
-                  onDragEnd={handleDragEnd}
-                  onDeleteCourse={deleteCourse}
-                  onOpenManualPicker={(s) => {
-                    setPickerSem(s)
-                    setPickerSearch("")
-                  }}
-                  onSelectCourse={(c) => setInspectCourse({ course: c, sem })}
-                />
+          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <button
+              type="button"
+              onClick={() => void handleValidatePlan()}
+              disabled={planValidationPending}
+              className="min-h-11 px-3 rounded-lg bg-navy text-white text-xs font-semibold cursor-pointer hover:bg-navy-light focus-visible:outline-2 focus-visible:outline-navy focus-visible:outline-offset-2 disabled:opacity-60"
+            >
+              {planValidationPending
+                ? "Memvalidasi rencana..."
+                : "Validasi Rencana Studi"}
+            </button>
+            <div aria-live="polite" className="text-xs text-navy">
+              {planValidation && (
+                <p className="font-semibold">
+                  Hasil validasi gateway:{" "}
+                  {planValidation.isValid
+                    ? `rencana valid, ${planValidation.totalCredits} SKS terencana`
+                    : "rencana belum valid"}
+                </p>
+              )}
+              {planValidation?.errors.map((message, index) => (
+                <p key={`${message}-${index}`} className="mt-0.5 text-danger">
+                  {message}
+                </p>
               ))}
+              {planValidation?.warnings.map((message, index) => (
+                <p
+                  key={`${message}-${index}`}
+                  className="mt-0.5 text-foreground"
+                >
+                  {message}
+                </p>
+              ))}
+              {planValidationError && (
+                <p role="alert" className="mt-0.5 font-semibold text-danger">
+                  {planValidationError}
+                </p>
+              )}
             </div>
+          </div>
+
+          <SemesterSwitcher
+            id="roadmap-semester"
+            value={activeRoadmapSem}
+            counts={Object.fromEntries(
+              SEMESTERS.map((sem) => [sem, (plan[sem] || []).length]),
+            )}
+            onChange={setActiveRoadmapSem}
+          />
+
+          <div className="hidden md:block flex-1 overflow-x-auto pb-1 min-h-0">
+            <div className="flex gap-4 min-w-max h-full">
+              {SEMESTERS.map((sem) => renderSemesterColumn(sem))}
+            </div>
+          </div>
+
+          <div className="md:hidden flex-1 min-h-0 overflow-y-auto pb-2">
+            {renderSemesterColumn(activeRoadmapSem)}
           </div>
 
           <ElectiveCourseBank
@@ -554,7 +794,7 @@ export default function DegreePlanner({
 
       {activeTab === "timetable" && (
         <div className="flex-1 flex flex-col min-h-0">
-          <div className="mb-4 flex flex-wrap justify-between items-center gap-3 flex-shrink-0">
+          <div className="mb-4 flex flex-col md:flex-row md:flex-wrap md:justify-between md:items-center gap-3 flex-shrink-0">
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-heading font-bold text-lg text-navy">
@@ -569,8 +809,16 @@ export default function DegreePlanner({
                 mingguan dan menyelesaikan bentrok waktu.
               </p>
             </div>
+            <SemesterSwitcher
+              id="timetable-semester"
+              value={activeTimetableSem}
+              counts={Object.fromEntries(
+                SEMESTERS.map((sem) => [sem, (plan[sem] || []).length]),
+              )}
+              onChange={setActiveTimetableSem}
+            />
 
-            <div className="flex items-center gap-1.5 bg-background p-1 rounded-xl border border-border">
+            <div className="hidden md:flex items-center gap-1.5 bg-background p-1 rounded-xl border border-border">
               <span className="text-xs text-muted font-medium px-2">
                 Tampilkan Semester:
               </span>
@@ -583,7 +831,7 @@ export default function DegreePlanner({
                     type="button"
                     onClick={() => setActiveTimetableSem(sem)}
                     className={cn(
-                      "px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1",
+                      "min-h-11 min-w-11 px-2 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1",
                       isActive
                         ? "bg-navy text-white shadow-2xs"
                         : "text-muted hover:text-navy hover:bg-navy/5",
@@ -608,15 +856,25 @@ export default function DegreePlanner({
             </div>
           </div>
 
-          <div className="flex-1 flex flex-col lg:grid lg:grid-cols-12 gap-4 min-h-0 overflow-y-auto lg:overflow-hidden pb-1">
+          <DailyScheduleAccordion
+            schedule={dynamicSchedule}
+            days={TIMETABLE_DAYS}
+          />
+
+          <div className="hidden md:flex flex-1 flex-col lg:grid lg:grid-cols-12 gap-4 min-h-0 overflow-y-auto lg:overflow-hidden pb-1 print:flex">
             <div className="lg:col-span-4 min-h-[380px] lg:h-full min-h-0 flex flex-col">
               <ClassSelectorPanel
                 activeSemester={activeTimetableSem}
                 semesterCourses={currentTimetableCourses}
+                offerings={offerings}
                 selectedSections={selectedSections}
                 onSelectSection={handleSelectSection}
                 conflicts={conflicts}
                 onAutoResolveConflicts={handleAutoResolveConflicts}
+                periodLabel={period?.label ?? "periode akademik aktif"}
+                sectionsState={sectionsState}
+                validationState={validationState}
+                onApplyAlternative={handleApplyAlternative}
               />
             </div>
 

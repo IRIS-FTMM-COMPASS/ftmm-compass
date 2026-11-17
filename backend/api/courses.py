@@ -9,7 +9,8 @@ if hasattr(sys.stderr, "reconfigure"):
 import logging
 import httpx
 from typing import Any
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import select, or_, cast, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from schemas import (
@@ -19,6 +20,7 @@ from schemas import (
     CourseSearchResponse,
     CourseSearchItem,
 )
+from api.errors import error_response
 from database import get_db
 from models import (
     User,
@@ -35,11 +37,16 @@ from catalog import (
     get_course,
     normalize_prodi,
     refresh_from_db,
+    replace_prerequisites,
 )
 
 import settings
 
 router = APIRouter()
+
+
+def _catalog_error(status_code: int, code: str, message: str) -> JSONResponse:
+    return error_response(status_code, code, message, detail=message)
 
 
 async def handle_list_courses(
@@ -264,9 +271,23 @@ async def v1_search_courses(
         top_k=top_k,
     )
 
+
+@router.get("/courses/{code}", response_model=CourseModel)
+async def v1_get_course(code: str):
+    course = get_course(code)
+    if course is None:
+        return _catalog_error(
+            status.HTTP_404_NOT_FOUND,
+            "course_not_found",
+            f"Mata kuliah dengan kode '{code}' tidak ditemukan.",
+        )
+    return course
+
+
 @router.post("/admin/courses", response_model=CourseModel, status_code=status.HTTP_201_CREATED)
 async def v1_admin_create_course(
     payload: AdminCourseCreateRequest,
+    response: Response,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -279,9 +300,10 @@ async def v1_admin_create_course(
     stmt = select(Course).where(Course.course_code == payload.course_code)
     existing = (await db.execute(stmt)).scalars().first()
     if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Mata kuliah dengan kode '{payload.course_code}' sudah terdaftar.",
+        return _catalog_error(
+            status.HTTP_409_CONFLICT,
+            "duplicate_course_code",
+            f"Mata kuliah dengan kode '{payload.course_code}' sudah terdaftar.",
         )
 
     new_course = Course(
@@ -312,6 +334,10 @@ async def v1_admin_create_course(
             is_active=True,
         )
         db.add(curr_course)
+        await db.flush()
+        await replace_prerequisites(
+            db, curr_course.curriculum_course_id, payload.prerequisites
+        )
 
     await db.commit()
 
@@ -322,6 +348,7 @@ async def v1_admin_create_course(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Mata kuliah tersimpan tetapi gagal dibaca dari katalog.",
         )
+    response.headers["Location"] = f"/api/v1/courses/{created.code}"
     return created
 
 
@@ -344,9 +371,10 @@ async def v1_admin_update_course(
         if payload.course_code and payload.course_code != course_db.course_code:
             stmt_dup = select(Course).where(Course.course_code == payload.course_code)
             if (await db.execute(stmt_dup)).scalars().first():
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Kode mata kuliah '{payload.course_code}' sudah terdaftar.",
+                return _catalog_error(
+                    status.HTTP_409_CONFLICT,
+                    "duplicate_course_code",
+                    f"Kode mata kuliah '{payload.course_code}' sudah terdaftar.",
                 )
             course_db.course_code = payload.course_code
         if payload.course_name:
@@ -375,37 +403,20 @@ async def v1_admin_update_course(
                 cc.description = payload.description
             if payload.is_active is not None:
                 cc.is_active = payload.is_active
+            if payload.prerequisites is not None:
+                await replace_prerequisites(
+                    db, cc.curriculum_course_id, payload.prerequisites
+                )
         await db.commit()
 
-    updates = {}
-    if payload.course_code is not None:
-        updates["code"] = payload.course_code
-        updates["id"] = payload.course_code
-    if payload.course_name is not None:
-        updates["name"] = payload.course_name
-    if payload.program_name is not None:
-        updates["program"] = normalize_prodi(payload.program_name) or payload.program_name
-    if payload.credits is not None:
-        updates["credits"] = payload.credits
-    if payload.recommended_semester is not None:
-        updates["semester"] = payload.recommended_semester
-    if payload.term is not None:
-        updates["parity"] = "odd" if payload.term == "ganjil" else "even"
-    if payload.course_type is not None:
-        updates["type"] = payload.course_type
-    if payload.description is not None:
-        updates["desc"] = payload.description
-    if payload.lecturer is not None:
-        updates["lecturer"] = payload.lecturer
-    if payload.prerequisites is not None:
-        updates["prerequisites"] = payload.prerequisites
     await refresh_from_db(db)
     target_code = payload.course_code or (course_db.course_code if course_db else course_id)
     updated = get_course(target_code)
     if updated is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Mata kuliah dengan ID/kode '{course_id}' tidak ditemukan.",
+        return _catalog_error(
+            status.HTTP_404_NOT_FOUND,
+            "course_not_found",
+            f"Mata kuliah dengan ID/kode '{course_id}' tidak ditemukan.",
         )
     return updated
 

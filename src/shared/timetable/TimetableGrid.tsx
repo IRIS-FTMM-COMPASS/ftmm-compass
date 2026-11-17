@@ -13,10 +13,22 @@ import {
   copyTimetableShareUrl,
   getSharedTimetableFromLocation,
 } from "@/shared/timetable/timetableShare"
-import { exportTimetableToIcs } from "@/shared/timetable/icsExport"
+import {
+  exportTimetableToIcs,
+  type IcsExportFailure,
+} from "@/shared/timetable/icsExport"
 import { useAcademicPeriod } from "@/shared/academic-period/academic"
 
 const HOURS = Array.from({ length: 10 }, (_, i) => i + 7)
+const EXPORT_ERROR_MESSAGES: Record<IcsExportFailure, string> = {
+  "no-schedule":
+    "Belum ada jadwal untuk diekspor. Pilih kelas pada panel pemilihan kelas, lalu coba ekspor lagi.",
+  "no-period":
+    "Periode akademik belum tersedia. Muat ulang halaman; jika tetap kosong, hubungi admin akademik.",
+  "browser-unavailable":
+    "Ekspor tidak tersedia pada lingkungan ini. Buka halaman di browser lalu coba lagi.",
+  failed: "Berkas .ics gagal dibuat. Coba ekspor sekali lagi.",
+}
 
 interface TimetableGridProps {
   schedule: ScheduleItem[]
@@ -48,6 +60,7 @@ export default function TimetableGrid({
   const { period } = useAcademicPeriod()
   const [copied, setCopied] = useState(false)
   const [exported, setExported] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
   const [sharedData, setSharedData] = useState<{
     schedule: ScheduleItem[]
     semester?: number
@@ -75,8 +88,15 @@ export default function TimetableGrid({
   }
 
   const handleExportIcs = () => {
-    if (!period) return
-    const ok = exportTimetableToIcs(
+    if (!period) {
+      setExportError(EXPORT_ERROR_MESSAGES["no-period"])
+      return
+    }
+    if (displayedSchedule.length === 0) {
+      setExportError(EXPORT_ERROR_MESSAGES["no-schedule"])
+      return
+    }
+    const result = exportTimetableToIcs(
       displayedSchedule,
       `jadwal-kuliah-ftmm${semester ? `-sem${semester}` : ""}.ics`,
       {
@@ -84,10 +104,13 @@ export default function TimetableGrid({
         semesterWeeks: period.semester_weeks,
       },
     )
-    if (ok) {
-      setExported(true)
-      setTimeout(() => setExported(false), 2000)
+    if (!result.ok) {
+      setExportError(EXPORT_ERROR_MESSAGES[result.reason])
+      return
     }
+    setExportError(null)
+    setExported(true)
+    setTimeout(() => setExported(false), 2000)
   }
 
   const handlePrint = () => {
@@ -147,7 +170,7 @@ export default function TimetableGrid({
           </div>
           <button
             onClick={handleDismissShared}
-            className="px-2.5 py-1 rounded-lg bg-surface border border-border text-navy font-semibold hover:bg-navy/5 cursor-pointer transition-colors"
+            className="min-h-11 min-w-11 px-2.5 rounded-lg bg-surface border border-border text-navy font-semibold hover:bg-navy/5 cursor-pointer transition-colors"
           >
             Kembali ke Jadwal Default
           </button>
@@ -174,7 +197,7 @@ export default function TimetableGrid({
               onClick={handleCopyLink}
               title="Salin tautan jadwal ke clipboard ala NUSMods"
               className={cn(
-                "px-3 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs",
+                "min-h-11 px-3 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs",
                 copied
                   ? "bg-teal/20 text-navy border-teal/50"
                   : "bg-surface hover:bg-navy/5 text-navy border-border hover:border-navy/30",
@@ -196,14 +219,9 @@ export default function TimetableGrid({
             <button
               type="button"
               onClick={handleExportIcs}
-              disabled={!period}
-              title={
-                period
-                  ? "Ekspor ke iCalendar (.ics) untuk Google Calendar / Apple Calendar"
-                  : "Periode akademik belum tersedia"
-              }
+              title="Ekspor ke iCalendar (.ics) untuk Google Calendar / Apple Calendar"
               className={cn(
-                "px-3 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed",
+                "min-h-11 px-3 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs",
                 exported
                   ? "bg-gold/20 text-navy border-gold/50"
                   : "bg-surface hover:bg-navy/5 text-navy border-border hover:border-navy/30",
@@ -217,12 +235,22 @@ export default function TimetableGrid({
               type="button"
               onClick={handlePrint}
               title="Cetak jadwal atau simpan sebagai dokumen PDF"
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold border bg-navy text-white hover:bg-navy-light border-navy flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+              className="min-h-11 px-3 rounded-lg text-xs font-semibold border bg-navy text-white hover:bg-navy-light border-navy flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
             >
               <Printer className="w-3.5 h-3.5" />
               <span>Cetak Jadwal / Simpan PDF</span>
             </button>
           </div>
+        </div>
+      )}
+
+      {!compact && showActions && exportError && (
+        <div
+          role="alert"
+          className="mb-3 bg-danger/10 border border-danger/30 rounded-xl p-3 flex items-start gap-2.5 text-xs text-danger print:hidden"
+        >
+          <AlertTriangle className="w-4 h-4 text-danger flex-shrink-0 mt-0.5" />
+          <span>{exportError}</span>
         </div>
       )}
 
@@ -268,7 +296,7 @@ export default function TimetableGrid({
                 key={day}
                 className={cn(
                   "flex-1 text-center border-r border-border font-heading font-bold text-navy last:border-r-0",
-                  compact ? "p-2.5 text-xs" : "p-3 text-sm",
+                  compact ? "p-2.5 text-xs" : "p-2.5 text-xs lg:p-3 lg:text-sm",
                 )}
               >
                 {day}
@@ -341,7 +369,9 @@ export default function TimetableGrid({
                             <span
                               className={cn(
                                 "font-mono font-bold opacity-80",
-                                compact ? "text-[9px]" : "text-xs",
+                                compact
+                                  ? "text-[9px]"
+                                  : "text-[10px] lg:text-xs",
                               )}
                             >
                               {item.code}
@@ -360,7 +390,7 @@ export default function TimetableGrid({
                           <span
                             className={cn(
                               "font-medium leading-tight mt-0.5 line-clamp-2",
-                              compact ? "text-xs" : "text-sm",
+                              compact ? "text-xs" : "text-xs lg:text-sm",
                             )}
                           >
                             {item.course}
@@ -368,7 +398,9 @@ export default function TimetableGrid({
                           <span
                             className={cn(
                               "mt-auto opacity-70",
-                              compact ? "text-[10px]" : "text-xs",
+                              compact
+                                ? "text-[10px]"
+                                : "text-[10px] lg:text-xs",
                             )}
                           >
                             {item.room}
@@ -405,7 +437,7 @@ export default function TimetableGrid({
               onClick={() =>
                 onNavigate?.("degree-planner", { tab: "timetable" })
               }
-              className="text-xs font-medium text-danger hover:underline flex-shrink-0 whitespace-nowrap cursor-pointer"
+              className="min-h-11 px-2 text-xs font-medium text-danger hover:underline flex-shrink-0 whitespace-nowrap cursor-pointer"
             >
               Perbaiki &rarr;
             </button>

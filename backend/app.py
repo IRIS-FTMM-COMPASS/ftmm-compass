@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -18,6 +18,7 @@ from slowapi.errors import RateLimitExceeded
 from api import (
     academic_periods,
     auth,
+    class_sections,
     chat,
     course_records,
     courses,
@@ -28,6 +29,7 @@ from api import (
     polling,
 )
 import settings
+from api.errors import error_response
 from catalog import refresh_from_db
 from rate_limit import limiter
 from schemas import DegreePlanPayload, PlanValidationResponse
@@ -99,6 +101,7 @@ def mount_resource(router):
 for resource in (
     health,
     auth,
+    class_sections,
     courses,
     chat,
     plans,
@@ -109,6 +112,25 @@ for resource in (
     course_records,
 ):
     mount_resource(resource.router)
+
+info_router = APIRouter()
+
+
+@info_router.get("")
+@info_router.get("/")
+@info_router.get("/version")
+async def service_info():
+    return {
+        "service": app.title,
+        "version": app.version,
+        "api_version": "v1",
+        "docs": "/docs",
+        "health": "/api/v1/health",
+    }
+
+
+mount_resource(info_router)
+app.add_api_route("/", service_info, methods=["GET"], include_in_schema=False)
 
 # Dua path legacy dengan nama berbeda tetap dilayani tanpa salinan handler.
 app.add_api_route(
@@ -129,86 +151,73 @@ app.add_api_route(
 
 @app.exception_handler(RateLimitExceeded)
 def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
-    return JSONResponse(
-        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-        content={
-            "error": {
-                "code": "rate_limit_exceeded",
-                "message": "Batas pengiriman pesan terlampaui (maksimal 20 request per menit).",
-                "details": [],
-            }
-        },
+    limit = getattr(exc, "limit", None)
+    item = getattr(limit, "limit", None)
+    get_expiry = getattr(item, "get_expiry", None)
+    retry_after = int(get_expiry()) if callable(get_expiry) else 60
+    return error_response(
+        status.HTTP_429_TOO_MANY_REQUESTS,
+        "rate_limit_exceeded",
+        f"Batas pengiriman pesan terlampaui. Coba lagi dalam {retry_after} detik.",
+        retry_after=retry_after,
+        headers={"Retry-After": str(retry_after)},
     )
+
 
 @app.exception_handler(ConnectionError)
 async def connection_error_handler(request: Request, exc: ConnectionError):
     message = "Layanan Chatbot AI offline. Pastikan kontainer ftmm-compass-chatbot aktif di port 8000."
-    return JSONResponse(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+    return error_response(
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "upstream_service_unavailable",
+        message,
+        detail=message,
+        details=[{"message": str(exc)}],
         headers={"Retry-After": "5"},
-        content={
-            "detail": message,
-            "error": {
-                "code": "upstream_service_unavailable",
-                "message": message,
-                "details": [{"message": str(exc)}],
-            },
-        },
     )
 
 
 @app.exception_handler(httpx.ConnectError)
 async def httpx_connect_error_handler(request: Request, exc: httpx.ConnectError):
     message = "Layanan Chatbot AI offline. Pastikan kontainer ftmm-compass-chatbot aktif di port 8000."
-    return JSONResponse(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+    return error_response(
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "upstream_service_unavailable",
+        message,
+        detail=message,
+        details=[{"message": str(exc)}],
         headers={"Retry-After": "5"},
-        content={
-            "detail": message,
-            "error": {
-                "code": "upstream_service_unavailable",
-                "message": message,
-                "details": [{"message": str(exc)}],
-            },
-        },
     )
 
 
 @app.exception_handler(httpx.TimeoutException)
 async def httpx_timeout_handler(request: Request, exc: httpx.TimeoutException):
     message = "Waktu tunggu layanan Chatbot AI habis."
-    return JSONResponse(
-        status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-        content={
-            "detail": message,
-            "error": {
-                "code": "upstream_timeout",
-                "message": message,
-                "details": [{"message": str(exc)}],
-            },
-        },
+    return error_response(
+        status.HTTP_504_GATEWAY_TIMEOUT,
+        "upstream_timeout",
+        message,
+        detail=message,
+        details=[{"message": str(exc)}],
     )
 
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    return JSONResponse(
-        status_code=getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", status.HTTP_422_UNPROCESSABLE_ENTITY),
-        content={
-            "detail": "Request validation failed",
-            "error": {
-                "code": "validation_error",
-                "message": "Request validation failed",
-                "details": [
-                    {
-                        "field": ".".join(str(loc) for loc in err["loc"]),
-                        "message": err["msg"],
-                        "code": err["type"],
-                    }
-                    for err in exc.errors()
-                ],
-            },
-        },
+    message = "Request validation failed"
+    return error_response(
+        getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", status.HTTP_422_UNPROCESSABLE_ENTITY),
+        "validation_error",
+        message,
+        detail=message,
+        details=[
+            {
+                "field": ".".join(str(loc) for loc in err["loc"]),
+                "message": err["msg"],
+                "code": err["type"],
+            }
+            for err in exc.errors()
+        ],
     )
 
 
@@ -228,19 +237,26 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     else:
         code = "http_error"
 
-    return JSONResponse(
-        status_code=exc.status_code,
+    return error_response(
+        exc.status_code,
+        code,
+        str(exc.detail),
+        detail=exc.detail,
         headers=headers,
-        content={
-            "detail": exc.detail,
-            "error": {
-                "code": code,
-                "message": str(exc.detail),
-                "details": [],
-            },
-        },
     )
 
+
+def internal_error_response() -> JSONResponse:
+    return error_response(
+        status.HTTP_500_INTERNAL_SERVER_ERROR,
+        "internal_server_error",
+        "Terjadi kesalahan internal. Silakan coba lagi nanti.",
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    return internal_error_response()
 
 
 def find_free_port(start_port: int = 8001, max_port: int = 8050) -> int:
