@@ -90,7 +90,7 @@ export default function ClassSelectorPanel({
                 <button
                   type="button"
                   onClick={onAutoResolveConflicts}
-                  className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-navy text-white hover:bg-navy-light transition-colors flex items-center gap-1 cursor-pointer"
+                  className="min-h-11 min-w-11 px-2.5 text-xs font-semibold rounded-lg bg-navy text-white hover:bg-navy-light transition-colors flex items-center justify-center gap-1 cursor-pointer"
                   title="Pilih kombinasi kelas yang tidak bentrok secara otomatis"
                 >
                   <RotateCcw className="w-3 h-3 text-gold" />
@@ -181,7 +181,7 @@ export default function ClassSelectorPanel({
                   className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-2.5 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="min-w-0">
-                    <p className="text-xs font-semibold text-navy truncate">
+                    <p className="text-xs font-semibold text-navy break-words">
                       {alternative.courseName} ({alternative.courseCode})
                     </p>
                     <p className="mt-0.5 text-[11px] text-foreground">
@@ -291,7 +291,7 @@ export default function ClassSelectorPanel({
                         </span>
                       )}
                     </div>
-                    <h4 className="font-medium text-sm text-foreground truncate">
+                    <h4 className="font-medium text-sm text-foreground break-words">
                       {offering.courseName}
                     </h4>
                   </div>
@@ -328,7 +328,7 @@ export default function ClassSelectorPanel({
                             onSelectSection(offering.courseId, sec.sectionId)
                           }
                           className={cn(
-                            "p-2.5 rounded-lg border text-left transition-all cursor-pointer flex flex-col justify-between gap-1 focus-visible:outline-2 focus-visible:outline-navy focus-visible:outline-offset-2",
+                            "min-h-11 p-2.5 rounded-lg border text-left transition-all cursor-pointer flex flex-col justify-between gap-1",
                             isSelected
                               ? "bg-navy text-white border-navy shadow-2xs font-medium"
                               : "bg-surface border-border hover:border-navy/30 text-foreground",
@@ -399,7 +399,7 @@ export default function ClassSelectorPanel({
                                     )}
                                   >
                                     <MapPin className="w-3 h-3 flex-shrink-0" />
-                                    <span className="truncate">
+                                    <span className="break-words">
                                       {slot.room}
                                     </span>
                                   </div>

@@ -170,7 +170,7 @@ export default function TimetableGrid({
           </div>
           <button
             onClick={handleDismissShared}
-            className="px-2.5 py-1 rounded-lg bg-surface border border-border text-navy font-semibold hover:bg-navy/5 cursor-pointer transition-colors"
+            className="min-h-11 min-w-11 px-2.5 rounded-lg bg-surface border border-border text-navy font-semibold hover:bg-navy/5 cursor-pointer transition-colors"
           >
             Kembali ke Jadwal Default
           </button>
@@ -197,7 +197,7 @@ export default function TimetableGrid({
               onClick={handleCopyLink}
               title="Salin tautan jadwal ke clipboard ala NUSMods"
               className={cn(
-                "px-3 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs",
+                "min-h-11 px-3 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs",
                 copied
                   ? "bg-teal/20 text-navy border-teal/50"
                   : "bg-surface hover:bg-navy/5 text-navy border-border hover:border-navy/30",
@@ -221,7 +221,7 @@ export default function TimetableGrid({
               onClick={handleExportIcs}
               title="Ekspor ke iCalendar (.ics) untuk Google Calendar / Apple Calendar"
               className={cn(
-                "px-3 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs",
+                "min-h-11 px-3 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs",
                 exported
                   ? "bg-gold/20 text-navy border-gold/50"
                   : "bg-surface hover:bg-navy/5 text-navy border-border hover:border-navy/30",
@@ -235,7 +235,7 @@ export default function TimetableGrid({
               type="button"
               onClick={handlePrint}
               title="Cetak jadwal atau simpan sebagai dokumen PDF"
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold border bg-navy text-white hover:bg-navy-light border-navy flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+              className="min-h-11 px-3 rounded-lg text-xs font-semibold border bg-navy text-white hover:bg-navy-light border-navy flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
             >
               <Printer className="w-3.5 h-3.5" />
               <span>Cetak Jadwal / Simpan PDF</span>
@@ -296,7 +296,7 @@ export default function TimetableGrid({
                 key={day}
                 className={cn(
                   "flex-1 text-center border-r border-border font-heading font-bold text-navy last:border-r-0",
-                  compact ? "p-2.5 text-xs" : "p-3 text-sm",
+                  compact ? "p-2.5 text-xs" : "p-2.5 text-xs lg:p-3 lg:text-sm",
                 )}
               >
                 {day}
@@ -369,7 +369,9 @@ export default function TimetableGrid({
                             <span
                               className={cn(
                                 "font-mono font-bold opacity-80",
-                                compact ? "text-[9px]" : "text-xs",
+                                compact
+                                  ? "text-[9px]"
+                                  : "text-[10px] lg:text-xs",
                               )}
                             >
                               {item.code}
@@ -388,7 +390,7 @@ export default function TimetableGrid({
                           <span
                             className={cn(
                               "font-medium leading-tight mt-0.5 line-clamp-2",
-                              compact ? "text-xs" : "text-sm",
+                              compact ? "text-xs" : "text-xs lg:text-sm",
                             )}
                           >
                             {item.course}
@@ -396,7 +398,9 @@ export default function TimetableGrid({
                           <span
                             className={cn(
                               "mt-auto opacity-70",
-                              compact ? "text-[10px]" : "text-xs",
+                              compact
+                                ? "text-[10px]"
+                                : "text-[10px] lg:text-xs",
                             )}
                           >
                             {item.room}
@@ -433,7 +437,7 @@ export default function TimetableGrid({
               onClick={() =>
                 onNavigate?.("degree-planner", { tab: "timetable" })
               }
-              className="text-xs font-medium text-danger hover:underline flex-shrink-0 whitespace-nowrap cursor-pointer"
+              className="min-h-11 px-2 text-xs font-medium text-danger hover:underline flex-shrink-0 whitespace-nowrap cursor-pointer"
             >
               Perbaiki &rarr;
             </button>

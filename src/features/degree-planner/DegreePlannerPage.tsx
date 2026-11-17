@@ -12,6 +12,7 @@ import {
 import { SEMESTERS } from "@/shared/domain/academics"
 import { courseReligion } from "@/shared/domain/course"
 import TimetableGrid from "@/shared/timetable/TimetableGrid"
+import DailyScheduleAccordion from "@/shared/timetable/DailyScheduleAccordion"
 import {
   PlacedCourse,
   SemesterState,
@@ -21,6 +22,7 @@ import {
   courseKey,
 } from "@/features/degree-planner/types"
 import PlannerHeader from "@/features/degree-planner/components/PlannerHeader"
+import SemesterSwitcher from "@/features/degree-planner/components/SemesterSwitcher"
 import {
   SemesterColumn,
   ElectiveCourseBank,
@@ -99,6 +101,9 @@ export default function DegreePlanner({
     error: recordError,
   } = planner
   const [activeTab, setActiveTab] = useState<Tab>(initialTab || "roadmap")
+  const [activeRoadmapSem, setActiveRoadmapSem] = useState<number>(() =>
+    Math.min(8, Math.max(1, user?.student_profile?.current_semester ?? 1)),
+  )
 
   useEffect(() => {
     setActiveTab(initialTab || "roadmap")
@@ -513,7 +518,7 @@ export default function DegreePlanner({
           sectionCode: section.sectionCode,
           day: slot.day,
           start: slot.start,
-          duration: slot.duration,
+          duration: slot.end - slot.start,
           color: COLOR_PALETTE[index % COLOR_PALETTE.length],
           room: slot.room,
           lecturer: section.lecturer,
@@ -586,6 +591,30 @@ export default function DegreePlanner({
       handleApplyAlternative(alternative)
     })
   }
+  const renderSemesterColumn = (sem: number) => (
+    <SemesterColumn
+      key={sem}
+      sem={sem}
+      courses={plan[sem] || []}
+      completedCourses={completedBySemester[sem] || []}
+      state={semState(sem)}
+      dragging={dragging}
+      dropTarget={dropTarget}
+      onDragOverColumn={handleDragOver}
+      onDropColumn={handleDrop}
+      onDragLeaveColumn={handleDragLeave}
+      onCardDragStart={handleDragStart}
+      onCardDragOver={handleCardDragOver}
+      onCardDrop={handleCardDrop}
+      onDragEnd={handleDragEnd}
+      onDeleteCourse={deleteCourse}
+      onOpenManualPicker={(s) => {
+        setPickerSem(s)
+        setPickerSearch("")
+      }}
+      onSelectCourse={(c) => setInspectCourse({ course: c, sem })}
+    />
+  )
 
   return (
     <div className="h-full flex flex-col animate-in fade-in duration-500">
@@ -600,7 +629,7 @@ export default function DegreePlanner({
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
               className={cn(
-                "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer",
+                "flex items-center gap-2 px-4 min-h-11 rounded-lg text-sm font-medium transition-all cursor-pointer",
                 activeTab === tab.key
                   ? "bg-navy text-white shadow-sm"
                   : "text-muted hover:text-navy",
@@ -639,33 +668,23 @@ export default function DegreePlanner({
             </div>
           )}
 
-          <div className="flex-1 overflow-x-auto pb-1 min-h-0">
+          <SemesterSwitcher
+            id="roadmap-semester"
+            value={activeRoadmapSem}
+            counts={Object.fromEntries(
+              SEMESTERS.map((sem) => [sem, (plan[sem] || []).length]),
+            )}
+            onChange={setActiveRoadmapSem}
+          />
+
+          <div className="hidden md:block flex-1 overflow-x-auto pb-1 min-h-0">
             <div className="flex gap-4 min-w-max h-full">
-              {SEMESTERS.map((sem) => (
-                <SemesterColumn
-                  key={sem}
-                  sem={sem}
-                  courses={plan[sem] || []}
-                  completedCourses={completedBySemester[sem] || []}
-                  state={semState(sem)}
-                  dragging={dragging}
-                  dropTarget={dropTarget}
-                  onDragOverColumn={handleDragOver}
-                  onDropColumn={handleDrop}
-                  onDragLeaveColumn={handleDragLeave}
-                  onCardDragStart={handleDragStart}
-                  onCardDragOver={handleCardDragOver}
-                  onCardDrop={handleCardDrop}
-                  onDragEnd={handleDragEnd}
-                  onDeleteCourse={deleteCourse}
-                  onOpenManualPicker={(s) => {
-                    setPickerSem(s)
-                    setPickerSearch("")
-                  }}
-                  onSelectCourse={(c) => setInspectCourse({ course: c, sem })}
-                />
-              ))}
+              {SEMESTERS.map((sem) => renderSemesterColumn(sem))}
             </div>
+          </div>
+
+          <div className="md:hidden flex-1 min-h-0 overflow-y-auto pb-2">
+            {renderSemesterColumn(activeRoadmapSem)}
           </div>
 
           <ElectiveCourseBank
@@ -727,7 +746,7 @@ export default function DegreePlanner({
 
       {activeTab === "timetable" && (
         <div className="flex-1 flex flex-col min-h-0">
-          <div className="mb-4 flex flex-wrap justify-between items-center gap-3 flex-shrink-0">
+          <div className="mb-4 flex flex-col md:flex-row md:flex-wrap md:justify-between md:items-center gap-3 flex-shrink-0">
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-heading font-bold text-lg text-navy">
@@ -742,8 +761,16 @@ export default function DegreePlanner({
                 mingguan dan menyelesaikan bentrok waktu.
               </p>
             </div>
+            <SemesterSwitcher
+              id="timetable-semester"
+              value={activeTimetableSem}
+              counts={Object.fromEntries(
+                SEMESTERS.map((sem) => [sem, (plan[sem] || []).length]),
+              )}
+              onChange={setActiveTimetableSem}
+            />
 
-            <div className="flex items-center gap-1.5 bg-background p-1 rounded-xl border border-border">
+            <div className="hidden md:flex items-center gap-1.5 bg-background p-1 rounded-xl border border-border">
               <span className="text-xs text-muted font-medium px-2">
                 Tampilkan Semester:
               </span>
@@ -756,7 +783,7 @@ export default function DegreePlanner({
                     type="button"
                     onClick={() => setActiveTimetableSem(sem)}
                     className={cn(
-                      "px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1",
+                      "min-h-11 min-w-11 px-2 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1",
                       isActive
                         ? "bg-navy text-white shadow-2xs"
                         : "text-muted hover:text-navy hover:bg-navy/5",
@@ -781,7 +808,12 @@ export default function DegreePlanner({
             </div>
           </div>
 
-          <div className="flex-1 flex flex-col lg:grid lg:grid-cols-12 gap-4 min-h-0 overflow-y-auto lg:overflow-hidden pb-1">
+          <DailyScheduleAccordion
+            schedule={dynamicSchedule}
+            days={TIMETABLE_DAYS}
+          />
+
+          <div className="hidden md:flex flex-1 flex-col lg:grid lg:grid-cols-12 gap-4 min-h-0 overflow-y-auto lg:overflow-hidden pb-1 print:flex">
             <div className="lg:col-span-4 min-h-[380px] lg:h-full min-h-0 flex flex-col">
               <ClassSelectorPanel
                 activeSemester={activeTimetableSem}

@@ -19,7 +19,7 @@ export default function AnimatedMenuToggle({
       aria-label={isOpen ? "Sembunyikan bilah navigasi" : "Buka bilah navigasi"}
       title={isOpen ? "Sembunyikan Sidebar" : "Buka Sidebar"}
       className={cn(
-        "p-2 text-muted hover:text-navy hover:bg-background rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50 relative overflow-hidden group",
+        "min-h-11 min-w-11 flex items-center justify-center p-2 text-muted hover:text-navy hover:bg-background rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-gold/50 relative overflow-hidden group",
         isOpen && "bg-background/80 text-navy",
         className,
       )}
