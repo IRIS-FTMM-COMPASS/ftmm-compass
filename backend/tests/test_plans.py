@@ -1,3 +1,6 @@
+import random
+
+
 VALID_PLAN = {
     "1": [
         {
@@ -35,6 +38,92 @@ def _validate(client, plan, **extra):
         **extra,
     }
     return client.post("/api/v1/plans/validations", json=payload)
+
+
+def _create_course_with_database_prerequisite(client, admin_headers):
+    for _ in range(30):
+        code = f"VAL{random.randint(100, 999)}"
+        response = client.post(
+            "/api/v1/admin/courses",
+            headers=admin_headers,
+            json={
+                "course_code": code,
+                "course_name": f"Mata Kuliah Validasi {code}",
+                "program_name": "Teknologi Sains Data",
+                "credits": 3,
+                "recommended_semester": 5,
+                "term": "ganjil",
+                "course_type": "Pilihan",
+                "prerequisites": ["SID206"],
+            },
+        )
+        if response.status_code == 201:
+            return response.json()
+        assert response.status_code == 409, response.text
+    raise AssertionError("tidak mendapat kode mata kuliah unik untuk pengujian")
+
+
+def test_validate_rejects_database_prerequisite_when_client_sends_empty_array(
+    client, admin_headers
+):
+    created = _create_course_with_database_prerequisite(client, admin_headers)
+    try:
+        assert created["prerequisites"] == ["Pengantar Basis Data"]
+        plan = {
+            "1": [
+                {
+                    "id": created["id"],
+                    "code": created["code"],
+                    "name": created["name"],
+                    "credits": 3,
+                    "semester": 1,
+                    "type": "Pilihan",
+                    "parity": "odd",
+                    "prerequisites": [],
+                }
+            ]
+        }
+        response = _validate(client, plan)
+        assert response.status_code == 200
+        body = response.json()
+        assert body["is_valid"] is False
+        assert any(
+            "Prasyarat tidak terpenuhi" in error
+            and "Pengantar Basis Data" in error
+            for error in body["errors"]
+        )
+    finally:
+        client.delete(
+            f"/api/v1/admin/courses/{created['code']}", headers=admin_headers
+        )
+
+
+def test_validate_uses_database_prerequisites_instead_of_client_array(client):
+    plan = {
+        "1": [{**VALID_PLAN["1"][0], "prerequisites": ["Mata Kuliah Fiktif"]}]
+    }
+    response = _validate(client, plan)
+    assert response.status_code == 200
+    assert response.json()["is_valid"] is True
+
+
+def test_validate_ignores_non_course_requirement_labels(client):
+    plan = {
+        "7": [
+            {
+                "name": "Kuliah Kerja Nyata",
+                "code": "KNJ401",
+                "credits": 3,
+                "semester": 7,
+                "type": "Wajib",
+                "parity": "odd",
+                "prerequisites": [],
+            }
+        ]
+    }
+    response = _validate(client, plan)
+    assert response.status_code == 200
+    assert response.json()["is_valid"] is True
 
 
 def test_validate_accepts_consistent_plan(client, student_headers):

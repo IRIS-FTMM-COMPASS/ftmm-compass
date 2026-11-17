@@ -8,7 +8,7 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(line_buffering=True)
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from schemas import (
     StudentProfile,
     DegreePlanPayload,
@@ -17,8 +17,11 @@ from schemas import (
     PlanValidationRequest,
     PlanValidationResponse,
 )
+from sqlalchemy.ext.asyncio import AsyncSession
 
 import settings
+from catalog import authoritative_curriculum_id, get_courses_for_curriculum
+from database import get_db
 from tools.planner import generate_study_plan
 from tools.prerequisite_validator import validate_plan_constraints
 
@@ -73,9 +76,37 @@ def normalize_plan_payload(raw_payload: dict, profile: StudentProfile) -> Degree
     )
 
 
+async def _fill_database_prerequisites(
+    db: AsyncSession, request: PlanValidationRequest
+) -> None:
+    curriculum_id = await authoritative_curriculum_id(db, request.program_studi)
+    catalog_courses = (
+        await get_courses_for_curriculum(db, curriculum_id) if curriculum_id else []
+    )
+    by_code: dict[str, list[str]] = {}
+    by_name: dict[str, list[str]] = {}
+    for course in catalog_courses:
+        # Validator hanya memahami prasyarat matkul, bukan ambang SKS/semester.
+        prerequisites = [
+            item for item in course.prerequisites if not item.startswith("Minimal ")
+        ]
+        if course.code:
+            by_code.setdefault(course.code.lower(), []).extend(prerequisites)
+        by_name.setdefault(course.name.lower(), []).extend(prerequisites)
+
+    for courses in request.plan.values():
+        for course in courses:
+            code = (course.code or "").lower()
+            prerequisites = by_code.get(code) if code else None
+            if prerequisites is None:
+                prerequisites = by_name.get(course.name.lower(), [])
+            course.prerequisites = list(dict.fromkeys(prerequisites))
 
 
-async def handle_validate_plan(request: PlanValidationRequest) -> PlanValidationResponse:
+async def handle_validate_plan(
+    request: PlanValidationRequest, db: AsyncSession
+) -> PlanValidationResponse:
+    await _fill_database_prerequisites(db, request)
     local_val = validate_plan_constraints(
         plan=request.plan,
         riwayat_matkul_lulus=request.riwayat_matkul_lulus,
@@ -139,8 +170,10 @@ async def handle_generate_plan(profile: StudentProfile) -> DegreePlanPayload:
 
 
 @router.post("/plans/validations", response_model=PlanValidationResponse)
-async def v1_validate_plan(request: PlanValidationRequest):
-    return await handle_validate_plan(request)
+async def v1_validate_plan(
+    request: PlanValidationRequest, db: AsyncSession = Depends(get_db)
+):
+    return await handle_validate_plan(request, db)
 
 
 @router.post("/plans", response_model=DegreePlanPayload)
