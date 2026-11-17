@@ -232,7 +232,7 @@ pnpm dev:all
 
 - **Cross-Platform**: Menggunakan `concurrently` yang mendukung signal terminate (Ctrl+C) bersih di Linux maupun Windows.
 - **Dynamic Port Auto-Discovery**: Backend memindai port kosong pada rentang 8001–8050 (port 8000 disediakan untuk microservice chatbot) dan menuliskan port aktif ke `.backend-port`. Vite dev proxy membaca berkas itu dan meneruskan request `/api` ke port tersebut.
-- Buka **`http://localhost:8443`** di browser. Login memakai akun hasil seeding: `mahasiswa.testing@ftmm.unair.ac.id` / `Mahasiswa2026!` (student), `dosen.testing@ftmm.unair.ac.id` / `DosenFTMM2026!` (lecturer), atau `admin@ftmm.unair.ac.id` / `AdminFTMM2026!` (admin). Identifier menerima NIM, NIP, maupun email.
+- Buka **`http://localhost:8443`** di browser. Login memakai akun hasil seeding: `mahasiswa.testing@ftmm.unair.ac.id` / `Mahasiswa2026!` (student), `dosen.testing@ftmm.unair.ac.id` / `DosenFTMM2026!` (lecturer), atau `admin@ftmm.unair.ac.id` / `AdminFTMM2026!` (admin). Identifier menerima NIM atau email.
 - Database harus sudah di-migrate dan di-seed (`make db-up && make migrate && make seed`), karena kredensial dan katalog dibaca dari PostgreSQL, bukan dari data statis frontend.
 
 #### B. Menjalankan Terpisah (2 Tab Terminal)

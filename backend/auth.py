@@ -103,7 +103,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 async def authenticate_user(
     db: AsyncSession, identifier: str, password: str
 ) -> Optional[User]:
-    clean_identifier = identifier.strip()
+    clean_identifier = identifier.strip().lower()
     stmt = (
         select(User)
         .outerjoin(StudentProfile, User.user_id == StudentProfile.user_id)

@@ -69,8 +69,8 @@ cp .env.example .env
 | `AUTO_SEED` | `true` | Seed database saat startup |
 | `CHATBOT_SERVICE_URL` | `http://127.0.0.1:8000` (host) / `http://ftmm-compass-chatbot:8000` (Docker) | Upstream URL for Chatbot AI microservice |
 | `CHATBOT_TIMEOUT_SECONDS` | `45.0` | Timeout in seconds for Chatbot microservice calls |
-| `JWT_SECRET_KEY` | dev default | Signing key access token |
-| `DEFAULT_RATE_LIMIT` | `300/minute` | Slowapi limit per client |
+| `JWT_SECRET_KEY` | random per proses | Signing key access token; wajib di-set untuk multi-worker |
+| `DEFAULT_RATE_LIMIT` | none | Slowapi global limit per client; kosongkan untuk menonaktifkan |
 | `CORS_ORIGINS` | `*` | Allowed CORS origins, dipisah koma |
 ### 3. Run Development Server
 
@@ -105,7 +105,7 @@ Kontainer `ftmm-compass-gateway` secara otomatis terhubung ke `ftmm-network` dan
 
 ### Canonical REST Endpoints (`/api/v1`)
 - `GET /api/v1/health` — Gateway health check, PostgreSQL status, and Docker Chatbot microservice connectivity.
-- `POST /api/v1/auth/login` — Login NIM/NIP/email + password, mengembalikan access token JWT.
+- `POST /api/v1/auth/login` — Login NIM/email + password, mengembalikan access token JWT.
 - `GET /api/v1/auth/me` — Identitas dan profil akun aktif.
 - `PATCH /api/v1/auth/me/profile` — Perbarui profil (bio, minat karier, kontak).
 - `GET /api/v1/notifications/me` — Daftar notifikasi pengguna aktif.

@@ -289,7 +289,7 @@ class RegisterRequest(BaseModel):
     full_name: str = Field(..., min_length=2, max_length=150)
     student_number: str = Field(..., min_length=3, max_length=30)
     admission_year: int = Field(...)
-    password: str = Field(..., min_length=1, max_length=128)
+    password: str = Field(..., min_length=8, max_length=128)
     study_program_code: Optional[str] = Field(None, max_length=20)
 
 
@@ -299,7 +299,7 @@ class RegisterResponse(LoginResponse):
 
 class RecoverRequest(BaseModel):
     recovery_code: str = Field(..., min_length=1, max_length=64)
-    new_password: str = Field(..., min_length=1, max_length=128)
+    new_password: str = Field(..., min_length=8, max_length=128)
 
 
 class RecoverResponse(BaseModel):
@@ -309,7 +309,7 @@ class RecoverResponse(BaseModel):
 
 class ChangePasswordRequest(BaseModel):
     current_password: str
-    new_password: str = Field(..., min_length=1, max_length=128)
+    new_password: str = Field(..., min_length=8, max_length=128)
 
 
 class ChangePasswordResponse(BaseModel):
