@@ -6,6 +6,35 @@ def test_catalog_lists_all_programs(client):
     assert len({course["program"] for course in body["courses"]}) == 5
 
 
+def test_course_detail_returns_canonical_course(client):
+    response = client.get("/api/v1/courses/AGI101")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["code"] == "AGI101"
+    assert body["name"]
+    assert isinstance(body["prerequisites"], list)
+
+
+def test_course_detail_legacy_alias_matches_canonical(client):
+    response = client.get("/api/courses/AGI101")
+    assert response.status_code == 200
+    assert response.json()["code"] == "AGI101"
+
+
+def test_course_detail_unknown_code_returns_canonical_not_found(client):
+    response = client.get("/api/v1/courses/ZZZ999")
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "course_not_found"
+
+
+def test_catalog_out_of_range_parameter_returns_canonical_validation_error(client):
+    response = client.get("/api/v1/courses", params={"per_page": 0})
+    assert response.status_code == 422
+    body = response.json()
+    assert body["error"]["code"] == "validation_error"
+    assert any(item["field"] == "query.per_page" for item in body["error"]["details"])
+
+
 def test_catalog_filters_by_program(client):
     response = client.get(
         "/api/v1/courses", params={"prodi": "Teknologi Sains Data"}

@@ -56,11 +56,11 @@ class CourseModel(BaseModel):
     lecturer: Optional[str] = None
     prerequisites: List[str] = Field(default_factory=list)
 class AdminCourseCreateRequest(BaseModel):
-    course_code: str
-    course_name: str
-    program_name: str
-    credits: int = 3
-    recommended_semester: int = 1
+    course_code: str = Field(..., min_length=1, max_length=30)
+    course_name: str = Field(..., min_length=1, max_length=200)
+    program_name: str = Field(..., min_length=1)
+    credits: int = Field(3, ge=1, le=24)
+    recommended_semester: int = Field(1, ge=1, le=8)
     term: Literal["ganjil", "genap"] = "ganjil"
     course_type: Literal["Wajib", "Pilihan"] = "Pilihan"
     description: Optional[str] = ""
@@ -68,11 +68,11 @@ class AdminCourseCreateRequest(BaseModel):
     prerequisites: List[str] = Field(default_factory=list)
 
 class AdminCourseUpdateRequest(BaseModel):
-    course_code: Optional[str] = None
-    course_name: Optional[str] = None
-    program_name: Optional[str] = None
-    credits: Optional[int] = None
-    recommended_semester: Optional[int] = None
+    course_code: Optional[str] = Field(None, min_length=1, max_length=30)
+    course_name: Optional[str] = Field(None, min_length=1, max_length=200)
+    program_name: Optional[str] = Field(None, min_length=1)
+    credits: Optional[int] = Field(None, ge=1, le=24)
+    recommended_semester: Optional[int] = Field(None, ge=1, le=8)
     term: Optional[Literal["ganjil", "genap"]] = None
     course_type: Optional[Literal["Wajib", "Pilihan"]] = None
     description: Optional[str] = None
