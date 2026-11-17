@@ -1,4 +1,7 @@
 import uuid
+from datetime import datetime, timezone
+
+import jwt
 
 from rate_limit import limiter
 from tests.conftest import SEEDED_STUDENT
@@ -23,6 +26,7 @@ def test_login_returns_token_and_user(client):
     assert body["access_token"]
     assert body["user"]["role"] == "student"
     assert body["user"]["student_profile"]["student_number"]
+    assert body["expires_in"] == 28800
 
 
 def test_me_requires_token(client):
@@ -435,3 +439,16 @@ def test_change_password_rejects_short_new_password(client, student_headers):
     )
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_error"
+
+
+def test_login_token_lifetime_matches_expires_in(client):
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"identifier": SEEDED_STUDENT[0], "password": SEEDED_STUDENT[1]},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    claims = jwt.decode(body["access_token"], options={"verify_signature": False})
+    remaining = claims["exp"] - datetime.now(timezone.utc).timestamp()
+    assert body["expires_in"] == 28800
+    assert 28790 <= remaining <= 28800

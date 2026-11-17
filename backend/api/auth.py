@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 from datetime import datetime, timezone
 from sqlalchemy import and_, cast, func, inspect, or_, select, String, update
+from settings import ACCESS_TOKEN_EXPIRE_SECONDS
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from schemas import (
@@ -242,7 +243,7 @@ async def v1_login(
     return LoginResponse(
         access_token=access_token,
         token_type="bearer",
-        expires_in=86400,
+        expires_in=ACCESS_TOKEN_EXPIRE_SECONDS,
         user=_build_user_response(user),
     )
 
@@ -374,7 +375,7 @@ async def v1_register(
     return RegisterResponse(
         access_token=access_token,
         token_type="bearer",
-        expires_in=86400,
+        expires_in=ACCESS_TOKEN_EXPIRE_SECONDS,
         user=_build_user_response(user),
         recovery_code=recovery_code,
     )
@@ -448,7 +449,7 @@ async def v1_change_password(
     return ChangePasswordResponse(
         access_token=access_token,
         token_type="bearer",
-        expires_in=86400,
+        expires_in=ACCESS_TOKEN_EXPIRE_SECONDS,
         message="Kata sandi berhasil diubah. Gunakan token baru untuk sesi ini.",
     )
 

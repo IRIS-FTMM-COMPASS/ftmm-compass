@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import List, Optional, Dict, Literal, Any, Union
 from pydantic import BaseModel, Field
-
+from settings import ACCESS_TOKEN_EXPIRE_SECONDS
 
 class OllamaHealthDetail(BaseModel):
     online: bool
@@ -280,7 +280,7 @@ class UserResponse(BaseModel):
 class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
-    expires_in: int = 86400
+    expires_in: int = ACCESS_TOKEN_EXPIRE_SECONDS
     user: UserResponse
 
 
@@ -315,7 +315,7 @@ class ChangePasswordRequest(BaseModel):
 class ChangePasswordResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
-    expires_in: int = 86400
+    expires_in: int = ACCESS_TOKEN_EXPIRE_SECONDS
     message: str
 
 

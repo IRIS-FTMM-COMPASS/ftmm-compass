@@ -42,3 +42,9 @@ Checklist #157 terpenuhi untuk cakupan yang tersedia: migrasi reversible, regres
 - `DEFAULT_RATE_LIMIT` default dikosongkan sehingga endpoint di luar autentikasi tidak terkena batas global; batas auth 5/menit login dan 3/menit register/recover tetap aktif.
 - Kontrak dokumen login diselaraskan menjadi NIM/email; NIP tidak didukung model data saat ini.
 - Tes `test_auth.py` dan `test_api_contract.py` lulus setelah perubahan.
+
+## Penyelarasan kontrak kartu #157 (tambahan)
+
+- `expires_in` pada login, register, dan ganti password kini 28.800 detik (8 jam), sama dengan `exp` JWT; tes `test_login_token_lifetime_matches_expires_in` lulus dan teks "Masa Berlaku Token" di profil diperbarui.
+- Smoke admin selesai: login admin, buka Manajemen Akun, cari akun uji, nonaktifkan lalu aktifkan kembali, dan verifikasi status akhir "Aktif". Bukti: `qa157-11-admin-search.png`, `qa157-12-admin-deactivate.png`, `qa157-13-admin-reactivate.png`.
+- Divergensi deskripsi kartu terhadap kode final: tabel `users` memakai `token_version` dan `recovery_code_hash` dari migrasi `f3c9d1a7b2e8`, bukan `institutional_id`/`must_change_password`/`password_changed_at`/`last_login_at`; login menerima NIM atau email, bukan NIP; rute admin adalah `/api/v1/admin/accounts`, bukan `/admin/users`. Sesuai keputusan sesi, kode + PR #17 yang merged dipakai sebagai truth eksekusi, sehingga deskripsi kartu perlu diperbarui terpisah.

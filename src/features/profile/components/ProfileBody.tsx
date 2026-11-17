@@ -372,7 +372,7 @@ export default function ProfileBody({
               <div>
                 <p className="font-semibold text-navy">Masa Berlaku Token</p>
                 <p className="text-muted mt-0.5 font-mono">
-                  JWT Session (24 Jam / 86.400 detik)
+                  JWT Session (8 Jam / 28.800 detik)
                 </p>
               </div>
             </div>
