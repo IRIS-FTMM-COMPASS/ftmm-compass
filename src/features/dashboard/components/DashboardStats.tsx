@@ -184,13 +184,13 @@ export default function DashboardStats({
               <span className="text-3xl font-heading font-bold text-navy">
                 {dashboardData?.stats?.type === "student"
                   ? dashboardData.stats.sks_completed
-                  : 0}
+                  : "-"}
               </span>
               <span className="text-muted text-xs mb-1">
                 /{" "}
                 {dashboardData?.stats?.type === "student"
                   ? dashboardData.stats.sks_target
-                  : 0}{" "}
+                  : "-"}{" "}
                 SKS
               </span>
             </div>
@@ -222,7 +222,7 @@ export default function DashboardStats({
               <span className="text-3xl font-heading font-bold text-navy">
                 {dashboardData?.stats?.type === "student"
                   ? dashboardData.stats.current_semester
-                  : 0}
+                  : "-"}
               </span>
               <span className="text-muted text-xs mb-1">
                 {dashboardData?.stats?.type === "student"
@@ -231,7 +231,8 @@ export default function DashboardStats({
               </span>
             </div>
             <p className="text-[10px] text-muted mt-3 font-mono">
-              Status: Mahasiswa Aktif
+              {dashboardData?.stats?.type === "student" &&
+                "Status: Mahasiswa Aktif"}
             </p>
           </div>
 
@@ -245,7 +246,7 @@ export default function DashboardStats({
               <span className="text-3xl font-heading font-bold text-navy">
                 {dashboardData?.stats?.type === "student"
                   ? dashboardData.stats.courses_planned
-                  : 0}
+                  : "-"}
               </span>
               <span className="text-muted text-xs mb-1">Matakuliah</span>
             </div>
@@ -253,7 +254,7 @@ export default function DashboardStats({
               Total:{" "}
               {dashboardData?.stats?.type === "student"
                 ? dashboardData.stats.sks_planned
-                : 0}{" "}
+                : "-"}{" "}
               SKS
             </p>
           </div>
@@ -268,7 +269,7 @@ export default function DashboardStats({
               <span className="text-3xl font-heading font-bold text-navy">
                 {dashboardData?.stats?.type === "student"
                   ? dashboardData.stats.gpa.toFixed(2)
-                  : "0.00"}
+                  : "-"}
               </span>
               <span className="text-muted text-xs mb-1">/ 4.00</span>
             </div>
@@ -288,7 +289,7 @@ export default function DashboardStats({
               Predikat:{" "}
               {dashboardData?.stats?.type === "student"
                 ? dashboardData.stats.predicate
-                : "Dengan Pujian (Cumlaude)"}
+                : "-"}
             </p>
           </div>
         </div>

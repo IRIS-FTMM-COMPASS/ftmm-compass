@@ -1,0 +1,48 @@
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Hash Join  (cost=37.47..117.96 rows=1 width=98) (actual time=0.377..0.512 rows=2 loops=1)
+   Hash Cond: (cs2.class_section_id = ti2.class_section_id)
+   Join Filter: (ti2.timetable_item_id > ti1.timetable_item_id)
+   Rows Removed by Join Filter: 11
+   Buffers: shared hit=62
+   InitPlan 1 (returns $0)
+     ->  Limit  (cost=0.28..0.32 rows=1 width=16) (actual time=0.059..0.059 rows=1 loops=1)
+           Buffers: shared hit=3
+           ->  Index Only Scan using timetables_pkey on timetables  (cost=0.28..125.30 rows=3001 width=16) (actual time=0.058..0.058 rows=1 loops=1)
+                 Heap Fetches: 0
+                 Buffers: shared hit=3
+   ->  Nested Loop  (cost=4.90..84.55 rows=321 width=98) (actual time=0.170..0.423 rows=1059 loops=1)
+         Buffers: shared hit=59
+         ->  Nested Loop  (cost=4.63..62.58 rows=11 width=66) (actual time=0.125..0.141 rows=9 loops=1)
+               Buffers: shared hit=23
+               ->  Bitmap Heap Scan on timetable_items ti1  (cost=4.35..32.14 rows=8 width=48) (actual time=0.089..0.090 rows=8 loops=1)
+                     Recheck Cond: (timetable_id = $0)
+                     Heap Blocks: exact=1
+                     Buffers: shared hit=6
+                     ->  Bitmap Index Scan on timetable_items_section_unique  (cost=0.00..4.35 rows=8 width=0) (actual time=0.076..0.076 rows=8 loops=1)
+                           Index Cond: (timetable_id = $0)
+                           Buffers: shared hit=5
+               ->  Index Only Scan using class_schedules_slot_unique on class_schedules cs1  (cost=0.28..3.79 rows=1 width=34) (actual time=0.006..0.006 rows=1 loops=8)
+                     Index Cond: (class_section_id = ti1.class_section_id)
+                     Heap Fetches: 0
+                     Buffers: shared hit=17
+         ->  Index Only Scan using idx_class_schedules_day_time on class_schedules cs2  (cost=0.28..1.71 rows=29 width=34) (actual time=0.009..0.025 rows=118 loops=9)
+               Index Cond: ((day_of_week = cs1.day_of_week) AND (start_time < cs1.end_time) AND (end_time > cs1.start_time))
+               Heap Fetches: 0
+               Buffers: shared hit=36
+   ->  Hash  (cost=32.14..32.14 rows=8 width=48) (actual time=0.014..0.015 rows=8 loops=1)
+         Buckets: 1024  Batches: 1  Memory Usage: 9kB
+         Buffers: shared hit=3
+         ->  Bitmap Heap Scan on timetable_items ti2  (cost=4.35..32.14 rows=8 width=48) (actual time=0.002..0.003 rows=8 loops=1)
+               Recheck Cond: (timetable_id = $0)
+               Heap Blocks: exact=1
+               Buffers: shared hit=3
+               ->  Bitmap Index Scan on timetable_items_section_unique  (cost=0.00..4.35 rows=8 width=0) (actual time=0.001..0.001 rows=8 loops=1)
+                     Index Cond: (timetable_id = $0)
+                     Buffers: shared hit=2
+ Planning:
+   Buffers: shared hit=529
+ Planning Time: 4.362 ms
+ Execution Time: 0.824 ms
+(44 rows)
+

@@ -16,6 +16,7 @@ from schemas import (
 from database import AsyncSessionLocal
 
 import settings
+from stream_control import stream_tracker
 
 router = APIRouter()
 
@@ -67,6 +68,7 @@ async def handle_health_check(strict: bool = False) -> HealthResponse:
         default_model=chatbot_model,
         ollama=ollama_detail,
         database_online=database_online,
+        **stream_tracker.snapshot(),
     )
 
 

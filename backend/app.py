@@ -228,6 +228,10 @@ async def http_exception_handler(request: Request, exc: HTTPException):
         code = "upstream_service_unavailable"
     elif exc.status_code == status.HTTP_504_GATEWAY_TIMEOUT:
         code = "upstream_timeout"
+    elif exc.status_code == status.HTTP_401_UNAUTHORIZED:
+        code = "unauthorized"
+    elif exc.status_code == status.HTTP_403_FORBIDDEN:
+        code = "forbidden"
     elif exc.status_code in (getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", 422), 422):
         code = "validation_error"
     elif exc.status_code == status.HTTP_404_NOT_FOUND:

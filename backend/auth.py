@@ -1,3 +1,5 @@
+import hashlib
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -6,7 +8,7 @@ import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from passlib.context import CryptContext
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -33,6 +35,58 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
+
+
+
+async def get_token_version(db: AsyncSession, user_id) -> int:
+    """Versi token berasal dari kolom users.token_version (tabel tanpa model ORM)."""
+    result = await db.execute(
+        text("SELECT token_version FROM users WHERE user_id = CAST(:uid AS uuid)"),
+        {"uid": str(user_id)},
+    )
+    value = result.scalar_one_or_none()
+    return int(value or 0)
+
+
+async def bump_token_version(db: AsyncSession, user_id) -> int:
+    await db.execute(
+        text(
+            "UPDATE users SET token_version = COALESCE(token_version, 0) + 1 "
+            "WHERE user_id = CAST(:uid AS uuid)"
+        ),
+        {"uid": str(user_id)},
+    )
+    return await get_token_version(db, user_id)
+
+
+def hash_recovery_code(code: str) -> str:
+    return hashlib.sha256(code.strip().encode("utf-8")).hexdigest()
+
+
+def new_recovery_code() -> str:
+    raw = secrets.token_urlsafe(12).replace("-", "").replace("_", "").upper()[:12]
+    return f"FTMM-{raw[:4]}-{raw[4:8]}-{raw[8:12]}"
+
+
+async def save_recovery_code(db: AsyncSession, user_id, code: str) -> None:
+    await db.execute(
+        text(
+            "UPDATE users SET recovery_code_hash = :code_hash "
+            "WHERE user_id = CAST(:uid AS uuid)"
+        ),
+        {"code_hash": hash_recovery_code(code), "uid": str(user_id)},
+    )
+
+
+async def find_user_by_recovery_code(db: AsyncSession, code: str):
+    result = await db.execute(
+        text(
+            "SELECT user_id FROM users "
+            "WHERE recovery_code_hash = :code_hash"
+        ),
+        {"code_hash": hash_recovery_code(code)},
+    )
+    return result.scalar_one_or_none()
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -107,5 +161,12 @@ async def get_current_user(
     user = result.scalars().first()
 
     if user is None or not user.is_active:
+        raise credentials_exception
+
+    try:
+        claimed_version = int(payload.get("ver", 0))
+    except (TypeError, ValueError):
+        raise credentials_exception
+    if claimed_version != await get_token_version(db, user.user_id):
         raise credentials_exception
     return user

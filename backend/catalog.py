@@ -1,17 +1,22 @@
 """SSOT katalog kurikulum FTMM.
 
 Satu-satunya jalur baca katalog untuk API: DB (hasil seed kanonik), dengan fallback
-ke berkas `Ekstrak/*.json` bila database belum terisi. Admin CRUD menulis ke DB lalu
-memanggil `refresh_from_db`, sehingga tidak ada salinan katalog di memori proses yang
-bisa menyimpang dari database.
+ke berkas `Ekstrak/*.json` bila database belum terisi. Admin CRUD menulis ke DB,
+memanggil `refresh_from_db`, lalu membatalkan cache respons TTL. Cache ini hanya
+menyimpan payload database untuk kunci filter tertentu dan tidak pernah menyimpan
+jalur fallback lokal.
 """
 
+import copy
 import glob
 import json
+import logging
 import os
 import re
+import threading
+import time
 from collections import defaultdict
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +24,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from academics import parity_of, term_of
 from models import Course, Curriculum, CurriculumCourse, StudyProgram
 from schemas import CourseModel
+
+logger = logging.getLogger("ftmm_compass.catalog")
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EKSTRAK_DIR = os.path.join(REPO_ROOT, "Ekstrak")
@@ -73,6 +80,79 @@ ADMIN_REQUIREMENT_NOTES = "admin_catalog"
 
 _CURRICULUM: Dict[str, List[CourseModel]] = {}
 _SOURCE = "empty"
+
+CATALOG_CACHE_TTL_SECONDS = 30.0
+_catalog_cache: Dict[tuple, tuple[float, Any]] = {}
+_catalog_cache_lock = threading.Lock()
+
+
+def _clone_cached(value: Any) -> Any:
+    return copy.deepcopy(value)
+
+
+def catalog_cache_get(key: tuple) -> Optional[Any]:
+    """Ambil payload katalog dari cache bila masih segar; gagal baca diabaikan."""
+    try:
+        with _catalog_cache_lock:
+            entry = _catalog_cache.get(key)
+            if entry is None:
+                return None
+            expires_at, payload = entry
+            if time.monotonic() >= expires_at:
+                _catalog_cache.pop(key, None)
+                return None
+        return _clone_cached(payload)
+    except Exception:
+        logger.debug("Gagal membaca cache katalog", exc_info=True)
+        return None
+
+
+def catalog_cache_set(key: tuple, payload: Any) -> None:
+    """Simpan payload katalog untuk kunci filter dengan TTL; gagal tulis diabaikan."""
+    try:
+        cloned = _clone_cached(payload)
+        with _catalog_cache_lock:
+            _catalog_cache[key] = (
+                time.monotonic() + CATALOG_CACHE_TTL_SECONDS,
+                cloned,
+            )
+    except Exception:
+        logger.debug("Gagal menulis cache katalog", exc_info=True)
+
+
+def invalidate_catalog_cache() -> None:
+    """Hapus semua entri cache katalog setelah penulisan katalog oleh admin."""
+    try:
+        with _catalog_cache_lock:
+            _catalog_cache.clear()
+    except Exception:
+        logger.debug("Gagal membatalkan cache katalog", exc_info=True)
+
+
+async def catalog_db_is_available(db: AsyncSession) -> bool:
+    """Probe ringan: apakah database masih dapat menjawab kueri sederhana."""
+    try:
+        await db.execute(text("SELECT 1"))
+        return True
+    except Exception:
+        logger.debug("Probe ketersediaan database gagal", exc_info=True)
+        return False
+
+
+async def catalog_cache_get_checked(db: AsyncSession, key: tuple) -> Optional[Any]:
+    """Sajikan cache hanya bila database hidup; batalkan bila database mati."""
+    cached = catalog_cache_get(key)
+    if cached is None:
+        return None
+    try:
+        available = await catalog_db_is_available(db)
+    except Exception:
+        logger.debug("Probe katalog tidak dapat dijalankan", exc_info=True)
+        available = False
+    if available:
+        return cached
+    invalidate_catalog_cache()
+    return None
 
 
 def normalize_prodi(prodi_input: Optional[str]) -> Optional[str]:
@@ -395,10 +475,8 @@ async def authoritative_curriculum_id(
     return by_key.get((program, year)) if year is not None else None
 
 
-async def refresh_from_db(db: AsyncSession) -> int:
-    """Bangun ulang cache katalog dari database; kembalikan jumlah mata kuliah."""
-    global _CURRICULUM, _SOURCE
-
+async def build_catalog_from_db(db: AsyncSession) -> Optional[Dict[str, List[CourseModel]]]:
+    """Bangun katalog dari kurikulum otoritatif di database, atau None bila kosong."""
     rows = (
         await db.execute(
             select(
@@ -421,13 +499,9 @@ async def refresh_from_db(db: AsyncSession) -> int:
     ).mappings().all()
 
     if not rows:
-        if not _CURRICULUM:
-            _CURRICULUM = load_ekstrak()
-            _SOURCE = "ekstrak"
-        return sum(len(courses) for courses in _CURRICULUM.values())
+        return None
 
     leaves = await _load_requirement_leaves(db)
-
     coverage: Dict[tuple[str, int], int] = defaultdict(int)
     for row in rows:
         program = normalize_prodi(row["program_name"]) or DEFAULT_PRODI
@@ -454,6 +528,35 @@ async def refresh_from_db(db: AsyncSession) -> int:
                 used_ids=used_by_program[program],
             )
         )
+    return catalog
+
+
+async def get_catalog_from_source(
+    db: AsyncSession,
+) -> tuple[Dict[str, List[CourseModel]], str]:
+    """Satu jalur baca katalog publik: database bila hidup, lokal bila tidak."""
+    try:
+        catalog = await build_catalog_from_db(db)
+        if catalog:
+            return catalog, "database"
+    except Exception:
+        logger.debug("Katalog database tidak terbaca, memakai fallback lokal")
+    local = load_ekstrak()
+    if local:
+        return local, "local_fallback"
+    return dict(_CURRICULUM), "local_fallback"
+
+
+async def refresh_from_db(db: AsyncSession) -> int:
+    """Bangun ulang cache katalog dari database; kembalikan jumlah mata kuliah."""
+    global _CURRICULUM, _SOURCE
+
+    catalog = await build_catalog_from_db(db)
+    if catalog is None:
+        if not _CURRICULUM:
+            _CURRICULUM = load_ekstrak()
+            _SOURCE = "ekstrak"
+        return sum(len(courses) for courses in _CURRICULUM.values())
 
     _CURRICULUM = catalog
     _SOURCE = "database"
@@ -464,15 +567,18 @@ def catalog_source() -> str:
     return _SOURCE
 
 
-def get_available_programs() -> List[str]:
-    return sorted(_CURRICULUM.keys())
+def get_available_programs(catalog: Optional[Dict[str, List[CourseModel]]] = None) -> List[str]:
+    return sorted((catalog if catalog is not None else _CURRICULUM).keys())
 
 
-def get_courses_for_program(prodi: str) -> List[CourseModel]:
+def get_courses_for_program(
+    prodi: str, catalog: Optional[Dict[str, List[CourseModel]]] = None
+) -> List[CourseModel]:
+    source = catalog if catalog is not None else _CURRICULUM
     program = normalize_prodi(prodi)
-    if program and program in _CURRICULUM:
-        return list(_CURRICULUM[program])
-    return list(_CURRICULUM.get(DEFAULT_PRODI, []))
+    if program and program in source:
+        return list(source[program])
+    return list(source.get(DEFAULT_PRODI, []))
 
 
 async def get_courses_for_curriculum(
@@ -525,8 +631,9 @@ async def get_courses_for_curriculum(
     ]
 
 
-def get_all_courses() -> List[CourseModel]:
-    return [course for courses in _CURRICULUM.values() for course in courses]
+def get_all_courses(catalog: Optional[Dict[str, List[CourseModel]]] = None) -> List[CourseModel]:
+    source = catalog if catalog is not None else _CURRICULUM
+    return [course for courses in source.values() for course in courses]
 
 
 def get_course(course_id: str) -> Optional[CourseModel]:

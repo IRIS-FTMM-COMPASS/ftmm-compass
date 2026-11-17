@@ -18,6 +18,9 @@ class HealthResponse(BaseModel):
     default_model: Optional[str] = None
     ollama: Optional[OllamaHealthDetail] = None
     database_online: bool = False
+    active_streams: int = 0
+    first_token_latency_ms: Optional[float] = None
+    last_stream_duration_ms: Optional[float] = None
 
 class StudentProfile(BaseModel):
     program_studi: Optional[str] = Field(
@@ -279,6 +282,83 @@ class LoginResponse(BaseModel):
     token_type: str = "bearer"
     expires_in: int = 86400
     user: UserResponse
+
+
+class RegisterRequest(BaseModel):
+    email: str = Field(..., max_length=255)
+    full_name: str = Field(..., min_length=2, max_length=150)
+    student_number: str = Field(..., min_length=3, max_length=30)
+    admission_year: int = Field(...)
+    password: str = Field(..., min_length=1, max_length=128)
+    study_program_code: Optional[str] = Field(None, max_length=20)
+
+
+class RegisterResponse(LoginResponse):
+    recovery_code: str
+
+
+class RecoverRequest(BaseModel):
+    recovery_code: str = Field(..., min_length=1, max_length=64)
+    new_password: str = Field(..., min_length=1, max_length=128)
+
+
+class RecoverResponse(BaseModel):
+    message: str
+    recovery_code: str
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(..., min_length=1, max_length=128)
+
+
+class ChangePasswordResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int = 86400
+    message: str
+
+
+class AccountResponse(BaseModel):
+    user_id: str
+    email: str
+    full_name: str
+    role: str
+    is_active: bool = True
+    status: str = "active"
+    student_number: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class AccountListResponse(BaseModel):
+    data: List[AccountResponse] = Field(default_factory=list)
+    meta: Dict[str, int] = Field(default_factory=dict)
+
+
+class AccountCreateRequest(BaseModel):
+    email: str = Field(..., max_length=255)
+    full_name: str = Field(..., min_length=2, max_length=150)
+    role: Literal["admin", "lecturer"] = "lecturer"
+    password: Optional[str] = Field(None, min_length=8, max_length=128)
+
+
+class AccountCreateResponse(BaseModel):
+    data: AccountResponse
+    temporary_password: Optional[str] = None
+
+
+class AccountUpdateRequest(BaseModel):
+    is_active: bool
+
+
+class AccountUpdateResponse(BaseModel):
+    data: AccountResponse
+
+
+class ResetPasswordResponse(BaseModel):
+    message: str
+    temporary_password: str
+
 class PollingPeriodResponse(BaseModel):
     period_id: str
     academic_year: str

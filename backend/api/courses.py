@@ -7,7 +7,6 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(line_buffering=True)
 import logging
-import httpx
 from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import JSONResponse
@@ -30,7 +29,9 @@ from models import (
 from auth import get_current_user
 from catalog import (
     authoritative_curriculum_id,
-    catalog_source,
+    catalog_cache_get_checked,
+    catalog_cache_set,
+    get_catalog_from_source,
     get_courses_for_program,
     get_all_courses,
     get_available_programs,
@@ -38,9 +39,8 @@ from catalog import (
     normalize_prodi,
     refresh_from_db,
     replace_prerequisites,
+    invalidate_catalog_cache,
 )
-
-import settings
 
 router = APIRouter()
 
@@ -50,6 +50,7 @@ def _catalog_error(status_code: int, code: str, message: str) -> JSONResponse:
 
 
 async def handle_list_courses(
+    db: AsyncSession,
     prodi: str | None = None,
     program_studi: str | None = None,
     semester: int | None = None,
@@ -59,66 +60,18 @@ async def handle_list_courses(
 ) -> Any:
     target_prodi = prodi or program_studi
     norm_prodi = normalize_prodi(target_prodi) if target_prodi else None
-
-    try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            params: dict[str, Any] = {}
-            if norm_prodi:
-                params["program_studi"] = norm_prodi
-            if semester is not None:
-                params["semester"] = semester
-            if q:
-                params["q"] = q
-            if page is not None:
-                params["page"] = page
-            if per_page is not None:
-                params["per_page"] = per_page
-
-            resp = await client.get(f"{settings.CHATBOT_SERVICE_URL}/api/courses", params=params)
-            if resp.status_code == 200:
-                data = resp.json()
-                raw_programs = [
-                    p.replace("S1 ", "").strip() if isinstance(p, str) else p
-                    for p in data.get("programs", [])
-                ]
-                clean_prodi = (
-                    data.get("program_studi", "").replace("S1 ", "").strip()
-                    if data.get("program_studi")
-                    else norm_prodi
-                )
-                raw_courses = data.get("courses", [])
-                for c in raw_courses:
-                    if isinstance(c, dict) and "program" in c and isinstance(c["program"], str):
-                        c["program"] = c["program"].replace("S1 ", "").strip()
-
-                if "meta" in data and "data" in data:
-                    raw_paged = data.get("data", [])
-                    for c in raw_paged:
-                        if isinstance(c, dict) and "program" in c and isinstance(c["program"], str):
-                            c["program"] = c["program"].replace("S1 ", "").strip()
-                    return {
-                        "source": "chatbot_ssot",
-                        "data": raw_paged,
-                        "meta": data.get("meta"),
-                        "links": data.get("links"),
-                        "program_studi": clean_prodi or norm_prodi,
-                    }
-                return {
-                    "source": "chatbot_ssot",
-                    "program_studi": clean_prodi or norm_prodi or "Semua Program Studi",
-                    "total_courses": data.get("total_courses", len(raw_courses)),
-                    "programs": raw_programs,
-                    "courses": raw_courses,
-                }
-    except Exception as exc:
-        logger.debug("%s", exc)
+    cache_key = ("list", norm_prodi, semester, q, page, per_page)
+    cached = await catalog_cache_get_checked(db, cache_key)
+    if cached is not None:
+        return cached
+    catalog, source = await get_catalog_from_source(db)
 
     if not norm_prodi or norm_prodi.lower() in ("all", "semua"):
-        courses = get_all_courses()
+        courses = get_all_courses(catalog)
         active_prodi = "Semua Program Studi"
     else:
         active_prodi = norm_prodi
-        courses = get_courses_for_program(active_prodi)
+        courses = get_courses_for_program(active_prodi, catalog)
 
     if semester is not None:
         courses = [c for c in courses if c.semester == semester]
@@ -145,8 +98,8 @@ async def handle_list_courses(
         if q:
             prefix += f"&q={q}"
 
-        return {
-            "source": f"catalog_{catalog_source()}",
+        payload = {
+            "source": source,
             "data": [c.model_dump() for c in sliced],
             "meta": {
                 "total": total,
@@ -163,17 +116,24 @@ async def handle_list_courses(
             },
             "program_studi": active_prodi,
         }
+        if source == "database":
+            catalog_cache_set(cache_key, payload)
+        return payload
 
-    return {
-        "source": f"catalog_{catalog_source()}",
+    payload = {
+        "source": source,
         "program_studi": active_prodi,
         "total_courses": len(courses),
-        "programs": get_available_programs(),
+        "programs": get_available_programs(catalog),
         "courses": [c.model_dump() for c in courses],
     }
+    if source == "database":
+        catalog_cache_set(cache_key, payload)
+    return payload
 
 
 async def handle_search_courses(
+    db: AsyncSession,
     q: str,
     prodi: str | None = None,
     program_studi: str | None = None,
@@ -181,29 +141,16 @@ async def handle_search_courses(
 ) -> CourseSearchResponse:
     target_prodi = prodi or program_studi
     norm_prodi = normalize_prodi(target_prodi) if target_prodi else None
-
-    try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            params = {"q": q, "top_k": top_k}
-            if norm_prodi:
-                params["prodi"] = norm_prodi
-            resp = await client.get(f"{settings.CHATBOT_SERVICE_URL}/api/courses/search", params=params)
-            if resp.status_code == 200:
-                data = resp.json()
-                return CourseSearchResponse(
-                    source="chatbot_ssot",
-                    query=data.get("query", q),
-                    program_studi=data.get("program_studi") or norm_prodi,
-                    total_hits=data.get("total_hits", len(data.get("results", []))),
-                    results=[CourseSearchItem(**item) for item in data.get("results", [])],
-                )
-    except Exception as exc:
-        logger.debug("%s", exc)
+    cache_key = ("search", q, norm_prodi, top_k)
+    cached = await catalog_cache_get_checked(db, cache_key)
+    if cached is not None:
+        return cached
+    catalog, source = await get_catalog_from_source(db)
 
     if norm_prodi and norm_prodi.lower() not in ("all", "semua"):
-        courses = get_courses_for_program(norm_prodi)
+        courses = get_courses_for_program(norm_prodi, catalog)
     else:
-        courses = get_all_courses()
+        courses = get_all_courses(catalog)
     q_lower = q.lower().strip()
     hits: list[CourseSearchItem] = []
     for c in courses:
@@ -215,22 +162,20 @@ async def handle_search_courses(
         elif q_lower in c.desc.lower():
             score = 0.5
         if score > 0.0:
-            hits.append(
-                CourseSearchItem(
-                    **c.model_dump(),
-                    score=score,
-                )
-            )
+            hits.append(CourseSearchItem(**c.model_dump(), score=score))
 
     hits.sort(key=lambda x: x.score, reverse=True)
     selected = hits[:top_k]
-    return CourseSearchResponse(
-        source=f"catalog_{catalog_source()}",
+    result = CourseSearchResponse(
+        source=source,
         query=q,
         program_studi=norm_prodi,
         total_hits=len(selected),
         results=selected,
     )
+    if source == "database":
+        catalog_cache_set(cache_key, result)
+    return result
 
 
 logger = logging.getLogger("ftmm_compass.gateway")
@@ -246,8 +191,10 @@ async def v1_list_courses(
     q: str | None = Query(None, description="Pencarian semantik silabus atau nama mata kuliah."),
     page: int | None = Query(None, ge=1, description="Nomor halaman (1-based)."),
     per_page: int | None = Query(None, ge=1, le=100, description="Jumlah item per halaman."),
+    db: AsyncSession = Depends(get_db),
 ):
     return await handle_list_courses(
+        db=db,
         prodi=prodi,
         program_studi=program_studi,
         semester=semester,
@@ -263,8 +210,10 @@ async def v1_search_courses(
     prodi: str | None = Query(None, description="Filter nama prodi."),
     program_studi: str | None = Query(None, description="Alias prodi."),
     top_k: int = Query(5, ge=1, le=20, description="Batas hasil pencarian."),
+    db: AsyncSession = Depends(get_db),
 ):
     return await handle_search_courses(
+        db=db,
         q=q,
         prodi=prodi,
         program_studi=program_studi,
@@ -342,6 +291,7 @@ async def v1_admin_create_course(
     await db.commit()
 
     await refresh_from_db(db)
+    invalidate_catalog_cache()
     created = get_course(payload.course_code)
     if created is None:
         raise HTTPException(
@@ -410,6 +360,7 @@ async def v1_admin_update_course(
         await db.commit()
 
     await refresh_from_db(db)
+    invalidate_catalog_cache()
     target_code = payload.course_code or (course_db.course_code if course_db else course_id)
     updated = get_course(target_code)
     if updated is None:
@@ -440,6 +391,7 @@ async def v1_admin_delete_course(
         await db.commit()
 
     await refresh_from_db(db)
+    invalidate_catalog_cache()
     return {"status": "success", "message": f"Mata kuliah {course_id} berhasil dinonaktifkan."}
 
 

@@ -396,8 +396,9 @@ export default function TimetableGrid({
                             {item.course}
                           </span>
                           <span
+                            title={item.room}
                             className={cn(
-                              "mt-auto opacity-70",
+                              "mt-auto opacity-70 break-words",
                               compact
                                 ? "text-[10px]"
                                 : "text-[10px] lg:text-xs",

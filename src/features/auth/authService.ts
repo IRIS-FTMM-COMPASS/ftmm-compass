@@ -1,4 +1,4 @@
-import { ApiError, apiFetch, authHeaders } from "@/shared/api/client"
+import { API_BASE, ApiError, authHeaders } from "@/shared/api/client"
 import {
   clearSession,
   readToken,
@@ -48,14 +48,375 @@ export interface AuthResponse {
   user: AuthUser
 }
 
+export interface RegisterPayload {
+  email: string
+  full_name: string
+  student_number: string
+  admission_year: number
+  password: string
+}
+
+export interface RegisterResponse extends AuthResponse {
+  recovery_code: string
+}
+
+export interface RecoverPayload {
+  recovery_code: string
+  new_password: string
+}
+
+export interface RecoverResponse {
+  message?: string
+  recovery_code?: string
+}
+
+export interface ChangePasswordPayload {
+  current_password: string
+  new_password: string
+}
+
+export interface ChangePasswordResponse {
+  access_token: string
+  token_type: string
+  expires_in: number
+  message?: string
+}
+
+export interface AdminAccount {
+  user_id: string
+  email: string
+  full_name: string
+  role: string
+  is_active: boolean
+  status: "active" | "inactive"
+  student_number: string | null
+  created_at: string | null
+}
+
+export interface AdminAccountList {
+  items: AdminAccount[]
+  total: number
+  page: number
+  page_size: number
+  pages: number
+}
+
+export interface AdminAccountFilters {
+  search?: string
+  role?: string
+  status?: string
+  page?: number
+  page_size?: number
+}
+
+export interface CreateStaffPayload {
+  email: string
+  full_name: string
+  role: "admin" | "lecturer"
+  password?: string
+}
+
+export interface CreateStaffResponse {
+  account: AdminAccount
+  temporary_password: string | null
+}
+
+export interface ResetPasswordResponse {
+  message?: string
+  temporary_password: string
+}
+
+export interface FieldIssue {
+  field: string
+  message: string
+  code?: string
+}
+
+export class AuthApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code: string | null,
+    readonly details: FieldIssue[],
+    readonly retryAfter: number | null,
+  ) {
+    super(message)
+    this.name = "AuthApiError"
+  }
+}
+
+type UnauthorizedListener = () => void
+type TokenRenewedListener = (expiresInSeconds: number) => void
+
+const unauthorizedListeners = new Set<UnauthorizedListener>()
+const tokenRenewedListeners = new Set<TokenRenewedListener>()
+
+export function onUnauthorized(listener: UnauthorizedListener): () => void {
+  unauthorizedListeners.add(listener)
+  return () => unauthorizedListeners.delete(listener)
+}
+
+export function onTokenRenewed(listener: TokenRenewedListener): () => void {
+  tokenRenewedListeners.add(listener)
+  return () => tokenRenewedListeners.delete(listener)
+}
+
+export function notifyUnauthorized(): void {
+  clearSession()
+  unauthorizedListeners.forEach((listener) => listener())
+}
+
+function notifyTokenRenewed(expiresInSeconds: number): void {
+  tokenRenewedListeners.forEach((listener) => listener(expiresInSeconds))
+}
+
+function retryAfterFrom(value: unknown): number | null {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+}
+
+function normalizeDetails(raw: unknown): FieldIssue[] {
+  if (!Array.isArray(raw)) return []
+  const issues: FieldIssue[] = []
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue
+    const item = entry as Record<string, unknown>
+    let field = ""
+    if (typeof item.field === "string") {
+      field = item.field
+    } else if (Array.isArray(item.loc)) {
+      const parts = item.loc.filter(
+        (part) => part !== "body" && part !== "query" && part !== "path",
+      )
+      field = String(parts[parts.length - 1] ?? "")
+    }
+    const message =
+      typeof item.message === "string"
+        ? item.message
+        : typeof item.msg === "string"
+          ? item.msg
+          : ""
+    if (!field || !message) continue
+    issues.push({
+      field,
+      message,
+      code: typeof item.code === "string" ? item.code : undefined,
+    })
+  }
+  return issues
+}
+
+function buildError(
+  payload: unknown,
+  status: number,
+  fallback: string,
+): AuthApiError {
+  let message = fallback
+  let code: string | null = null
+  let details: FieldIssue[] = []
+  let retryAfter: number | null = null
+
+  if (payload && typeof payload === "object") {
+    const body = payload as Record<string, unknown>
+    const envelope =
+      body.error && typeof body.error === "object"
+        ? body.error as Record<string, unknown>
+        : null
+    if (envelope) {
+      if (typeof envelope.message === "string") message = envelope.message
+      if (typeof envelope.code === "string") code = envelope.code
+      details = normalizeDetails(envelope.details)
+      retryAfter =
+        retryAfterFrom(envelope.retry_after) ?? retryAfterFrom(body.retry_after)
+    } else if (typeof body.detail === "string") {
+      message = body.detail
+    } else if (typeof body.message === "string") {
+      message = body.message
+    }
+  }
+
+  return new AuthApiError(message, status, code, details, retryAfter)
+}
+
+export function authErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof AuthApiError || error instanceof ApiError) {
+    return error.message || fallback
+  }
+  if (error instanceof Error && error.message) return error.message
+  return fallback
+}
+
+export function fieldErrors(error: unknown): Record<string, string> {
+  if (!(error instanceof AuthApiError)) return {}
+  return Object.fromEntries(
+    error.details.map((issue) => [issue.field, issue.message]),
+  )
+}
+
+export function fieldError(error: unknown, name: string): string | null {
+  return fieldErrors(error)[name] ?? null
+}
+
+interface RequestOptions {
+  method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"
+  body?: unknown
+  auth?: boolean
+}
+
+async function request<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
+  const headers: Record<string, string> = { Accept: "application/json" }
+  if (options.auth !== false) Object.assign(headers, authHeaders())
+  let payload: BodyInit | undefined
+  if (options.body !== undefined) {
+    headers["Content-Type"] = "application/json"
+    payload = JSON.stringify(options.body)
+  }
+
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      method: options.method ?? "GET",
+      headers,
+      body: payload,
+    })
+  } catch {
+    throw new AuthApiError(
+      "Tidak dapat terhubung ke layanan. Silakan coba lagi.",
+      0,
+      null,
+      [],
+      null,
+    )
+  }
+
+  if (!response.ok) {
+    const raw = await response.json().catch(() => null)
+    const error = buildError(
+      raw,
+      response.status,
+      response.status >= 500
+        ? `Layanan sedang bermasalah (${response.status})`
+        : `Permintaan gagal (${response.status})`,
+    )
+    if (response.status === 401 && options.auth !== false) notifyUnauthorized()
+    throw error
+  }
+
+  if (response.status === 204) return undefined as T
+  return (await response.json()) as T
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object"
+    ? value as Record<string, unknown>
+    : {}
+}
+function normalizeAccount(value: unknown): AdminAccount {
+  const item = asRecord(value)
+  const isActive =
+    typeof item.is_active === "boolean"
+      ? item.is_active
+      : item.status === "active"
+  return {
+    user_id: String(item.user_id ?? item.id ?? ""),
+    email: String(item.email ?? ""),
+    full_name: String(item.full_name ?? ""),
+    role: String(item.role ?? "student"),
+    is_active: isActive,
+    status: isActive ? "active" : "inactive",
+    student_number:
+      typeof item.student_number === "string" ? item.student_number : null,
+    created_at: typeof item.created_at === "string" ? item.created_at : null,
+  }
+}
+
+function normalizeAccountList(value: unknown): AdminAccountList {
+  const body = asRecord(value)
+  const source = Array.isArray(body.data)
+    ? body.data
+    : Array.isArray(body.items)
+      ? body.items
+      : []
+  const items = source.map(normalizeAccount)
+  const meta = asRecord(body.meta)
+  const total = Number(meta.total ?? body.total ?? items.length)
+  const page = Math.max(1, Number(meta.page ?? body.page ?? 1))
+  const page_size = Number(meta.page_size ?? body.per_page ?? 20)
+  const pages = Math.max(
+    1,
+    Number(meta.pages ?? Math.ceil(total / Math.max(1, page_size))),
+  )
+  return { items, total, page, page_size, pages }
+}
+
+export async function copyToClipboard(value: string): Promise<boolean> {
+  try {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value)
+      return true
+    }
+  } catch {
+    return false
+  }
+  return false
+}
+
+export function downloadTextFile(filename: string, content: string): void {
+  if (typeof document === "undefined") return
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement("a")
+  anchor.href = url
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
+}
+
 export const authService = {
   async login(credentials: LoginCredentials): Promise<AuthResponse> {
-    const data = await apiFetch<AuthResponse>("/api/v1/auth/login", {
+    const data = await request<AuthResponse>("/api/v1/auth/login", {
       method: "POST",
       body: credentials,
+      auth: false,
     })
     writeToken(data.access_token)
     writeUser(data.user)
+    return data
+  },
+
+  async register(payload: RegisterPayload): Promise<RegisterResponse> {
+    const data = await request<RegisterResponse>("/api/v1/auth/register", {
+      method: "POST",
+      body: payload,
+      auth: false,
+    })
+    writeToken(data.access_token)
+    writeUser(data.user)
+    return data
+  },
+
+  async recover(payload: RecoverPayload): Promise<RecoverResponse> {
+    return request<RecoverResponse>("/api/v1/auth/recover", {
+      method: "POST",
+      body: payload,
+      auth: false,
+    })
+  },
+
+  async changePassword(
+    payload: ChangePasswordPayload,
+  ): Promise<ChangePasswordResponse> {
+    const data = await request<ChangePasswordResponse>(
+      "/api/v1/auth/change-password",
+      { method: "POST", body: payload },
+    )
+    writeToken(data.access_token)
+    notifyTokenRenewed(data.expires_in)
     return data
   },
 
@@ -77,19 +438,75 @@ export const authService = {
 
   async getMe(): Promise<AuthUser> {
     if (!readToken()) throw new ApiError("Sesi tidak ditemukan", 401)
-    const user = await apiFetch<AuthUser>("/api/v1/auth/me", { auth: true })
+    const user = await request<AuthUser>("/api/v1/auth/me")
     writeUser(user)
     return user
   },
 
   async updateProfile(payload: ProfileUpdatePayload): Promise<AuthUser> {
     if (!readToken()) throw new ApiError("Sesi tidak ditemukan", 401)
-    const user = await apiFetch<AuthUser>("/api/v1/auth/me/profile", {
+    const user = await request<AuthUser>("/api/v1/auth/me/profile", {
       method: "PATCH",
       body: payload,
-      auth: true,
     })
     writeUser(user)
     return user
+  },
+
+  async listAccounts(
+    filters: AdminAccountFilters = {},
+  ): Promise<AdminAccountList> {
+    const params = new URLSearchParams()
+    if (filters.search?.trim()) params.set("search", filters.search.trim())
+    if (filters.role && filters.role !== "all") params.set("role", filters.role)
+    if (filters.status && filters.status !== "all") {
+      params.set("status", filters.status)
+    }
+    params.set("page", String(filters.page ?? 1))
+    params.set("page_size", String(filters.page_size ?? 20))
+    const raw = await request<unknown>(`/api/v1/admin/accounts?${params}`)
+    return normalizeAccountList(raw)
+  },
+
+  async createStaff(payload: CreateStaffPayload): Promise<CreateStaffResponse> {
+    const raw = await request<unknown>("/api/v1/admin/accounts", {
+      method: "POST",
+      body: payload,
+    })
+    const body = asRecord(raw)
+    return {
+      account: normalizeAccount(body.data ?? raw),
+      temporary_password:
+        typeof body.temporary_password === "string"
+          ? body.temporary_password
+          : null,
+    }
+  },
+
+  async setAccountStatus(
+    userId: string,
+    isActive: boolean,
+  ): Promise<AdminAccount> {
+    const raw = await request<unknown>(
+      `/api/v1/admin/accounts/${encodeURIComponent(userId)}`,
+      { method: "PATCH", body: { is_active: isActive } },
+    )
+    const body = asRecord(raw)
+    return normalizeAccount(body.data ?? raw)
+  },
+
+  async resetAccountPassword(userId: string): Promise<ResetPasswordResponse> {
+    const raw = await request<unknown>(
+      `/api/v1/admin/accounts/${encodeURIComponent(userId)}/reset-password`,
+      { method: "POST" },
+    )
+    const body = asRecord(raw)
+    return {
+      message: typeof body.message === "string" ? body.message : undefined,
+      temporary_password:
+        typeof body.temporary_password === "string"
+          ? body.temporary_password
+          : "",
+    }
   },
 }

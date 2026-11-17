@@ -1,0 +1,38 @@
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=5574.20..5574.21 rows=1 width=8) (actual time=25.083..25.085 rows=1 loops=1)
+   Buffers: shared hit=538
+   ->  Hash Join  (cost=1567.48..5567.37 rows=2731 width=0) (actual time=12.347..24.674 rows=14288 loops=1)
+         Hash Cond: ((ti1.timetable_id = ti2.timetable_id) AND (cs1.day_of_week = cs2.day_of_week))
+         Join Filter: ((ti2.timetable_item_id > ti1.timetable_item_id) AND (cs1.start_time < cs2.end_time) AND (cs2.start_time < cs1.end_time))
+         Rows Removed by Join Filter: 87575
+         Buffers: shared hit=538
+         ->  Hash Join  (cost=50.34..1020.00 rows=33143 width=50) (actual time=0.308..4.686 rows=33359 loops=1)
+               Hash Cond: (ti1.class_section_id = cs1.class_section_id)
+               Buffers: shared hit=269
+               ->  Seq Scan on timetable_items ti1  (cost=0.00..488.14 rows=24014 width=48) (actual time=0.003..0.889 rows=24014 loops=1)
+                     Buffers: shared hit=248
+               ->  Hash  (cost=34.04..34.04 rows=1304 width=34) (actual time=0.285..0.285 rows=1304 loops=1)
+                     Buckets: 2048  Batches: 1  Memory Usage: 108kB
+                     Buffers: shared hit=21
+                     ->  Seq Scan on class_schedules cs1  (cost=0.00..34.04 rows=1304 width=34) (actual time=0.011..0.130 rows=1304 loops=1)
+                           Buffers: shared hit=21
+         ->  Hash  (cost=1020.00..1020.00 rows=33143 width=50) (actual time=11.730..11.731 rows=33359 loops=1)
+               Buckets: 65536  Batches: 1  Memory Usage: 3379kB
+               Buffers: shared hit=269
+               ->  Hash Join  (cost=50.34..1020.00 rows=33143 width=50) (actual time=0.265..6.313 rows=33359 loops=1)
+                     Hash Cond: (ti2.class_section_id = cs2.class_section_id)
+                     Buffers: shared hit=269
+                     ->  Seq Scan on timetable_items ti2  (cost=0.00..488.14 rows=24014 width=48) (actual time=0.002..1.511 rows=24014 loops=1)
+                           Buffers: shared hit=248
+                     ->  Hash  (cost=34.04..34.04 rows=1304 width=34) (actual time=0.237..0.238 rows=1304 loops=1)
+                           Buckets: 2048  Batches: 1  Memory Usage: 108kB
+                           Buffers: shared hit=21
+                           ->  Seq Scan on class_schedules cs2  (cost=0.00..34.04 rows=1304 width=34) (actual time=0.001..0.066 rows=1304 loops=1)
+                                 Buffers: shared hit=21
+ Planning:
+   Buffers: shared hit=565
+ Planning Time: 4.824 ms
+ Execution Time: 25.968 ms
+(34 rows)
+

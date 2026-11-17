@@ -15,7 +15,7 @@ DATABASE_URL = os.getenv(
 PORT_OVERRIDE = os.getenv("BACKEND_PORT") or os.getenv("PORT")
 DEFAULT_BACKEND_PORT = 8001
 
-AUTO_SEED = os.getenv("AUTO_SEED", "true").lower() in ("true", "1", "yes")
+AUTO_SEED = os.getenv("AUTO_SEED", "false").lower() in ("true", "1", "yes")
 
 CHATBOT_SERVICE_URL = os.getenv("CHATBOT_SERVICE_URL", "http://127.0.0.1:8000").rstrip("/")
 CHATBOT_TIMEOUT_SECONDS = float(os.getenv("CHATBOT_TIMEOUT_SECONDS", "45.0"))

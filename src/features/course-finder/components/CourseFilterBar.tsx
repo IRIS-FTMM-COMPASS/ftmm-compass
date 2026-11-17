@@ -57,7 +57,7 @@ export default function CourseFilterBar({
           <input
             type="text"
             placeholder="Cari mata kuliah, kode (cth: AGI101, TI201), singkatan prodi (TI, TSD, TRKB, TE, RN)..."
-            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-border focus:border-gold focus:ring-1 focus:ring-gold outline-hidden transition-all text-sm font-sans"
+            className="w-full min-h-11 pl-10 pr-4 rounded-xl border border-border focus:border-gold focus:ring-1 focus:ring-gold outline-hidden transition-all text-sm font-sans"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
@@ -66,7 +66,7 @@ export default function CourseFilterBar({
           <button
             type="button"
             onClick={onCreateCourse}
-            className="px-3.5 py-2.5 rounded-xl bg-gold hover:bg-gold/90 text-navy font-semibold text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer flex-shrink-0"
+            className="min-h-11 min-w-11 px-3.5 rounded-xl bg-gold hover:bg-gold/90 text-navy font-semibold text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer flex-shrink-0"
           >
             <Plus className="w-4 h-4" />
             <span>Tambah Mata Kuliah</span>
@@ -79,7 +79,7 @@ export default function CourseFilterBar({
           type="button"
           onClick={() => setActiveProgram("all")}
           className={cn(
-            "px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5",
+            "min-h-11 min-w-11 px-3 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 flex-shrink-0",
             activeProgram === "all"
               ? "bg-gold text-white shadow-xs font-semibold"
               : "bg-surface border border-border text-muted hover:text-navy hover:bg-navy/5",
@@ -98,7 +98,7 @@ export default function CourseFilterBar({
               onClick={() => setActiveProgram(p)}
               title={p}
               className={cn(
-                "px-3 py-1.5 rounded-lg text-xs whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5",
+                "min-h-11 min-w-11 px-3 rounded-lg text-xs whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 flex-shrink-0",
                 isActive
                   ? "bg-navy text-white shadow-xs font-bold"
                   : "bg-surface border border-border text-muted hover:text-navy hover:bg-navy/5",
@@ -120,7 +120,7 @@ export default function CourseFilterBar({
               type="button"
               onClick={() => setSelectedType("all")}
               className={cn(
-                "px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer",
+                "min-h-11 min-w-11 px-2.5 rounded-md text-xs font-medium transition-colors cursor-pointer",
                 selectedType === "all"
                   ? "bg-navy text-white font-semibold"
                   : "text-muted hover:text-navy",
@@ -132,7 +132,7 @@ export default function CourseFilterBar({
               type="button"
               onClick={() => setSelectedType("Wajib")}
               className={cn(
-                "px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer",
+                "min-h-11 min-w-11 px-2.5 rounded-md text-xs font-medium transition-colors cursor-pointer",
                 selectedType === "Wajib"
                   ? "bg-navy text-white font-semibold"
                   : "text-muted hover:text-navy",
@@ -144,7 +144,7 @@ export default function CourseFilterBar({
               type="button"
               onClick={() => setSelectedType("Pilihan")}
               className={cn(
-                "px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer",
+                "min-h-11 min-w-11 px-2.5 rounded-md text-xs font-medium transition-colors cursor-pointer",
                 selectedType === "Pilihan"
                   ? "bg-gold text-navy font-bold shadow-xs"
                   : "text-muted hover:text-navy",
@@ -159,7 +159,7 @@ export default function CourseFilterBar({
               type="button"
               onClick={() => setSelectedParity("all")}
               className={cn(
-                "px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer",
+                "min-h-11 min-w-11 px-2.5 rounded-md text-xs font-medium transition-colors cursor-pointer",
                 selectedParity === "all"
                   ? "bg-navy text-white"
                   : "text-muted hover:text-navy",
@@ -171,7 +171,7 @@ export default function CourseFilterBar({
               type="button"
               onClick={() => setSelectedParity("odd")}
               className={cn(
-                "px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer",
+                "min-h-11 min-w-11 px-2.5 rounded-md text-xs font-medium transition-colors cursor-pointer",
                 selectedParity === "odd"
                   ? "bg-navy text-white"
                   : "text-muted hover:text-navy",
@@ -183,7 +183,7 @@ export default function CourseFilterBar({
               type="button"
               onClick={() => setSelectedParity("even")}
               className={cn(
-                "px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer",
+                "min-h-11 min-w-11 px-2.5 rounded-md text-xs font-medium transition-colors cursor-pointer",
                 selectedParity === "even"
                   ? "bg-navy text-white"
                   : "text-muted hover:text-navy",
@@ -197,7 +197,7 @@ export default function CourseFilterBar({
             <select
               value={selectedCredits}
               onChange={(e) => setSelectedCredits(e.target.value)}
-              className="h-8 pl-3 pr-8 rounded-lg border border-border bg-background text-xs font-medium text-foreground hover:border-gold focus:border-gold focus:ring-1 focus:ring-gold outline-hidden cursor-pointer appearance-none transition-colors"
+              className="h-11 pl-3 pr-8 rounded-lg border border-border bg-background text-xs font-medium text-foreground hover:border-gold focus:border-gold focus:ring-1 focus:ring-gold outline-hidden cursor-pointer appearance-none transition-colors"
               aria-label="Filter Bobot SKS"
             >
               <option value="all">Bobot SKS: Semua</option>
@@ -220,7 +220,7 @@ export default function CourseFilterBar({
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className="h-8 pl-3 pr-8 rounded-lg border border-border bg-background text-xs font-medium text-foreground hover:border-gold focus:border-gold focus:ring-1 focus:ring-gold outline-hidden cursor-pointer appearance-none transition-colors"
+              className="h-11 pl-3 pr-8 rounded-lg border border-border bg-background text-xs font-medium text-foreground hover:border-gold focus:border-gold focus:ring-1 focus:ring-gold outline-hidden cursor-pointer appearance-none transition-colors"
               aria-label="Filter Kategori PDB"
             >
               <option value="all">Kategori: Semua</option>
@@ -241,7 +241,7 @@ export default function CourseFilterBar({
                   e.target.value as "all" | "open" | "closed",
                 )
               }
-              className="h-8 pl-3 pr-8 rounded-lg border border-border bg-background text-xs font-medium text-foreground hover:border-gold focus:border-gold focus:ring-1 focus:ring-gold outline-hidden cursor-pointer appearance-none transition-colors"
+              className="h-11 pl-3 pr-8 rounded-lg border border-border bg-background text-xs font-medium text-foreground hover:border-gold focus:border-gold focus:ring-1 focus:ring-gold outline-hidden cursor-pointer appearance-none transition-colors"
               aria-label="Filter Ketersediaan"
             >
               <option value="all">Status Kelas: Semua</option>
@@ -257,7 +257,7 @@ export default function CourseFilterBar({
             type="button"
             onClick={() => setFilterMostDemanded(!filterMostDemanded)}
             className={cn(
-              "h-8 px-2.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer",
+              "min-h-11 min-w-11 px-2.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer",
               filterMostDemanded
                 ? "bg-orange text-white border-orange shadow-xs"
                 : "bg-surface border-border text-muted hover:text-orange hover:border-orange/50",
@@ -272,7 +272,7 @@ export default function CourseFilterBar({
             <button
               type="button"
               onClick={handleResetFilters}
-              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-muted hover:text-navy hover:bg-navy/5 rounded-lg border border-border/80 transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1 min-h-11 min-w-11 px-2.5 text-xs font-medium text-muted hover:text-navy hover:bg-navy/5 rounded-lg border border-border/80 transition-colors cursor-pointer"
               title="Reset seluruh filter"
             >
               <RotateCcw className="w-3 h-3" />

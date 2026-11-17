@@ -12,7 +12,7 @@ import uuid
 import jwt
 import httpx
 from typing import AsyncGenerator
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from schemas import (
     ChatRequest,
@@ -23,10 +23,12 @@ from schemas import (
 from database import AsyncSessionLocal
 from models import (
     ChatLog,
+    User,
 )
-from auth import SECRET_KEY, ALGORITHM
+from auth import SECRET_KEY, ALGORITHM, get_current_user
 
 from rate_limit import limiter
+from stream_control import stream_tracker
 import settings
 
 router = APIRouter()
@@ -180,10 +182,14 @@ async def handle_chat(request: ChatRequest, client_request: Request | None = Non
         )
 
 
-async def handle_chat_stream(request: ChatRequest, client_request: Request | None = None) -> StreamingResponse:
+async def handle_chat_stream(
+    request: ChatRequest,
+    client_request: Request | None = None,
+    authenticated_user_id: uuid.UUID | None = None,
+) -> StreamingResponse:
     _check_circular_url(settings.CHATBOT_SERVICE_URL)
     session_id = request.session_id or (client_request.headers.get("x-session-id") if client_request else None) or "default"
-    user_id = _resolve_user_id(request, client_request)
+    user_id = authenticated_user_id
 
     async def client_gone() -> bool:
         return client_request is not None and await client_request.is_disconnected()
@@ -252,6 +258,8 @@ async def handle_chat_stream(request: ChatRequest, client_request: Request | Non
                 while True:
                     if await client_gone():
                         return
+                    if stream_tracker.queue_full(len(accumulated_tokens)):
+                        break
                     try:
                         line = await lines.__anext__()
                     except StopAsyncIteration:
@@ -263,7 +271,9 @@ async def handle_chat_stream(request: ChatRequest, client_request: Request | Non
                             try:
                                 event_data = json.loads(raw_json)
                                 if event_data.get("token"):
-                                     accumulated_tokens.append(event_data["token"])
+                                    if not accumulated_tokens:
+                                        stream_tracker.record_first_token(start_time)
+                                    accumulated_tokens.append(event_data["token"])
                                 if event_data.get("done"):
                                     if event_data.get("reply"):
                                         final_reply = event_data["reply"]
@@ -329,6 +339,7 @@ async def handle_chat_stream(request: ChatRequest, client_request: Request | Non
             )
             yield f"data: {json.dumps(err_payload, ensure_ascii=False)}\n\n"
         finally:
+            await stream_tracker.release(start_time)
             await client.aclose()
 
     return StreamingResponse(stream_generator(), media_type="text/event-stream")
@@ -358,8 +369,22 @@ async def v1_chat(request: Request, chat_request: ChatRequest):
 
 @router.post("/chat/stream")
 @limiter.limit("20/minute")
-async def v1_chat_stream(request: Request, chat_request: ChatRequest):
-    return await handle_chat_stream(chat_request, client_request=request)
+async def v1_chat_stream(
+    request: Request,
+    chat_request: ChatRequest,
+    current_user: User = Depends(get_current_user),
+):
+    if not await stream_tracker.acquire():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Batas koneksi streaming tercapai. Coba lagi nanti.",
+            headers={"Retry-After": "5"},
+        )
+    return await handle_chat_stream(
+        chat_request,
+        client_request=request,
+        authenticated_user_id=current_user.user_id,
+    )
 
 
 @router.delete("/chat/sessions/{session_id}")

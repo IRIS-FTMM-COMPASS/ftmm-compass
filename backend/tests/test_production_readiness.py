@@ -112,7 +112,7 @@ def test_rate_limit_response_carries_retry_hint(client):
     assert body["error"]["retry_after"] == int(second.headers["Retry-After"])
 
 
-def test_stream_generator_stops_on_client_disconnect(client):
+def test_stream_generator_stops_on_client_disconnect(client, student_headers):
     original = settings.CHATBOT_SERVICE_URL
     settings.CHATBOT_SERVICE_URL = "http://chatbot.test"
     consumed: list[int] = []
@@ -148,6 +148,7 @@ def test_stream_generator_stops_on_client_disconnect(client):
         ):
             response = client.post(
                 "/api/v1/chat/stream",
+                headers=student_headers,
                 json={"message": "halo", "history": [], "student_profile": {}},
             )
     finally:

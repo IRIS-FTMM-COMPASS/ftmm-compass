@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { apiErrorMessage } from "@/shared/api/client"
 import type { AuthUser } from "@/features/auth/authService"
 import {
   dashboardService,
@@ -36,23 +37,35 @@ export function useDashboardData(user: AuthUser | null) {
   const [dashboardData, setDashboardData] =
     useState<DashboardMeResponse | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [attempt, setAttempt] = useState(0)
+
+  const retry = useCallback(() => setAttempt((value) => value + 1), [])
 
   useEffect(() => {
     let mounted = true
     setIsLoading(true)
+    setError(null)
     dashboardService
       .getDashboardMe()
       .then((data) => {
         if (mounted) setDashboardData(data)
       })
-      .catch(() => {})
+      .catch((cause: unknown) => {
+        if (mounted) {
+          setDashboardData(null)
+          setError(
+            apiErrorMessage(cause, "Gagal memuat data dashboard. Coba lagi."),
+          )
+        }
+      })
       .finally(() => {
         if (mounted) setIsLoading(false)
       })
     return () => {
       mounted = false
     }
-  }, [user])
+  }, [user, attempt])
 
   const displayedSchedule = useMemo<ScheduleItem[]>(() => {
     if (user?.role === "admin") return []
@@ -64,5 +77,12 @@ export function useDashboardData(user: AuthUser | null) {
 
   const hasConflict = displayedSchedule.some((item) => item.conflict)
 
-  return { dashboardData, isLoading, displayedSchedule, hasConflict }
+  return {
+    dashboardData,
+    isLoading,
+    displayedSchedule,
+    hasConflict,
+    error,
+    retry,
+  }
 }

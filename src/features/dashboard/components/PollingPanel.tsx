@@ -76,7 +76,7 @@ export default function PollingPanel({
             <button
               type="button"
               onClick={() => onNavigate("course-finder")}
-              className="h-9 px-4 rounded-lg bg-navy hover:bg-navy-light text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs self-start md:self-center"
+              className="min-h-11 min-w-11 px-4 rounded-lg bg-navy hover:bg-navy-light text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs self-start md:self-center"
             >
               <span>Pilih MK di Course Finder</span>
               <ChevronRight className="w-4 h-4" />
@@ -96,7 +96,7 @@ export default function PollingPanel({
               <button
                 type="button"
                 onClick={() => onNavigate("course-finder")}
-                className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-gold/15 hover:bg-gold/25 text-navy border border-gold/40 text-xs font-semibold transition-colors cursor-pointer"
+                className="mt-2 inline-flex items-center gap-1.5 min-h-11 min-w-11 px-4 rounded-lg bg-gold/15 hover:bg-gold/25 text-navy border border-gold/40 text-xs font-semibold transition-colors cursor-pointer"
               >
                 Mulai Memilih MK Pilihan
                 <ChevronRight className="w-3.5 h-3.5" />
@@ -182,7 +182,7 @@ export default function PollingPanel({
                 <select
                   value={selectedProdi}
                   onChange={(e) => setSelectedProdi(e.target.value)}
-                  className="h-9 pl-8 pr-8 rounded-lg border border-border bg-background text-xs font-semibold text-foreground hover:border-gold focus:border-gold focus:ring-1 focus:ring-gold outline-hidden cursor-pointer appearance-none transition-colors"
+                  className="h-11 pl-8 pr-8 rounded-lg border border-border bg-background text-xs font-semibold text-foreground hover:border-gold focus:border-gold focus:ring-1 focus:ring-gold outline-hidden cursor-pointer appearance-none transition-colors"
                   aria-label="Filter Program Studi Analitik"
                 >
                   <option value="all">Semua Prodi FTMM</option>
@@ -205,7 +205,7 @@ export default function PollingPanel({
                 type="button"
                 onClick={handleExportCSV}
                 disabled={!items.length || isLoadingAnalytics}
-                className="h-9 px-3.5 rounded-lg bg-navy hover:bg-navy-light text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                className="min-h-11 min-w-11 px-3.5 rounded-lg bg-navy hover:bg-navy-light text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Export CSV</span>

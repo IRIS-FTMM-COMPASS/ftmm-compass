@@ -69,7 +69,7 @@ export default function CourseResultsList({
                           e.stopPropagation()
                           onEditCourse(course)
                         }}
-                        className="p-1 rounded-md text-muted hover:text-navy hover:bg-background border border-border/60 transition-colors cursor-pointer flex-shrink-0"
+                        className="min-h-11 min-w-11 flex items-center justify-center rounded-md text-muted hover:text-navy hover:bg-background border border-border/60 transition-colors cursor-pointer flex-shrink-0"
                       >
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
@@ -161,7 +161,7 @@ export default function CourseResultsList({
                                   onOpenPriorityModal(course)
                                 }}
                                 className={cn(
-                                  "px-2 py-1 rounded-md text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-xs",
+                                  "min-h-11 min-w-11 px-2 rounded-md text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-xs",
                                   vote
                                     ? "bg-gold text-navy hover:bg-gold/90"
                                     : "bg-navy text-white hover:bg-navy-light",

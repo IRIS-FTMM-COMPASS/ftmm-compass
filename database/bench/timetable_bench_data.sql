@@ -6,17 +6,26 @@ BEGIN;
 SET LOCAL session_replication_role = replica;
 SELECT setseed(0.42);
 
-INSERT INTO academic_periods (academic_year_start, term, is_active) VALUES (2026, 'ganjil', true);
+INSERT INTO academic_periods (academic_year_start, term, is_active)
+SELECT 2099, 'ganjil', true
+WHERE NOT EXISTS (
+    SELECT 1 FROM academic_periods WHERE academic_year_start = 2099 AND term = 'ganjil'
+);
 
 INSERT INTO course_offerings (academic_period_id, course_id, offering_code)
-SELECT (SELECT academic_period_id FROM academic_periods LIMIT 1), course_id, 'BENCH-' || course_code
+SELECT (SELECT academic_period_id FROM academic_periods WHERE academic_year_start = 2099 AND term = 'ganjil'), course_id, 'BENCH-' || course_code
 FROM courses;
 
 INSERT INTO offering_components (course_offering_id, component_code, component_type)
-SELECT course_offering_id, 'T', 'lecture' FROM course_offerings;
+SELECT co.course_offering_id, 'T', 'lecture'
+FROM course_offerings co WHERE co.offering_code LIKE 'BENCH-%';
 
 INSERT INTO class_sections (offering_component_id, section_code)
-SELECT oc.offering_component_id, s FROM offering_components oc CROSS JOIN unnest(ARRAY['A','B','C']) s;
+SELECT oc.offering_component_id, s
+FROM offering_components oc
+JOIN course_offerings co USING (course_offering_id)
+CROSS JOIN unnest(ARRAY['A','B','C']) s
+WHERE co.offering_code LIKE 'BENCH-%';
 
 -- 1-2 pertemuan per kelas, Senin-Jumat 07:00-17:00, durasi 100/150 menit
 INSERT INTO class_schedules (class_section_id, day_of_week, start_time, end_time, room_name)
@@ -36,7 +45,7 @@ SELECT u.user_id, (SELECT curriculum_id FROM curricula ORDER BY random() + (u.us
 FROM users u WHERE u.email LIKE 'bench%';
 
 INSERT INTO timetables (user_id, student_curriculum_assignment_id, academic_period_id, is_active)
-SELECT a.user_id, a.student_curriculum_assignment_id, (SELECT academic_period_id FROM academic_periods LIMIT 1), true
+SELECT a.user_id, a.student_curriculum_assignment_id, (SELECT academic_period_id FROM academic_periods WHERE academic_year_start = 2099 AND term = 'ganjil'), true
 FROM student_curriculum_assignments a JOIN users u USING (user_id) WHERE u.email LIKE 'bench%';
 
 -- 8 kelas acak per timetable
