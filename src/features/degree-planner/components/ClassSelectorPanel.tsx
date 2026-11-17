@@ -8,7 +8,10 @@ import {
 } from "lucide-react"
 import { cn } from "@/shared/utils"
 import { CourseOffering, formatTime } from "@/shared/domain/models"
-import type { TimetableConflict } from "@/shared/domain/timetable"
+import type {
+  ScheduleConflictDetail,
+  SectionAlternative,
+} from "@/shared/domain/timetable"
 import { PlacedCourse } from "@/features/degree-planner/types"
 
 interface ClassSelectorPanelProps {
@@ -17,7 +20,11 @@ interface ClassSelectorPanelProps {
   offerings: CourseOffering[]
   selectedSections: Record<string, string>
   onSelectSection: (courseId: string, sectionId: string) => void
-  conflicts: TimetableConflict[]
+  conflicts: ScheduleConflictDetail[]
+  alternatives: SectionAlternative[]
+  validationError: string | null
+  onRetryValidation: () => void
+  onApplyAlternative: (alternative: SectionAlternative) => void
   onAutoResolveConflicts?: () => void
   periodLabel: string
   sectionsStatus: "loading" | "ready" | "error"
@@ -32,6 +39,10 @@ export default function ClassSelectorPanel({
   selectedSections,
   onSelectSection,
   conflicts,
+  alternatives,
+  validationError,
+  onRetryValidation,
+  onApplyAlternative,
   onAutoResolveConflicts,
   periodLabel,
   sectionsStatus,
@@ -39,9 +50,9 @@ export default function ClassSelectorPanel({
   onRetrySections,
 }: ClassSelectorPanelProps) {
   const conflictingCourseIds = new Set<string>()
-  conflicts.forEach((c) => {
-    conflictingCourseIds.add(c.codeA)
-    conflictingCourseIds.add(c.codeB)
+  conflicts.forEach((conflict) => {
+    conflictingCourseIds.add(conflict.courseACode)
+    conflictingCourseIds.add(conflict.courseBCode)
   })
 
   const totalCredits = semesterCourses.reduce((sum, c) => sum + c.credits, 0)
@@ -75,7 +86,7 @@ export default function ClassSelectorPanel({
                 <AlertTriangle className="w-3.5 h-3.5" />
                 {conflicts.length} Bentrok Jadwal
               </span>
-              {onAutoResolveConflicts && (
+              {onAutoResolveConflicts && alternatives.length > 0 && (
                 <button
                   type="button"
                   onClick={onAutoResolveConflicts}
@@ -95,6 +106,108 @@ export default function ClassSelectorPanel({
           )}
         </div>
       </div>
+
+      {conflicts.length > 0 && (
+        <div
+          role="alert"
+          className="mb-3 rounded-xl border border-danger/40 bg-danger/10 p-3"
+        >
+          <div className="flex items-center gap-2 text-xs font-bold text-danger">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            Bentrok Jadwal Terdeteksi
+          </div>
+          <ul className="mt-2 space-y-1.5">
+            {conflicts.map((conflict, index) => (
+              <li
+                key={`${conflict.courseACode}-${conflict.sectionACode}-${conflict.courseBCode}-${conflict.sectionBCode}-${index}`}
+                className="text-[11px] leading-snug text-foreground"
+              >
+                <span className="font-semibold text-danger">
+                  {conflict.courseAName} ({conflict.courseACode} ·{" "}
+                  {conflict.sectionACode})
+                </span>{" "}
+                bentrok dengan{" "}
+                <span className="font-semibold text-danger">
+                  {conflict.courseBName} ({conflict.courseBCode} ·{" "}
+                  {conflict.sectionBCode})
+                </span>{" "}
+                pada <strong>{conflict.day}</strong>,{" "}
+                <strong>
+                  {conflict.start}–{conflict.end}
+                </strong>
+                .
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {validationError && (
+        <div
+          role="alert"
+          className="mb-3 rounded-xl border border-orange/40 bg-orange/10 p-3"
+        >
+          <p className="text-xs font-semibold text-navy">
+            Validasi bentrok gagal dimuat
+          </p>
+          <p className="mt-1 text-[11px] text-foreground">{validationError}</p>
+          <button
+            type="button"
+            onClick={onRetryValidation}
+            className="mt-2 min-h-11 px-3 rounded-lg bg-navy text-white text-xs font-semibold cursor-pointer hover:bg-navy-light focus-visible:outline-2 focus-visible:outline-navy focus-visible:outline-offset-2"
+          >
+            Coba validasi ulang
+          </button>
+        </div>
+      )}
+
+      {conflicts.length > 0 && (
+        <section className="mb-3 rounded-xl border border-teal/40 bg-teal/5 p-3">
+          <div className="flex items-center gap-2 text-xs font-bold text-navy">
+            <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-teal" />
+            Alternatif Bebas Bentrok
+          </div>
+          {alternatives.length === 0 ? (
+            <p className="mt-1.5 text-[11px] text-foreground">
+              Belum ada kelas paralel bebas bentrok untuk kombinasi ini. Ubah
+              section kelas lain atau periksa kembali setelah jadwal
+              diterbitkan.
+            </p>
+          ) : (
+            <div className="mt-2 space-y-2">
+              {alternatives.map((alternative) => (
+                <div
+                  key={`${alternative.courseCode}-${alternative.section.sectionId}`}
+                  className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-2.5 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-navy truncate">
+                      {alternative.courseName} ({alternative.courseCode})
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-foreground">
+                      Section {alternative.section.sectionCode}
+                      {alternative.section.schedules.map((slot, index) => (
+                        <span key={`${slot.dayOfWeek}-${slot.start}-${index}`}>
+                          {" · "}
+                          {slot.day}, {formatTime(slot.start)}–
+                          {formatTime(slot.end)}
+                        </span>
+                      ))}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onApplyAlternative(alternative)}
+                    className="min-h-11 px-3 rounded-lg bg-teal text-white text-xs font-semibold cursor-pointer hover:bg-navy focus-visible:outline-2 focus-visible:outline-navy focus-visible:outline-offset-2"
+                  >
+                    Terapkan Solusi
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       <div className="flex-1 overflow-y-auto py-3 space-y-3.5 pr-0.5">
         {semesterCourses.length === 0 ? (
