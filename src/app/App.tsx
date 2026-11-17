@@ -66,7 +66,9 @@ function AppShell() {
   const { error: catalogError, reload: reloadCatalog } = useCatalog()
   const planner = usePlanner()
   const [activePage, setActivePage] = useState<Page>("dashboard")
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(
+    () => typeof window === "undefined" || window.innerWidth >= 768,
+  )
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false)
   const [plannerInitialTab, setPlannerInitialTab] =
     useState<"roadmap" | "timetable">("roadmap")
@@ -85,6 +87,15 @@ function AppShell() {
   useEffect(() => {
     if (!canAccess(activePage)) setActivePage("dashboard")
   }, [activePage, canAccess])
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return
+      if (isLogoutModalOpen) setIsLogoutModalOpen(false)
+      else if (isSidebarOpen) setIsSidebarOpen(false)
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [isLogoutModalOpen, isSidebarOpen])
 
   const handleNavigate = (
     page: string,
@@ -163,7 +174,7 @@ function AppShell() {
           <button
             onClick={() => setIsSidebarOpen(false)}
             aria-label="Tutup menu"
-            className="md:hidden absolute top-4 right-4 p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors z-10"
+            className="md:hidden absolute top-4 right-4 min-h-11 min-w-11 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors z-10 cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -261,7 +272,7 @@ function AppShell() {
                 onClick={() => setIsLogoutModalOpen(true)}
                 title="Keluar / Logout dari Sesi"
                 aria-label="Logout"
-                className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors text-muted hover:text-orange hover:bg-orange/15 flex-shrink-0 cursor-pointer"
+                className="min-h-11 min-w-11 rounded-lg flex items-center justify-center transition-colors text-muted hover:text-orange hover:bg-orange/15 flex-shrink-0 cursor-pointer"
               >
                 <LogOut className="w-4 h-4" />
               </button>
@@ -319,7 +330,7 @@ function AppShell() {
               <button
                 type="button"
                 onClick={() => void reloadCatalog()}
-                className="rounded-lg border border-orange/40 px-3 py-1.5 font-semibold text-orange transition-colors hover:bg-orange/10"
+                className="min-h-11 rounded-lg border border-orange/40 px-3 font-semibold text-orange transition-colors hover:bg-orange/10 cursor-pointer"
               >
                 Coba lagi
               </button>
@@ -412,14 +423,14 @@ function AppShell() {
               <button
                 type="button"
                 onClick={() => setIsLogoutModalOpen(false)}
-                className="w-full py-2.5 px-4 rounded-xl border border-border bg-background hover:bg-surface text-foreground font-medium text-xs transition-colors cursor-pointer"
+                className="w-full min-h-11 px-4 rounded-xl border border-border bg-background hover:bg-surface text-foreground font-medium text-xs transition-colors cursor-pointer"
               >
                 Batal
               </button>
               <button
                 type="button"
                 onClick={handleLogout}
-                className="w-full py-2.5 px-4 rounded-xl bg-orange hover:bg-orange/90 text-white font-medium text-xs transition-colors cursor-pointer shadow-sm"
+                className="w-full min-h-11 px-4 rounded-xl bg-orange hover:bg-orange/90 text-white font-medium text-xs transition-colors cursor-pointer shadow-sm"
               >
                 Ya, Keluar
               </button>

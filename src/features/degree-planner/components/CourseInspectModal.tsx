@@ -92,7 +92,7 @@ export default function CourseInspectModal({
         <button
           type="button"
           onClick={onClose}
-          className="p-1.5 rounded-lg text-muted hover:text-navy hover:bg-navy/5 transition-colors cursor-pointer flex-shrink-0"
+          className="min-h-11 min-w-11 flex items-center justify-center rounded-lg text-muted hover:text-navy hover:bg-navy/5 transition-colors cursor-pointer flex-shrink-0"
           aria-label="Tutup jendela informasi mata kuliah"
         >
           <X className="w-5 h-5" />
@@ -166,7 +166,7 @@ export default function CourseInspectModal({
                         )
                       }
                     }}
-                    className="px-3 py-1.5 text-xs font-medium rounded-lg text-orange hover:bg-orange/10 border border-border transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="min-h-11 px-3 text-xs font-medium rounded-lg text-orange hover:bg-orange/10 border border-border transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Batalkan status lulus
                   </button>
@@ -186,7 +186,7 @@ export default function CourseInspectModal({
                     value={grade}
                     onChange={(e) => setGrade(e.target.value)}
                     disabled={isMutatingRecord}
-                    className="text-xs font-mono font-semibold px-2 py-1.5 rounded-lg bg-surface border border-border text-navy focus:outline-none focus:ring-1 focus:ring-navy cursor-pointer"
+                    className="min-h-11 text-xs font-mono font-semibold px-2 rounded-lg bg-surface border border-border text-navy cursor-pointer"
                   >
                     {PASSING_GRADES.map((option) => (
                       <option key={option} value={option}>
@@ -206,7 +206,7 @@ export default function CourseInspectModal({
                         )
                       }
                     }}
-                    className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-navy text-white hover:bg-navy-light transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="min-h-11 px-3 text-xs font-semibold rounded-lg bg-navy text-white hover:bg-navy-light transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isMutatingRecord ? "Menyimpan..." : "Tandai Selesai"}
                   </button>
@@ -331,7 +331,7 @@ export default function CourseInspectModal({
                 onDeleteCourse(course.id, currentSem)
                 onClose()
               }}
-              className="px-3 py-1.5 text-xs font-medium rounded-lg text-danger hover:bg-danger/10 border border-transparent hover:border-danger/20 transition-colors flex items-center gap-1.5 cursor-pointer"
+              className="min-h-11 px-3 text-xs font-medium rounded-lg text-danger hover:bg-danger/10 border border-transparent hover:border-danger/20 transition-colors flex items-center gap-1.5 cursor-pointer"
             >
               <Trash2 className="w-3.5 h-3.5" />
               Hapus
@@ -347,7 +347,7 @@ export default function CourseInspectModal({
                 onOpenInCourseFinder(course)
                 onClose()
               }}
-              className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-navy text-white hover:bg-navy-light shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer"
+              className="min-h-11 px-3 text-xs font-semibold rounded-lg bg-navy text-white hover:bg-navy-light shadow-2xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <span>Buka di Course Finder</span>
               <ExternalLink className="w-3.5 h-3.5 text-gold" />
@@ -357,7 +357,7 @@ export default function CourseInspectModal({
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg text-muted hover:text-navy hover:bg-navy/5 transition-colors cursor-pointer"
+            className="min-h-11 px-3 text-xs font-medium rounded-lg text-muted hover:text-navy hover:bg-navy/5 transition-colors cursor-pointer"
           >
             Tutup
           </button>

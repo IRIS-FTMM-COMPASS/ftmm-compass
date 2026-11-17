@@ -122,7 +122,7 @@ export default function CoursePickerModal({
         <button
           type="button"
           onClick={onClose}
-          className="p-1.5 rounded-lg text-muted hover:text-navy hover:bg-navy/5 transition-colors cursor-pointer"
+          className="min-h-11 min-w-11 flex items-center justify-center rounded-lg text-muted hover:text-navy hover:bg-navy/5 transition-colors cursor-pointer"
           aria-label="Tutup modal"
         >
           <X className="w-5 h-5" />
@@ -138,14 +138,14 @@ export default function CoursePickerModal({
               value={pickerSearch}
               onChange={(e) => setPickerSearch(e.target.value)}
               placeholder="Cari nama matkul atau kode (misal: Data, II40, Fisika)..."
-              className="w-full pl-9 pr-8 py-2 text-xs rounded-lg border border-border bg-background focus:outline-hidden focus:ring-2 focus:ring-teal/30 focus:border-teal text-foreground"
+              className="min-h-11 w-full pl-9 pr-8 text-xs rounded-lg border border-border bg-background focus:ring-2 focus:ring-teal/30 focus:border-teal text-foreground"
               autoFocus
             />
             {pickerSearch && (
               <button
                 type="button"
                 onClick={() => setPickerSearch("")}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-navy cursor-pointer"
+                className="absolute right-1 top-1/2 -translate-y-1/2 min-h-11 min-w-11 flex items-center justify-center text-muted hover:text-navy cursor-pointer"
                 aria-label="Hapus pencarian"
               >
                 <X className="w-3.5 h-3.5" />
@@ -182,7 +182,7 @@ export default function CoursePickerModal({
                 type="button"
                 onClick={() => setPickerType(t.key)}
                 className={cn(
-                  "px-2.5 py-1 rounded-md text-[11px] font-medium transition-all flex items-center gap-1.5 cursor-pointer",
+                  "min-h-11 min-w-11 px-2.5 rounded-md text-[11px] font-medium transition-all flex items-center justify-center gap-1.5 cursor-pointer",
                   pickerType === t.key
                     ? "bg-navy text-white shadow-2xs font-semibold"
                     : "text-muted hover:text-navy",
@@ -277,7 +277,7 @@ export default function CoursePickerModal({
                     <button
                       type="button"
                       onClick={() => onAddCourse(course)}
-                      className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer bg-navy text-white hover:bg-navy-light"
+                      className="min-h-11 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer bg-navy text-white hover:bg-navy-light"
                     >
                       <Plus className="w-3.5 h-3.5" />
                       Tambah
@@ -297,7 +297,7 @@ export default function CoursePickerModal({
         <button
           type="button"
           onClick={onClose}
-          className="px-3 py-1.5 rounded-lg border border-border hover:bg-surface font-medium text-navy transition-colors cursor-pointer"
+          className="min-h-11 px-3 rounded-lg border border-border hover:bg-surface font-medium text-navy transition-colors cursor-pointer"
         >
           Selesai
         </button>

@@ -94,7 +94,7 @@ export function PlannerCourseCard({
             }}
             onClick={(e) => e.stopPropagation()}
             className={cn(
-              "flex-shrink-0 w-6 h-6 -ml-1 rounded flex items-center justify-center transition-all",
+              "flex-shrink-0 min-h-11 min-w-11 -ml-2 rounded flex items-center justify-center transition-all",
               completed
                 ? "cursor-default text-teal"
                 : "cursor-grab active:cursor-grabbing hover:bg-navy/10 text-muted/60 hover:text-navy",
@@ -119,7 +119,8 @@ export function PlannerCourseCard({
         <div
           className={cn(
             "flex items-center gap-1.5 flex-shrink-0 transition-opacity duration-150",
-            !completed && "group-hover:opacity-0 pointer-events-none",
+            !completed &&
+              "mr-11 md:mr-0 md:group-hover:opacity-0 md:pointer-events-none",
           )}
         >
           <span
@@ -169,7 +170,7 @@ export function PlannerCourseCard({
             onDelete(course.id, sem)
           }}
           title="Hapus dari rencana semester"
-          className="absolute top-2 right-2 w-5 h-5 flex items-center justify-center rounded-full bg-background border border-border text-muted hover:bg-danger/10 hover:text-danger hover:border-danger/30 opacity-0 group-hover:opacity-100 transition-all z-10 cursor-pointer shadow-2xs"
+          className="absolute top-2 right-2 min-h-11 min-w-11 flex items-center justify-center rounded-full bg-background border border-border text-muted hover:bg-danger/10 hover:text-danger hover:border-danger/30 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all z-10 cursor-pointer shadow-2xs"
         >
           <X className="w-3 h-3" />
         </button>
@@ -235,7 +236,7 @@ export function SemesterColumn({
   return (
     <div
       className={cn(
-        "w-[256px] rounded-xl flex flex-col flex-shrink-0 border transition-all duration-150",
+        "w-full min-w-0 md:w-[224px] lg:w-[256px] rounded-xl flex flex-col flex-shrink-0 border transition-all duration-150",
         state === "idle" && "bg-background border-border",
         state === "valid-hover" &&
           "bg-teal/5 border-teal ring-2 ring-teal/25 shadow-lg",
@@ -290,7 +291,7 @@ export function SemesterColumn({
         </div>
       )}
 
-      <div className="flex-1 p-3 space-y-2 overflow-y-auto min-h-[200px]">
+      <div className="flex-1 p-3 grid grid-cols-1 sm:grid-cols-2 gap-2 md:flex md:flex-col overflow-y-auto min-h-[200px]">
         {completedCourses.map((course) => (
           <PlannerCourseCard
             key={course.id}
@@ -328,7 +329,7 @@ export function SemesterColumn({
         {courses.length === 0 && completedCourses.length === 0 && (
           <div
             className={cn(
-              "h-[160px] flex flex-col items-center justify-center border-2 border-dashed rounded-lg p-3 text-center transition-colors",
+              "sm:col-span-2 md:col-span-1 h-[160px] flex flex-col items-center justify-center border-2 border-dashed rounded-lg p-3 text-center transition-colors",
               state === "valid-hover"
                 ? "border-teal/50 bg-teal/5 text-navy"
                 : "border-border text-muted",
@@ -347,7 +348,7 @@ export function SemesterColumn({
         <button
           type="button"
           onClick={() => onOpenManualPicker(sem)}
-          className="w-full py-1.5 text-xs font-semibold text-navy bg-navy/5 hover:bg-navy/10 rounded-lg border border-dashed border-navy/20 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+          className="w-full min-h-11 text-xs font-semibold text-navy bg-navy/5 hover:bg-navy/10 rounded-lg border border-dashed border-navy/20 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
         >
           <Plus className="w-3.5 h-3.5" />
           Tambah Manual
@@ -385,17 +386,29 @@ export function ElectiveCourseBank({
         </span>
         <p className="text-xs text-muted">(Tarik ke semester yang sesuai)</p>
       </div>
-      <div className="flex gap-3 overflow-x-auto pb-2">
+      <div className="grid grid-cols-1 gap-3 pb-2 sm:flex sm:gap-3 sm:overflow-x-auto">
         {pilihanPending.map((course) => (
           <div
             key={course.id}
+            role="button"
+            tabIndex={0}
+            aria-label={`Lihat detail ${course.code || course.name}`}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault()
+                onSelectCourse?.({
+                  ...course,
+                  status: "planned",
+                } as PlacedCourse)
+              }
+            }}
             onClick={() =>
               onSelectCourse?.({
                 ...course,
                 status: "planned",
               } as PlacedCourse)
             }
-            className="bg-surface rounded-xl border border-gold/40 p-3 cursor-pointer flex-shrink-0 w-[196px] group hover:shadow-md hover:border-gold transition-all select-none focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gold"
+            className="bg-surface rounded-xl border border-gold/40 p-3 cursor-pointer w-full sm:w-[196px] sm:flex-shrink-0 group hover:shadow-md hover:border-gold transition-all select-none focus-visible:ring-2 focus-visible:ring-gold"
           >
             <div className="flex items-start justify-between mb-1">
               <span className="font-mono text-[10px] font-bold text-teal">
@@ -415,7 +428,7 @@ export function ElectiveCourseBank({
                   onDragEnd()
                 }}
                 onClick={(e) => e.stopPropagation()}
-                className="cursor-grab active:cursor-grabbing p-1 -m-1 rounded hover:bg-navy/10 text-muted hover:text-navy transition-all"
+                className="min-h-11 min-w-11 flex items-center justify-center -m-1 rounded hover:bg-navy/10 text-muted hover:text-navy transition-all cursor-grab active:cursor-grabbing"
                 title="Tarik untuk memindahkan ke semester"
               >
                 <GripVertical className="w-3.5 h-3.5" />
