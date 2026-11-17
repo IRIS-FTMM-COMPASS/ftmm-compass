@@ -5,6 +5,7 @@ import {
   Course,
   TIMETABLE_DAYS,
   type ClassSection,
+  formatTime,
   getOfferingForCourse,
   ScheduleItem,
 } from "@/shared/domain/models"
@@ -27,7 +28,13 @@ import {
 import CoursePickerModal from "@/features/degree-planner/components/CoursePickerModal"
 import CourseInspectModal from "@/features/degree-planner/components/CourseInspectModal"
 import ClassSelectorPanel from "@/features/degree-planner/components/ClassSelectorPanel"
-import { markConflicts } from "@/shared/domain/timetable"
+import {
+  markConflicts,
+  type ScheduleConflictDetail,
+  type ScheduleValidationResult,
+  type SectionAlternative,
+  type TimetableConflict,
+} from "@/shared/domain/timetable"
 import { usePlanner } from "@/features/degree-planner/state/planner"
 import { useSession } from "@/features/auth/session"
 import { useAcademicPeriod } from "@/shared/academic-period/academic"
@@ -35,9 +42,26 @@ import { ApiError, apiErrorMessage } from "@/shared/api/client"
 import {
   classSectionService,
   mapClassSection,
+  type SectionSelectionInput,
 } from "@/features/degree-planner/services/classSectionService"
 
 export type { PlacedCourse } from "@/features/degree-planner/types"
+
+function toConflictDetail(conflict: TimetableConflict): ScheduleConflictDetail {
+  return {
+    courseACode: conflict.codeA,
+    courseAName: conflict.courseA,
+    sectionAId: "",
+    sectionACode: conflict.sectionA,
+    courseBCode: conflict.codeB,
+    courseBName: conflict.courseB,
+    sectionBId: "",
+    sectionBCode: conflict.sectionB,
+    day: conflict.day,
+    start: formatTime(conflict.start),
+    end: formatTime(conflict.end),
+  }
+}
 
 export default function DegreePlanner({
   onNavigate,
@@ -100,6 +124,11 @@ export default function DegreePlanner({
     useState<"loading" | "ready" | "error">("loading")
   const [sectionsError, setSectionsError] = useState<string | null>(null)
   const [sectionsReload, setSectionsReload] = useState(0)
+  const [validation, setValidation] = useState<ScheduleValidationResult | null>(
+    null,
+  )
+  const [validationError, setValidationError] = useState<string | null>(null)
+  const [validationReload, setValidationReload] = useState(0)
   const activeReligion = useMemo(() => {
     const completed = Object.values(completedBySemester).flat()
     for (const courses of [...Object.values(plan), completed]) {
@@ -420,6 +449,43 @@ export default function DegreePlanner({
     [currentTimetableCourses, sectionsByCourse],
   )
 
+  useEffect(() => {
+    if (sectionsStatus !== "ready") {
+      setValidation(null)
+      setValidationError(null)
+      return
+    }
+
+    const selections: SectionSelectionInput[] = offerings.flatMap(
+      (offering) => {
+        const sectionId =
+          selectedSections[offering.courseId] ?? offering.sections[0]?.sectionId
+        return sectionId ? [{ courseCode: offering.courseCode, sectionId }] : []
+      },
+    )
+    if (selections.length === 0) {
+      setValidation(null)
+      setValidationError(null)
+      return
+    }
+
+    const controller = new AbortController()
+    setValidation(null)
+    setValidationError(null)
+    classSectionService
+      .validate(selections, controller.signal)
+      .then((result) => {
+        if (!controller.signal.aborted) setValidation(result)
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return
+        setValidationError(
+          apiErrorMessage(error, "Validasi bentrok tidak dapat dimuat."),
+        )
+      })
+    return () => controller.abort()
+  }, [offerings, selectedSections, sectionsStatus, validationReload])
+
   const { dynamicSchedule, conflicts } = useMemo(() => {
     const COLOR_PALETTE = [
       "bg-teal/20 text-navy border-teal/50",
@@ -455,9 +521,28 @@ export default function DegreePlanner({
       })
     })
 
-    const foundConflicts = markConflicts(items)
-    return { dynamicSchedule: items, conflicts: foundConflicts }
-  }, [offerings, selectedSections])
+    const localConflicts = markConflicts(items)
+    const displayedConflicts: ScheduleConflictDetail[] = validation
+      ? validation.conflicts
+      : localConflicts.map(toConflictDetail)
+    if (validation) {
+      const conflictingSections = new Set<string>()
+      validation.conflicts.forEach((conflict) => {
+        conflictingSections.add(
+          `${conflict.courseACode}:${conflict.sectionACode}`,
+        )
+        conflictingSections.add(
+          `${conflict.courseBCode}:${conflict.sectionBCode}`,
+        )
+      })
+      items.forEach((item) => {
+        item.conflict = conflictingSections.has(
+          `${item.code}:${item.sectionCode}`,
+        )
+      })
+    }
+    return { dynamicSchedule: items, conflicts: displayedConflicts }
+  }, [offerings, selectedSections, validation])
 
   // Jadwal semester aktif menjadi sumber untuk widget dashboard.
   useEffect(() => {
@@ -471,19 +556,35 @@ export default function DegreePlanner({
     }))
   }
 
-  const handleAutoResolveConflicts = () => {
-    const updated = { ...selectedSections }
-    offerings.forEach((offering) => {
-      if (offering.sections.length > 1) {
-        const alternate = offering.sections.find(
-          (s) => s.sectionId !== updated[offering.courseId],
-        )
-        if (alternate) {
-          updated[offering.courseId] = alternate.sectionId
-        }
+  const handleApplyAlternative = (alternative: SectionAlternative) => {
+    const offering = offerings.find(
+      (candidate) => candidate.courseCode === alternative.courseCode,
+    )
+    if (!offering) return
+
+    setSectionsByCourse((prev) => {
+      const current = prev[alternative.courseCode] ?? []
+      if (current.some((s) => s.sectionId === alternative.section.sectionId)) {
+        return prev
+      }
+      return {
+        ...prev,
+        [alternative.courseCode]: [...current, alternative.section],
       }
     })
-    setSelectedSections(updated)
+    setSelectedSections((prev) => ({
+      ...prev,
+      [offering.courseId]: alternative.section.sectionId,
+    }))
+  }
+
+  const handleAutoResolveConflicts = () => {
+    const applied = new Set<string>()
+    validation?.alternatives.forEach((alternative) => {
+      if (applied.has(alternative.courseCode)) return
+      applied.add(alternative.courseCode)
+      handleApplyAlternative(alternative)
+    })
   }
 
   return (
@@ -694,6 +795,12 @@ export default function DegreePlanner({
                 sectionsStatus={sectionsStatus}
                 sectionsError={sectionsError}
                 onRetrySections={() => setSectionsReload((count) => count + 1)}
+                alternatives={validation?.alternatives ?? []}
+                validationError={validationError}
+                onRetryValidation={() =>
+                  setValidationReload((count) => count + 1)
+                }
+                onApplyAlternative={handleApplyAlternative}
               />
             </div>
 

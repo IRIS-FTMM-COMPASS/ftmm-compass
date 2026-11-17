@@ -1,4 +1,4 @@
-import type { ScheduleItem } from "@/shared/domain/models"
+import type { ClassSection, ScheduleItem } from "@/shared/domain/models"
 
 export interface TimetableConflict {
   courseA: string
@@ -10,6 +10,32 @@ export interface TimetableConflict {
   day: string
   start: number
   end: number
+}
+
+export interface ScheduleConflictDetail {
+  courseACode: string
+  courseAName: string
+  sectionAId: string
+  sectionACode: string
+  courseBCode: string
+  courseBName: string
+  sectionBId: string
+  sectionBCode: string
+  day: string
+  start: string
+  end: string
+}
+
+export interface SectionAlternative {
+  courseCode: string
+  courseName: string
+  replacesSectionId: string
+  section: ClassSection
+}
+
+export interface ScheduleValidationResult {
+  conflicts: ScheduleConflictDetail[]
+  alternatives: SectionAlternative[]
 }
 
 /**
