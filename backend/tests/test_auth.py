@@ -1,4 +1,7 @@
 import uuid
+from datetime import datetime, timezone
+
+import jwt
 
 from rate_limit import limiter
 from tests.conftest import SEEDED_STUDENT
@@ -23,6 +26,7 @@ def test_login_returns_token_and_user(client):
     assert body["access_token"]
     assert body["user"]["role"] == "student"
     assert body["user"]["student_profile"]["student_number"]
+    assert body["expires_in"] == 28800
 
 
 def test_me_requires_token(client):
@@ -390,3 +394,61 @@ def test_non_auth_endpoints_are_not_rate_limited_by_auth_decorators(client):
     statuses = [client.get("/api/v1/health").status_code for _ in range(8)]
     assert statuses == [200] * 8
     limiter.reset()
+
+
+def test_login_accepts_uppercase_email(client):
+    limiter.reset()
+    payload = _registration_payload(21)
+    registered = client.post("/api/v1/auth/register", json=payload)
+    assert registered.status_code == 201
+
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"identifier": payload["email"].upper(), "password": payload["password"]},
+    )
+    assert response.status_code == 200
+    limiter.reset()
+
+
+def test_register_rejects_short_password(client):
+    limiter.reset()
+    payload = _registration_payload(22)
+    payload["password"] = "pendek"
+    response = client.post("/api/v1/auth/register", json=payload)
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+    limiter.reset()
+
+
+def test_recover_rejects_short_new_password(client):
+    limiter.reset()
+    response = client.post(
+        "/api/v1/auth/recover",
+        json={"recovery_code": "FTMM-ZZZZ-ZZZZ-ZZZZ", "new_password": "pendek"},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+    limiter.reset()
+
+
+def test_change_password_rejects_short_new_password(client, student_headers):
+    response = client.post(
+        "/api/v1/auth/change-password",
+        headers=student_headers,
+        json={"current_password": "salah", "new_password": "pendek"},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+
+def test_login_token_lifetime_matches_expires_in(client):
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"identifier": SEEDED_STUDENT[0], "password": SEEDED_STUDENT[1]},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    claims = jwt.decode(body["access_token"], options={"verify_signature": False})
+    remaining = claims["exp"] - datetime.now(timezone.utc).timestamp()
+    assert body["expires_in"] == 28800
+    assert 28790 <= remaining <= 28800
