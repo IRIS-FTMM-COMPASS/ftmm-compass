@@ -18,16 +18,18 @@ FTMM Compass helps students plan their degree journey across 8 semesters, explor
  │                                                                              │
  │   ┌───────────────┐   ┌────────────────┐   ┌─────────────────────────────┐   │
  │   │   Dashboard   │   │  CourseFinder  │   │        DegreePlanner        │   │
- │   │ (Stats & Grid)│   │(Detail/Modal/  │   │ (PlannerHeader, SemColumn,  │   │
- │   └───────────────┘   │ PrereqDiagram) │   │  PickerModal, ElectiveBank) │   │
- │                       └────────────────┘   └──────────────▲──────────────┘   │
+ │   │ (Stats & Grid)│   │ (Detail/Modal/ │   │ (PlannerHeader, Semester-    │  │
+ │   └───────────────┘   │ Prerequisite-  │   │ Column, CoursePicker-        │  │
+ │                      │ Diagram)       │   │ Modal, ElectiveCourse-       │   │
+ │                      └────────────────┘   │ Bank)                        │   │
+ │                                          └──────────────▲──────────────┘     │
  │                                                           │                  │
- │                                      [Apply AI Plan] ─────┘                  │
+ │                                    [Apply AI Plan] ─────┘                    │
  │                                                           │                  │
- │                                            ┌──────────────┴──────────────┐   │
- │                                            │      Compass AI Chatbot     │   │
- │                                            │ (SSE Stream & Action Cards) │   │
- │                                            └──────────────▲──────────────┘   │
+ │                                          ┌──────────────┴──────────────┐     │
+ │                                          │   Compass AI Chatbot        │     │
+ │                                          │ (SSE Stream & Action Cards) │     │
+ │                                          └──────────────▲──────────────┘     │
  └───────────────────────────────────────────────────────────┼──────────────────┘
                                                              │
                                Vite Dynamic Proxy (/api/v1/* & /api/* via .backend-port)
@@ -36,22 +38,24 @@ FTMM Compass helps students plan their degree journey across 8 semesters, explor
  │                     Tier 2: Backend Gateway Service (FastAPI)                │
  │                                                                              │
  │   ┌──────────────────────────────────────────────────────────────────────┐   │
- │   │      Dual-Router Gateway (/api/v1 & /api) + Resilient Fallback       │   │
- │   │       (Probes Microservice; Falls Back to Local Tools if Offline)    │   │
+ │   │                 Dual-Router Gateway (/api/v1 & /api)                 │   │
+ │   │        Chat/stream: 503 saat offline; /plans: fallback lokal         │   │
  │   └───────────────────────┬──────────────────────────────┬───────────────┘   │
  │                           │                              │                   │
- │        [HTTP / SSE Forward /api/v1/chat]       [Local Deterministic Engine]  │
+ │        [HTTP / SSE Forward /api/v1/chat*]   [Local Engine (/api/v1/plans)]   │
  │                           │                              │                   │
  │                           ▼                              ▼                   │
  │ ┌──────────────────────────────────┐   ┌───────────────────────────────────┐ │
  │ │ Tier 3: AI Microservice (Docker) │   │     Deterministic Tools Layer     │ │
- │ │ • Repo: ftmm-compass-chatbot     │   │ • Prerequisite DAG Validator      │ │
- │ │ • Port: 8000 (Hybrid RAG-CAG)    │   │ • Semester Parity Validator       │ │
- │ │ • Ollama: qwen2.5:3b (Port 11434)│   │ • 5-Prodi FTMM Curriculum Loader  │ │
- │ │ • FAISS Cosine Vector Retriever  │   │ • 8-Semester Plan Synthesizer     │ │
+ │ │• Repo: ftmm-compass-chatbot      │   │• Prerequisite DAG Validator       │ │
+ │ │• Port: 8000 (repo sibling)       │   │• Semester Parity Validator        │ │
+ │ │• Model & embedding: repo sibling │   │• 5-Prodi FTMM Curriculum Loader   │ │
+ │ │• RAG-CAG: di repo chatbot        │   │• 8-Semester Plan Synthesizer      │ │
  │ └──────────────────────────────────┘   └───────────────────────────────────┘ │
  └──────────────────────────────────────────────────────────────────────────────┘
 ```
+Komponen yang dirujuk di diagram: `PlannerHeader`, `SemesterColumn`, `CoursePickerModal`, `ElectiveCourseBank`, `PrerequisiteDiagram`. Nama di dalam kotak ASCII dipecah baris agar lebar kotak tetap konsisten.
+
 ---
 
 ## Key Features
@@ -61,7 +65,7 @@ FTMM Compass helps students plan their degree journey across 8 semesters, explor
 - Widget jadwal mingguan interaktif (*Timetable*) dengan deteksi bentrok jadwal (*conflict highlighting*).
 
 ### 2. Course Finder
-- Pencarian dan filter katalog mata kuliah berdasarkan prodi, semester, SKS, dan tipe (Wajib/Pilihan). Katalog dibaca dari database lewat `/api/v1/courses`.
+- Pencarian dan filter katalog mata kuliah berdasarkan prodi, paritas, kategori, ketersediaan, SKS, dan tipe (Wajib/Pilihan). Katalog dibaca dari database lewat `/api/v1/courses`.
 - Modal detail mata kuliah dilengkapi **Prerequisite Flow Diagram (SVG)** untuk melihat rantai mata kuliah prasyarat.
 
 ### 3. Degree Planner
@@ -76,8 +80,8 @@ FTMM Compass helps students plan their degree journey across 8 semesters, explor
 - Banner rencana personalisasi saat rencana dari Compass AI diterapkan.
 
 ### 4. Compass AI (Agentic Study Planner)
-- **Slot-Filling Conversational Flow**: Mengumpulkan profil mahasiswa (Prodi, Semester, Riwayat Kelulusan, Minat Karir, Target Kelulusan) melalui percakapan alami.
-- **Anti-Assumption Guardrails**: Tidak pernah menebak atau mengasumsikan data mahasiswa yang belum jelas. Jika data kurang, agen akan menanyakan klarifikasi secara ramah.
+- **Slot-Filling Conversational Flow** (di microservice `ftmm-compass-chatbot`, lihat README sibling): mengumpulkan profil mahasiswa (Prodi, Semester, Riwayat Kelulusan, Minat Karir, Target Kelulusan) melalui percakapan alami.
+- **Anti-Assumption Guardrails** (di microservice `ftmm-compass-chatbot`): tidak menebak data mahasiswa yang belum jelas; agen meminta klarifikasi bila data kurang.
 - **Deterministic DAG & Parity Validation**: Menguji validitas rencana secara deterministik dengan aturan resmi kurikulum FTMM sebelum diserahkan ke mahasiswa.
 - **One-Click UI Transfer**: Hasil rencana studi dilengkapi kartu aksi interaktif **[Terapkan Rencana Ini ke Degree Planner]** yang langsung mengisi papan visual roadmap.
 
@@ -94,10 +98,10 @@ FTMM Compass helps students plan their degree journey across 8 semesters, explor
 ### Backend & AI Services
 - **Python 3.10+** (managed via **[Astral UV](https://docs.astral.sh/uv/)**)
 - **FastAPI Gateway** + **Uvicorn** (RESTful API, dynamic port auto-discovery 8001–8050, & CORS; port 8000 dipakai microservice chatbot)
-- **HTTPX** (Asynchronous client with timeout & resilient local fallback)
+- **HTTPX** (Asynchronous client with timeout; fallback deterministik hanya untuk `/api/v1/plans`, bukan chat/stream)
 - **Pydantic v2** (Strict data validation schemas & DegreePlanPayload contracts)
-- **AI Microservice (Docker)**: Hybrid RAG-CAG engine (`ftmm-compass-chatbot` on Port 8000)
-- **Local LLM & Embeddings**: Ollama (`qwen2.5:3b`, `nomic-embed-text` on Port 11434)
+- **AI Microservice (Docker)**: engine RAG-CAG di repo `ftmm-compass-chatbot` (Port 8000; detail model dan embedding di README sibling)
+- **Local LLM & Embeddings**: konfigurasi Ollama dan embedding berada di repo `ftmm-compass-chatbot` (Port 11434; lihat `.env.example` sibling)
 
 ## Cara Menjalankan Project
 
@@ -136,10 +140,11 @@ Terdapat dua mode eksekusi yang didukung:
   - Integrasi LSP, typechecking, dan autocomplete IDE bekerja optimal secara native.
 
 #### Mode B: Full Docker Mode (Untuk QA, Reviewer, atau Deployment Server)
-- Menjalankan seluruh stack (`postgres`, `gateway`, dan `frontend`) terisolasi di dalam container Docker:
+- Menjalankan seluruh stack (`postgres`, `gateway`, dan `frontend`) terisolasi di dalam container Docker (`make docker-up` berjalan di foreground):
   ```bash
   make docker-up
-  # atau manual: docker compose up -d --build
+  # atau manual: docker compose up --build
+  # varian detached: docker compose up -d --build
   ```
 - **Catatan Penting Sinkronisasi Kode**:
   Karena `Dockerfile.backend` dan `Dockerfile.frontend` menyalin (*COPY*) berkas kode sumber ke dalam image saat build time (tanpa host volume bind mount di `docker-compose.yml`), **perubahan kode di host tidak otomatis tersinkronisasi ke dalam kontainer yang sedang berjalan**. Setiap perubahan kode di tengah jalan memerlukan proses rebuild:
@@ -194,8 +199,8 @@ Sebelum memulai, pastikan perangkat Anda telah terpasang:
 
 5. **Ollama (Opsional — untuk LLM Lokal)**:
    - Unduh installer dari [ollama.com](https://ollama.com).
-   - Model rekomendasi: `ollama run qwen2.5:3b-instruct` (ringan, ~2 GB) atau `ollama run qwen2.5:7b-instruct`.
-   - *(Jika Ollama tidak aktif, backend otomatis menggunakan fallback slot-filling deterministik sehingga aplikasi tetap berjalan lancar).*
+   - Model embedding: `ollama pull nomic-embed-text-v2-moe`. Generator default saat ini adalah `ag/gemini-3.8-flash-low` via 9router; fallback Ollama dinonaktifkan secara default (lihat `.env.example` repo sibling).
+   - *(Chat/stream memerlukan microservice aktif; bila offline gateway mengembalikan HTTP 503, bukan fallback lokal.)*
 
 6. **AI Chatbot Microservice (Opsional — untuk Inferensi Hybrid RAG-CAG Penuh)**:
    - Microservice AI berjalan di repositori sibling `ftmm-compass-chatbot`:
@@ -207,7 +212,7 @@ Sebelum memulai, pastikan perangkat Anda telah terpasang:
      docker compose up -d
      ```
    - Microservice akan aktif di `http://localhost:8000` dan terhubung langsung ke Ollama host.
-   - *(Jika kontainer Docker tidak diaktifkan, Backend Gateway otomatis beralih ke agen slot-filling lokal sehingga seluruh fitur aplikasi tetap 100% berfungsi tanpa kendala).*
+   - *(Jika kontainer Docker tidak diaktifkan, endpoint chat/stream mengembalikan HTTP 503. Tidak ada fallback slot-filling di gateway.)*
 
 ---
 
@@ -242,7 +247,7 @@ Jika Anda lebih menyukai tab terminal terpisah untuk memantau log masing-masing 
   ```bash
   pnpm dev:backend
   # atau manual:
-  uv run --directory backend python app.py
+  uv run --directory backend python -u app.py
   ```
   Backend aktif di `http://localhost:<PORT>` (Swagger interactive docs di `/docs`).
 
@@ -254,9 +259,8 @@ Jika Anda lebih menyukai tab terminal terpisah untuk memantau log masing-masing 
 
 *(Opsional)* Jalankan model LLM lokal di terminal terpisah:
 ```bash
-ollama run qwen2.5:3b-instruct
-# atau model lebih besar:
-ollama run qwen2.5:7b-instruct
+ollama pull nomic-embed-text-v2-moe
+# Generator default: ag/gemini-3.8-flash-low via 9router (lihat .env.example repo chatbot)
 ```
 
 ---
@@ -288,11 +292,8 @@ Untuk deployment terisolasi berbasis kontainer atau setup di server/VPS baru:
 
 #### A. Inisialisasi Jaringan Host (Hanya 1x di Server/Host Baru)
 ```bash
-# 1. Buat bridge network bersama untuk komunikasi inter-kontainer
+# 1. Buat bridge network eksternal yang dipakai docker-compose.yml
 docker network create ftmm-network 2>/dev/null || true
-
-# 2. Jika Ollama berjalan di host dengan firewall UFW aktif (misal Ubuntu/WSL2):
-sudo ufw allow 11434/tcp
 ```
 
 #### B. Menjalankan Layanan Kontainer
@@ -301,6 +302,8 @@ sudo ufw allow 11434/tcp
 cd ../ftmm-compass-chatbot && docker compose up -d
 
 # 2. Jalankan Gateway (port 8001) dan Frontend UI (port 8443)
+# Chatbot memakai network_mode: host, jadi hostname default compose tidak resolvable
+export CHATBOT_SERVICE_URL=http://host.docker.internal:8000
 cd ../ftmm-compass-ui && docker compose up -d
 ```
 
@@ -313,6 +316,41 @@ cd ../ftmm-compass-ui && docker compose up -d
   docker compose down && docker compose -f ../ftmm-compass-chatbot/docker-compose.yml down
   ```
 
+---
+
+### 7. Ekspor Peta Alur Web (docu.md — WSL/Linux & Windows)
+
+`docs/web-flow-viewer.md` berisi figur inline (HTML/CSS + PlantUML) yang bisa dibaca langsung lewat ekstensi **docu.md Markdown Viewer** di VS Code/Cursor. Untuk menghasilkan HTML statis tanpa server, gunakan `documd` CLI. Versi paket di-pin ke `6.1.1` (bukan `@latest`) agar render reproducible; `-y` hanya melewati prompt instal. Akses jaringan mencakup npm registry dan aset CSS eksternal (KaTeX) saat render; `playwright install chromium` bila diperlukan adalah unduhan terpisah. Output ditulis ke direktori temp, bukan ke repo, sehingga working tree tetap bersih. Tidak ada kredensial, push, atau perubahan kode aplikasi.
+
+Prasyarat: Node.js v22 (lihat bagian 3). Jika Chrome/Chromium belum tersedia, jalankan sekali `npx -y playwright@latest install chromium` untuk mengunduh biner browser; ini opsional dan bukan bagian dari ekspor.
+
+**WSL/Linux** — deteksi Chromium dari cache Playwright, fallback ke Chrome/Chromium sistem:
+
+```bash
+CHROME=$(find "$HOME/.cache/ms-playwright" -type f -path '*/chrome-linux64/chrome' 2>/dev/null | sort -V | tail -n 1)
+if [ -z "$CHROME" ]; then CHROME=$(command -v google-chrome || command -v chromium || true); fi
+if [ -z "$CHROME" ]; then echo "Jalankan dulu: npx -y playwright@latest install chromium"; exit 1; fi
+DOCUMD_CHROME_PATH="$CHROME" npx -y @markdown-viewer/documd@6.1.1 docs/web-flow-viewer.md /tmp/web-flow-viewer.html
+```
+
+Buka hasilnya dengan `xdg-open /tmp/web-flow-viewer.html`.
+
+**Windows (PowerShell)** — deteksi Chromium dari `%LOCALAPPDATA%\ms-playwright`, fallback ke Chrome sistem:
+
+```powershell
+$chrome = Get-ChildItem "$env:LOCALAPPDATA\ms-playwright" -Filter chrome.exe -Recurse -ErrorAction SilentlyContinue |
+  Where-Object { $_.FullName -like '*chrome-win*' } |
+  Sort-Object FullName | Select-Object -Last 1 -ExpandProperty FullName
+if (-not $chrome) { $chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe" }
+if (-not (Test-Path $chrome)) { throw "Jalankan: npx -y playwright@latest install chromium" }
+$env:DOCUMD_CHROME_PATH = $chrome
+npx -y @markdown-viewer/documd@6.1.1 docs\web-flow-viewer.md "$env:TEMP\web-flow-viewer.html"
+```
+
+Buka hasilnya dengan `Invoke-Item "$env:TEMP\web-flow-viewer.html"`.
+
+Verifikasi: CLI mencetak `Rendered ...` dan keluar dengan status `0`; HTML memuat tiga figur tertanam sebagai `data:image/png;base64`. Jalur biner browser diberikan lewat env var `DOCUMD_CHROME_PATH`; di WSL pakai Chromium Linux, bukan biner Chrome Windows di `/mnt/c/...`.
+
 ## Testing & QA Audit
 
 Suite backend berjalan terhadap PostgreSQL yang sudah di-migrate. Fixture `tests/conftest.py` menanam pengguna demo sendiri, tetapi tes katalog dan degree-plan membaca katalog 5 prodi, sehingga database harus sudah dijalankan `make seed` (yang kini juga menjalankan `seed_full_catalog.py`). CI melakukan urutan yang sama: schema baseline → `alembic upgrade head` → `seed_full_catalog.py` → `pytest`.
@@ -322,8 +360,8 @@ Suite backend berjalan terhadap PostgreSQL yang sudah di-migrate. Fixture `tests
 # A. Menggunakan Makefile (Cepat & Terintegrasi)
 # ----------------------------------------------------
 make test          # Typecheck TypeScript + suite pytest backend
-make lint          # Pemeriksaan format (oxfmt) + typecheck
-make format        # Auto-format seluruh codebase via oxfmt
+make lint          # oxfmt + typecheck + Ruff (backend)
+make format        # Auto-format frontend via oxfmt (tidak memformat backend)
 
 # ----------------------------------------------------
 # B. Perintah Manual / Spesifik Sub-Sistem
@@ -402,15 +440,16 @@ ftmm-compass-ui/
 │   ├── index.css                  # Tailwind v4 @theme design tokens (Navy, Gold, Teal)
 │   └── vite-env.d.ts              # Tipe environment Vite
 ├── database/                      # Canonical Database Baseline V2.1 RC1
-│   ├── schema_v2_1_rc1.sql        # PostgreSQL 16+ DDL (38 tables, 26 functions, 44 triggers)
+│   ├── schema_v2_1_rc1.sql        # PostgreSQL 16+ DDL (38 tabel = 36 baseline + 2 polling, 26 functions, 44 triggers)
 │   ├── schema_v2_1_rc1.dbml       # DBML diagram definition
 │   ├── seed/                      # Input seed katalog 5 prodi (canonical + reconciliation)
 │   └── README.md                  # Ringkasan paket skema database
 ├── docs/                          # Dokumentasi teknis & onboarding
 │   ├── ONBOARDING.md              # Developer Onboarding & Local Setup Guide (Makefile DX)
+│   ├── web-flow-viewer.md         # Peta alur web tanpa chatbot (figur inline docu.md)
 │   ├── plans/                     # Plan & decision log refactor (low-level, per fase)
 │   └── database/                  # Dokumentasi & Audit Skema Database V2.1 RC1
-│       ├── DATABASE_SCHEMA_V2_1_RC1.md    # Spesifikasi arsitektur 38 tabel & rule tree
+│       ├── DATABASE_SCHEMA_V2_1_RC1.md    # Spesifikasi arsitektur tabel & rule tree
 │       ├── SCHEMA_VALIDATION_V2_1_RC1.md  # Laporan 97/97 static release audit checks
 │       └── CHANGELOG_V2_TO_V2_1_RC1.md    # Catatan migrasi dari v2 ke v2.1 RC1
 ├── RANCANGAN DIAGRAM AWAL.sql     # Arsip baseline awal PostgreSQL 16 (v2)
@@ -421,4 +460,4 @@ ftmm-compass-ui/
 
 ## Database Baseline — V2.1 RC1
 
-`database/schema_v2_1_rc1.sql` adalah canonical baseline PostgreSQL 16+ untuk arsitektur basis data akademik FTMM (**38 tabel, 26 fungsi PL/pgSQL, 44 trigger, 2 read views**, dan lulus **97/97 static audit checks**). Dokumentasi lengkap keputusan desain tersedia di [`docs/database/DATABASE_SCHEMA_V2_1_RC1.md`](./docs/database/DATABASE_SCHEMA_V2_1_RC1.md) dan laporan validasinya di [`docs/database/SCHEMA_VALIDATION_V2_1_RC1.md`](./docs/database/SCHEMA_VALIDATION_V2_1_RC1.md).
+`database/schema_v2_1_rc1.sql` adalah canonical baseline PostgreSQL 16+ untuk arsitektur basis data akademik FTMM (**38 tabel — 36 baseline + 2 tabel polling —, 26 fungsi PL/pgSQL, 44 trigger, 2 read views**, dan lulus **97/97 static audit checks**). Dokumentasi lengkap keputusan desain tersedia di [`docs/database/DATABASE_SCHEMA_V2_1_RC1.md`](./docs/database/DATABASE_SCHEMA_V2_1_RC1.md) dan laporan validasinya di [`docs/database/SCHEMA_VALIDATION_V2_1_RC1.md`](./docs/database/SCHEMA_VALIDATION_V2_1_RC1.md).
