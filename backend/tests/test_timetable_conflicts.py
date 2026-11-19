@@ -25,6 +25,16 @@ def test_view_pairs_match_independent_overlap_calculation(client, db_session):
                     FROM timetables t
                     JOIN timetable_items ti USING (timetable_id)
                     WHERE t.is_active = true
+                      AND t.timetable_id = (
+                          SELECT ti2.timetable_id
+                          FROM timetable_items ti2
+                          JOIN timetables t2 ON t2.timetable_id = ti2.timetable_id
+                          WHERE t2.is_active = true
+                          GROUP BY ti2.timetable_id
+                          HAVING COUNT(*) >= 2
+                          ORDER BY ti2.timetable_id
+                          LIMIT 1
+                      )
                     ORDER BY ti.class_section_id
                     LIMIT 2
                     """
@@ -35,6 +45,11 @@ def test_view_pairs_match_independent_overlap_calculation(client, db_session):
             return
 
         timetable_id = active[0][0]
+        for _, section_id in active:
+            await db_session.execute(
+                text("DELETE FROM class_schedules WHERE class_section_id = :section"),
+                {"section": section_id},
+            )
         for _, section_id in active:
             await db_session.execute(
                 text(

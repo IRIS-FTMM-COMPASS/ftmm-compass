@@ -178,12 +178,15 @@ def _timetable_counts(client, db_session, email: str) -> tuple[int, int]:
     return client.portal.call(read)
 
 
-def test_demo_student_starts_with_empty_timetable(client, db_session):
+def test_demo_student_starts_with_seeded_timetable(client, db_session):
     headers = _login_headers(client, TSD_DEMO_STUDENT)
 
     body = _get_timetable(client, headers)
 
-    assert body["selections"] == []
+    assert {item["course_code"] for item in body["selections"]} == {
+        "SIA104",
+        "SIP107",
+    }
     assert "academic_period_id" in body
     assert "updated_at" in body
 

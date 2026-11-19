@@ -982,6 +982,153 @@ async def seed_data():
             f"  [OK] Active degree plans ready for {len(demo_plan_users)} demo students "
             f"({plans_created} plans, {items_created} items created)"
         )
+        # Jadwal demo mengikuti rencana studi aktif. Seksi dipilih hanya jika
+        # penawarannya memenuhi syarat kurikulum pada item rencana tersebut.
+        timetables_reconciled = 0
+        for user in demo_plan_users:
+            stmt_demo_plan = select(DegreePlan).where(
+                DegreePlan.user_id == user.user_id,
+                DegreePlan.status == "active",
+            ).order_by(DegreePlan.created_at)
+            plan = (await session.execute(stmt_demo_plan)).scalars().first()
+            if plan is None:
+                continue
+
+            stmt_plan_course_ids = select(DegreePlanItem.curriculum_course_id).where(
+                DegreePlanItem.degree_plan_id == plan.degree_plan_id
+            )
+            plan_course_ids = (
+                (await session.execute(stmt_plan_course_ids)).scalars().all()
+            )
+            desired_sections: list[tuple[str, object]] = []
+            seen_course_codes: set[str] = set()
+            if plan_course_ids:
+                stmt_eligible_sections = (
+                    select(
+                        CurriculumCourse,
+                        Course.course_code,
+                        ClassSection.class_section_id,
+                    )
+                    .join(Course, Course.course_id == CurriculumCourse.course_id)
+                    .join(
+                        CourseOfferingEligibility,
+                        CourseOfferingEligibility.curriculum_course_id
+                        == CurriculumCourse.curriculum_course_id,
+                    )
+                    .join(
+                        CourseOffering,
+                        CourseOffering.course_offering_id
+                        == CourseOfferingEligibility.course_offering_id,
+                    )
+                    .join(
+                        OfferingComponent,
+                        OfferingComponent.course_offering_id
+                        == CourseOffering.course_offering_id,
+                    )
+                    .join(
+                        ClassSection,
+                        ClassSection.offering_component_id
+                        == OfferingComponent.offering_component_id,
+                    )
+                    .where(
+                        CurriculumCourse.curriculum_course_id.in_(plan_course_ids),
+                        CourseOffering.academic_period_id
+                        == active_period.academic_period_id,
+                    )
+                    .order_by(
+                        Course.course_code,
+                        OfferingComponent.component_code,
+                        ClassSection.section_code,
+                        ClassSection.class_section_id,
+                    )
+                )
+                for _cc, course_code, section_id in (
+                    await session.execute(stmt_eligible_sections)
+                ).all():
+                    if course_code in seen_course_codes:
+                        continue
+                    seen_course_codes.add(course_code)
+                    desired_sections.append((course_code, section_id))
+
+            stmt_existing = (
+                select(Timetable)
+                .where(
+                    Timetable.user_id == user.user_id,
+                    Timetable.academic_period_id
+                    == active_period.academic_period_id,
+                )
+                .order_by(Timetable.is_active.desc())
+            )
+            existing = (await session.execute(stmt_existing)).scalars().all()
+            active_timetables = [t for t in existing if t.is_active]
+
+            if not desired_sections:
+                if active_timetables:
+                    for timetable in active_timetables:
+                        timetable.is_active = False
+                    await session.flush()
+                    timetables_reconciled += 1
+                continue
+
+            desired_ids = {section_id for _, section_id in desired_sections}
+            timetable = (
+                active_timetables[0]
+                if active_timetables
+                else (existing[0] if existing else None)
+            )
+            if timetable is not None and timetable.is_active:
+                stmt_current = select(TimetableItem.class_section_id).where(
+                    TimetableItem.timetable_id == timetable.timetable_id
+                )
+                current_ids = set((await session.execute(stmt_current)).scalars().all())
+                if current_ids == desired_ids:
+                    continue
+
+            if timetable is None:
+                timetable = Timetable(
+                    user_id=user.user_id,
+                    student_curriculum_assignment_id=(
+                        plan.student_curriculum_assignment_id
+                    ),
+                    academic_period_id=active_period.academic_period_id,
+                    timetable_name="Jadwal Utama",
+                    is_active=False,
+                )
+                session.add(timetable)
+            else:
+                for active in active_timetables:
+                    active.is_active = False
+                if (
+                    timetable.student_curriculum_assignment_id
+                    != plan.student_curriculum_assignment_id
+                ):
+                    timetable.student_curriculum_assignment_id = (
+                        plan.student_curriculum_assignment_id
+                    )
+            # Trigger menolak perubahan item pada timetable aktif.
+            await session.flush()
+
+            await session.execute(
+                delete(TimetableItem).where(
+                    TimetableItem.timetable_id == timetable.timetable_id
+                )
+            )
+            await session.flush()
+            for _course_code, section_id in desired_sections:
+                session.add(
+                    TimetableItem(
+                        timetable_id=timetable.timetable_id,
+                        class_section_id=section_id,
+                    )
+                )
+            await session.flush()
+            timetable.is_active = True
+            await session.flush()
+            timetables_reconciled += 1
+        print(
+            f"  [OK] Demo timetables reconciled from active degree plans "
+            f"({timetables_reconciled} updated)"
+        )
 
         print("\n[SEED 7/8] Checking and seeding Active Polling Period & Votes Peminatan...")
         stmt_poll = select(ElectivePollingPeriod).where(ElectivePollingPeriod.status == "open")
