@@ -19,6 +19,8 @@ from models import (
     Curriculum,
     CurriculumCourse,
     StudentCurriculumAssignment,
+    DegreePlan,
+    DegreePlanItem,
     StudentCourseRecord,
     CourseOffering,
     CourseOfferingEligibility,
@@ -31,6 +33,7 @@ from models import (
     ElectiveCourseVote,
     UserNotification,
 )
+from plan_storage import ensure_assignment
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(line_buffering=True)
@@ -884,6 +887,101 @@ async def seed_data():
             existing_schedules.append((day_of_week, start_time, end_time))
 
         print("  [OK] Seeded mandatory curriculum-eligible class sections for active curricula")
+
+        # Kelima mahasiswa demo harus punya rencana studi aktif yang bisa
+        # dipakai. Rencana yang sudah berisi item tidak pernah diubah.
+        demo_plan_emails = [
+            "mahasiswa.tsd@ftmm.unair.ac.id",
+            "mahasiswa.trkb@ftmm.unair.ac.id",
+            "mahasiswa.rn@ftmm.unair.ac.id",
+            "mahasiswa.ti@ftmm.unair.ac.id",
+            "mahasiswa.te@ftmm.unair.ac.id",
+        ]
+        stmt_demo_plan_users = (
+            select(User)
+            .options(selectinload(User.student_profile))
+            .where(User.email.in_(demo_plan_emails))
+        )
+        demo_plan_users = (await session.execute(stmt_demo_plan_users)).scalars().all()
+        plans_created = 0
+        items_created = 0
+        want_odd = active_period.term != "genap"
+        minimum_semester = 1 if want_odd else 2
+        for user in demo_plan_users:
+            if user.student_profile is None:
+                continue
+            assignment = await ensure_assignment(session, user)
+            stmt_active_plan = (
+                select(DegreePlan)
+                .options(selectinload(DegreePlan.items))
+                .where(
+                    DegreePlan.user_id == user.user_id,
+                    DegreePlan.status == "active",
+                )
+                .order_by(DegreePlan.created_at)
+            )
+            plan = (await session.execute(stmt_active_plan)).scalars().first()
+            if plan is None:
+                plan = DegreePlan(
+                    user_id=user.user_id,
+                    student_curriculum_assignment_id=(
+                        assignment.student_curriculum_assignment_id
+                    ),
+                    plan_name="Draft 1",
+                    status="active",
+                )
+                session.add(plan)
+                await session.flush()
+                plans_created += 1
+            elif plan.items:
+                continue
+
+            stmt_plan_courses = (
+                select(CurriculumCourse)
+                .join(Course, Course.course_id == CurriculumCourse.course_id)
+                .join(
+                    Curriculum,
+                    Curriculum.curriculum_id == CurriculumCourse.curriculum_id,
+                )
+                .where(
+                    CurriculumCourse.curriculum_id == assignment.curriculum_id,
+                    CurriculumCourse.course_type == "wajib",
+                    CurriculumCourse.term == active_period.term,
+                    CurriculumCourse.is_active.is_(True),
+                    Curriculum.is_active.is_(True),
+                    Course.is_active.is_(True),
+                )
+                .order_by(
+                    CurriculumCourse.recommended_semester,
+                    Course.course_code,
+                )
+                .limit(6)
+            )
+            plan_courses = (await session.execute(stmt_plan_courses)).scalars().all()
+            for course in plan_courses:
+                recommended = course.recommended_semester
+                if recommended is None or recommended < minimum_semester:
+                    semester = minimum_semester
+                elif (recommended % 2 == 1) == want_odd:
+                    semester = recommended
+                else:
+                    semester = recommended - 1
+                    if semester < minimum_semester:
+                        semester = recommended + 1
+                session.add(
+                    DegreePlanItem(
+                        degree_plan_id=plan.degree_plan_id,
+                        curriculum_course_id=course.curriculum_course_id,
+                        planned_semester=semester,
+                        planning_status="planned",
+                    )
+                )
+                items_created += 1
+            await session.flush()
+        print(
+            f"  [OK] Active degree plans ready for {len(demo_plan_users)} demo students "
+            f"({plans_created} plans, {items_created} items created)"
+        )
 
         print("\n[SEED 7/8] Checking and seeding Active Polling Period & Votes Peminatan...")
         stmt_poll = select(ElectivePollingPeriod).where(ElectivePollingPeriod.status == "open")
