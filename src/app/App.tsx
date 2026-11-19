@@ -1353,6 +1353,9 @@ function AppShell() {
   const { user, isLoggedIn, login, logout, canAccess } = useSession()
   const { period } = useAcademicPeriod()
   const { error: catalogError, reload: reloadCatalog } = useCatalog()
+  useEffect(() => {
+    if (user?.user_id) void reloadCatalog()
+  }, [user?.user_id, reloadCatalog])
   const planner = usePlanner()
   const [activePage, setActivePage] = useState<Page>(pageFromLocation)
   const [isSidebarOpen, setIsSidebarOpen] = useState(

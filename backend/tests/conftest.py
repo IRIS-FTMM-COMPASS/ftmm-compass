@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import app as app_module
 from database import AsyncSessionLocal, engine, get_db
+from rate_limit import limiter
 from seed import seed_data
 
 SEEDED_STUDENT = ("mahasiswa.testing@ftmm.unair.ac.id", "Mahasiswa2026!")
@@ -121,8 +122,14 @@ def student_headers(student_token) -> dict[str, str]:
 
 
 @pytest.fixture
-def admin_headers(admin_token) -> dict[str, str]:
-    return {"Authorization": f"Bearer {admin_token}"}
+def admin_headers(client) -> dict[str, str]:
+    limiter.reset()
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"identifier": SEEDED_ADMIN[0], "password": SEEDED_ADMIN[1]},
+    )
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
 @pytest.fixture

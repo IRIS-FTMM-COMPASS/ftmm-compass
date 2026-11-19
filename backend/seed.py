@@ -232,6 +232,58 @@ async def seed_data():
                 session.add(profile)
             print(f"  [EXISTS] Mahasiswa user: {mhs_email}")
 
+        demo_students = [
+            ("TSD", "164231062", "mahasiswa.tsd", "Mahasiswa TSD"),
+            ("TRKB", "163231062", "mahasiswa.trkb", "Mahasiswa TRKB"),
+            ("RN", "162231062", "mahasiswa.rn", "Mahasiswa RN"),
+            ("TI", "165231062", "mahasiswa.ti", "Mahasiswa TI"),
+            ("TE", "166231062", "mahasiswa.te", "Mahasiswa TE"),
+        ]
+        for code, nim, email_local, full_name in demo_students:
+            demo_email = f"{email_local}@ftmm.unair.ac.id"
+            stmt_demo = (
+                select(User)
+                .options(selectinload(User.student_profile))
+                .where(User.email == demo_email)
+            )
+            demo_user = (await session.execute(stmt_demo)).scalars().first()
+            if demo_user is None:
+                demo_user = User(
+                    email=demo_email,
+                    full_name=full_name,
+                    role="student",
+                    password_hash=get_password_hash("Mahasiswa2026!"),
+                    is_active=True,
+                )
+                session.add(demo_user)
+                await session.flush()
+                session.add(
+                    StudentProfile(
+                        user_id=demo_user.user_id,
+                        study_program_id=prodi_map[code].study_program_id,
+                        student_number=nim,
+                        admission_year=2023,
+                        current_semester=3,
+                    )
+                )
+                print(f"  [CREATED] Mahasiswa user: {demo_email} with NIM {nim}")
+            else:
+                demo_user.full_name = full_name
+                demo_user.password_hash = get_password_hash("Mahasiswa2026!")
+                demo_user.role = "student"
+                demo_user.is_active = True
+                if demo_user.student_profile is None:
+                    session.add(
+                        StudentProfile(
+                            user_id=demo_user.user_id,
+                            study_program_id=prodi_map[code].study_program_id,
+                            student_number=nim,
+                            admission_year=2023,
+                            current_semester=3,
+                        )
+                    )
+                print(f"  [EXISTS] Mahasiswa user: {demo_email}")
+
         # Akun dosen uji lama tidak dipakai lagi: nonaktifkan bila sudah ada,
         # dan jangan pernah dibuat ulang sebagai akun aktif.
         legacy_lecturer = (

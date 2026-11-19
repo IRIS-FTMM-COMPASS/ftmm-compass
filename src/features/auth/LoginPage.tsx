@@ -21,6 +21,7 @@ import {
   fieldError,
   type AuthUser,
 } from "@/features/auth/authService"
+import DevAccountPicker from "@/features/auth/components/DevAccountPicker"
 import { cn } from "@/shared/utils"
 
 import BrandLogo from "@/shared/ui/BrandLogo"
@@ -225,15 +226,14 @@ export default function Login({ onLogin }: LoginProps) {
   const errorMessage = error ? authErrorMessage(error, fallbackMessage) : null
   const isAccountInactive = mode === "login" && isInactiveAccountError(error)
 
-  const handleLogin = async (e: FormEvent) => {
-    e.preventDefault()
+  const performLogin = async (identifier: string, passwordValue: string) => {
     setIsLoading(true)
     setError(null)
 
     try {
       const response = await authService.login({
-        identifier: nim.trim(),
-        password,
+        identifier,
+        password: passwordValue,
       })
       onLogin(response.user, response.expires_in)
     } catch (err: unknown) {
@@ -241,6 +241,11 @@ export default function Login({ onLogin }: LoginProps) {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  const handleLogin = async (e: FormEvent) => {
+    e.preventDefault()
+    await performLogin(nim.trim(), password)
   }
 
   const handleRegister = async (e: FormEvent) => {
@@ -509,6 +514,8 @@ export default function Login({ onLogin }: LoginProps) {
               </button>
             </form>
           )}
+
+          {mode === "login" && <DevAccountPicker onSelect={performLogin} />}
 
           {mode === "register" && (
             <form onSubmit={handleRegister} className="space-y-4">

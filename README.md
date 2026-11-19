@@ -237,7 +237,26 @@ pnpm dev:all
 
 - **Cross-Platform**: Menggunakan `concurrently` yang mendukung signal terminate (Ctrl+C) bersih di Linux maupun Windows.
 - **Dynamic Port Auto-Discovery**: Backend memindai port kosong pada rentang 8001–8050 (port 8000 disediakan untuk microservice chatbot) dan menuliskan port aktif ke `.backend-port`. Vite dev proxy membaca berkas itu dan meneruskan request `/api` ke port tersebut.
-- Buka **`http://localhost:8443`** di browser. Login memakai akun hasil seeding: `mahasiswa.testing@ftmm.unair.ac.id` / `Mahasiswa2026!` (student), `dosen.testing@ftmm.unair.ac.id` / `DosenFTMM2026!` (lecturer), atau `admin@ftmm.unair.ac.id` / `AdminFTMM2026!` (admin). Identifier menerima NIM atau email.
+##### Akun Demo
+
+Buka **`http://localhost:8443`** di browser. Login memakai salah satu akun hasil seeding berikut:
+
+| Role | Email | NIM | Password | Prodi |
+| --- | --- | --- | --- | --- |
+| student | mahasiswa.tsd@ftmm.unair.ac.id | 164231062 | Mahasiswa2026! | TSD |
+| student | mahasiswa.trkb@ftmm.unair.ac.id | 163231062 | Mahasiswa2026! | TRKB |
+| student | mahasiswa.rn@ftmm.unair.ac.id | 162231062 | Mahasiswa2026! | RN |
+| student | mahasiswa.ti@ftmm.unair.ac.id | 165231062 | Mahasiswa2026! | TI |
+| student | mahasiswa.te@ftmm.unair.ac.id | 166231062 | Mahasiswa2026! | TE |
+| student | mahasiswa.testing@ftmm.unair.ac.id | 164231001 | Mahasiswa2026! | TSD |
+| PJ Prodi / lecturer | pj.tsd@ftmm.unair.ac.id | - | PjProdi2026! | TSD |
+| PJ Prodi / lecturer | pj.trkb@ftmm.unair.ac.id | - | PjProdi2026! | TRKB |
+| PJ Prodi / lecturer | pj.rn@ftmm.unair.ac.id | - | PjProdi2026! | RN |
+| PJ Prodi / lecturer | pj.ti@ftmm.unair.ac.id | - | PjProdi2026! | TI |
+| PJ Prodi / lecturer | pj.te@ftmm.unair.ac.id | - | PjProdi2026! | TE |
+| admin | admin@ftmm.unair.ac.id | - | AdminFTMM2026! | - |
+
+Identifier menerima NIM atau email. `backend/seed.py` adalah sumber kebenaran untuk kredensial akun-akun ini.
 - Database harus sudah di-migrate dan di-seed (`make db-up && make migrate && make seed`), karena kredensial dan katalog dibaca dari PostgreSQL, bukan dari data statis frontend.
 
 #### B. Menjalankan Terpisah (2 Tab Terminal)

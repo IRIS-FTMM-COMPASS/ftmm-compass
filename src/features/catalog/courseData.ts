@@ -32,7 +32,9 @@ interface CatalogResult {
 export async function fetchCatalog(program?: string): Promise<CatalogResult> {
   const query =
     program && program !== "all" ? `?prodi=${encodeURIComponent(program)}` : ""
-  const data = await apiFetch<ApiCoursesResponse>(`/api/v1/courses${query}`)
+  const data = await apiFetch<ApiCoursesResponse>(`/api/v1/courses${query}`, {
+    auth: true,
+  })
   const rawList = data.courses ?? data.data ?? []
   const usedIds = new Set<string>()
   const courses = rawList.map((item, index) =>

@@ -61,3 +61,31 @@ def require_pj_scope(
             "PJ hanya dapat mengakses rekap prodinya sendiri.",
         )
     return own_prodi
+
+
+def resolve_catalog_prodi(current_user) -> str | None | JSONResponse:
+    """Return canonical prodi for scoped users, None for unrestricted, or a denial envelope."""
+    if current_user.role == "student":
+        profile = current_user.student_profile
+        if profile is None or profile.study_program is None:
+            message = "Prodi mahasiswa belum ditetapkan."
+            return error_response(
+                status.HTTP_403_FORBIDDEN,
+                "prodi_belum_ditetapkan",
+                message,
+                detail=message,
+            )
+        study_program = profile.study_program
+        return normalize_prodi(study_program.program_name) or study_program.program_code
+
+    if current_user.role == "lecturer":
+        profile = current_user.lecturer_profile
+        if (
+            profile is not None
+            and profile.is_program_coordinator
+            and profile.study_program is not None
+        ):
+            study_program = profile.study_program
+            return normalize_prodi(study_program.program_name) or study_program.program_code
+
+    return None
