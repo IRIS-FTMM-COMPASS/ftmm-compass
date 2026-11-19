@@ -78,31 +78,32 @@ export default function CourseResultsList({
             const rank = rankedCourseCodes[course.code || course.id]
             const isElectiveOpen = !lock.locked && votes >= minQ
             return (
-            <div
-              key={course.id}
-              onClick={() => onSelectCourse(course)}
-              className="bg-surface rounded-xl border border-border p-4 cursor-pointer hover:border-gold hover:shadow-md transition-all flex flex-col gap-3 group"
-            >
-              <div className="flex justify-between items-start gap-2">
-                <div className="flex-1 min-w-0">
-                  <CourseIdentityBadges course={course} />
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="font-heading font-semibold text-base text-foreground mt-1.5 group-hover:text-gold transition-colors line-clamp-1">
-                      {course.name}
-                    </h3>
-                    {currentUser?.role === "admin" && (
-                      <button
-                        type="button"
-                        title="Edit Mata Kuliah"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onEditCourse(course)
-                        }}
-                        className="min-h-11 min-w-11 flex items-center justify-center rounded-md text-muted hover:text-navy hover:bg-background border border-border/60 transition-colors cursor-pointer flex-shrink-0"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
+              <div
+                key={course.id}
+                onClick={() => onSelectCourse(course)}
+                className="bg-surface rounded-xl border border-border p-4 cursor-pointer hover:border-gold hover:shadow-md transition-all flex flex-col gap-3 group"
+              >
+                <div className="flex justify-between items-start gap-2">
+                  <div className="flex-1 min-w-0">
+                    <CourseIdentityBadges course={course} />
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="font-heading font-semibold text-base text-foreground mt-1.5 group-hover:text-gold transition-colors line-clamp-1">
+                        {course.name}
+                      </h3>
+                      {currentUser?.role === "admin" && (
+                        <button
+                          type="button"
+                          title="Edit Mata Kuliah"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onEditCourse(course)
+                          }}
+                          className="min-h-11 min-w-11 flex items-center justify-center rounded-md text-muted hover:text-navy hover:bg-background border border-border/60 transition-colors cursor-pointer flex-shrink-0"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div className="flex flex-col items-end gap-1 flex-shrink-0">
                     <span
@@ -268,18 +269,14 @@ export default function CourseResultsList({
                   >
                     {course.parity === "odd" ? "Ganjil" : "Genap"}
                   </span>
-                  <span>Sem {course.semester}</span>
                 </div>
-                <span
-                  className={cn(
-                    "text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ml-auto",
-                    course.parity === "odd"
-                      ? "bg-teal/10 text-navy"
-                      : "bg-gold/10 text-navy",
+                {currentUser?.role === "student" &&
+                  addedCourseIds.has(course.id) && (
+                    <div className="flex items-center gap-1 text-[11px] font-medium text-teal mt-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Ditambahkan ke
+                      Degree Planner
+                    </div>
                   )}
-                >
-                  {course.parity === "odd" ? "Ganjil" : "Genap"}
-                </span>
               </div>
             )
           })}
