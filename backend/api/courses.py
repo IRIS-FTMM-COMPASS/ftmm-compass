@@ -222,8 +222,9 @@ async def v1_search_courses(
 
 
 @router.get("/courses/{code}", response_model=CourseModel)
-async def v1_get_course(code: str):
-    course = get_course(code)
+async def v1_get_course(code: str, db: AsyncSession = Depends(get_db)):
+    catalog, _ = await get_catalog_from_source(db)
+    course = get_course(code, catalog)
     if course is None:
         return _catalog_error(
             status.HTTP_404_NOT_FOUND,

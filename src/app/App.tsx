@@ -11,7 +11,6 @@ import {
   Map,
   MessageSquare,
   Pencil,
-  Plus,
   RotateCcw,
   Search,
   ShieldCheck,
@@ -32,7 +31,9 @@ import { cn } from "@/shared/utils"
 import type { Course } from "@/shared/domain/models"
 
 import Dashboard from "@/features/dashboard/DashboardPage"
+import PjCoursesPage from "@/features/pj/PjCoursesPage"
 import CourseFinder from "@/features/course-finder/CourseFinderPage"
+
 import DegreePlanner from "@/features/degree-planner/DegreePlannerPage"
 import Chatbot from "@/features/chatbot/ChatbotPage"
 import type { DegreePlanPayload } from "@/shared/domain/plan"
@@ -74,7 +75,7 @@ import {
   useAcademicPeriod,
 } from "@/shared/academic-period/academic"
 
-type Page = "dashboard" | "course-finder" | "degree-planner" | "chatbot" | "profile" | "admin-accounts"
+type Page = "dashboard" | "course-finder" | "pj-courses" | "degree-planner" | "chatbot" | "profile" | "admin-accounts"
 
 const ADMIN_ROLE_LABELS: Record<string, string> = {
   admin: "Administrator",
@@ -204,14 +205,6 @@ function AdminAccounts() {
   const [identityError, setIdentityError] = useState<unknown>(null)
   const identityLoadRef = useRef(0)
   const identitySubmittingRef = useRef(false)
-  const [isCreateOpen, setIsCreateOpen] = useState(false)
-  const [createForm, setCreateForm] = useState({
-    email: "",
-    full_name: "",
-    role: "lecturer",
-    password: "",
-  })
-  const [createError, setCreateError] = useState<unknown>(null)
   const [temporaryPassword, setTemporaryPassword] = useState<string | null>(
     null,
   )
@@ -425,38 +418,6 @@ function AdminAccounts() {
     }
   }
 
-  const createStaff = async (e: FormEvent) => {
-    e.preventDefault()
-    setCreateError(null)
-    try {
-      const result = await authService.createStaff({
-        email: createForm.email.trim(),
-        full_name: createForm.full_name.trim(),
-        role: createForm.role === "admin" ? "admin" : "lecturer",
-        ...(createForm.password.trim()
-          ? { password: createForm.password }
-          : {}),
-      })
-      setCreateForm({
-        email: "",
-        full_name: "",
-        role: "lecturer",
-        password: "",
-      })
-      setIsCreateOpen(false)
-      if (result.temporary_password) {
-        setTemporaryPassword(result.temporary_password)
-        setCopyMessage(null)
-      } else {
-        setSuccess("Akun staf berhasil dibuat.")
-      }
-      setPage(1)
-      reload()
-    } catch (err: unknown) {
-      setCreateError(err)
-    }
-  }
-
   const copyTemporaryPassword = async () => {
     if (!temporaryPassword) return
     const copied = await copyToClipboard(temporaryPassword)
@@ -478,14 +439,6 @@ function AdminAccounts() {
   const generalError = error
     ? authErrorMessage(error, "Daftar akun tidak dapat dimuat.")
     : null
-  const createGeneralError =
-    createError &&
-    !fieldError(createError, "email") &&
-    !fieldError(createError, "full_name") &&
-    !fieldError(createError, "role") &&
-    !fieldError(createError, "password")
-      ? authErrorMessage(createError, "Akun staf gagal dibuat.")
-      : null
 
   const dialogConfirmationTarget =
     action?.kind === "anonymize"
@@ -511,19 +464,6 @@ function AdminAccounts() {
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              setCreateError(null)
-              setIsCreateOpen(true)
-            }}
-            className={cn(
-              ADMIN_ACTION_CLASS,
-              "bg-navy text-white hover:bg-navy-light",
-            )}
-          >
-            <Plus className="w-4 h-4" /> Buat akun staf
-          </button>
         </div>
 
         <form
@@ -1161,167 +1101,6 @@ function AdminAccounts() {
         </div>
       </section>
 
-      {isCreateOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="create-account-title"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
-          onClick={() => setIsCreateOpen(false)}
-        >
-          <div
-            className="w-full max-w-md rounded-2xl border border-border bg-surface p-6 space-y-4 animate-in zoom-in-95 duration-200"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-4">
-              <h3
-                id="create-account-title"
-                className="font-heading font-bold text-lg text-navy"
-              >
-                Buat Akun Staf
-              </h3>
-              <button
-                type="button"
-                onClick={() => setIsCreateOpen(false)}
-                aria-label="Tutup"
-                className="min-h-11 min-w-11 rounded-lg flex items-center justify-center text-muted hover:text-navy hover:bg-secondary cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            {createGeneralError && (
-              <div
-                className="flex items-start gap-2 rounded-xl border border-orange/30 bg-orange/10 p-3 text-sm text-orange"
-                role="alert"
-              >
-                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                <span>{createGeneralError}</span>
-              </div>
-            )}
-            <form onSubmit={createStaff} className="space-y-4">
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="staff-name"
-                  className="text-sm font-medium text-foreground"
-                >
-                  Nama Lengkap
-                </label>
-                <input
-                  id="staff-name"
-                  type="text"
-                  required
-                  className={ADMIN_INPUT_CLASS}
-                  value={createForm.full_name}
-                  onChange={(e) =>
-                    setCreateForm((prev) => ({
-                      ...prev,
-                      full_name: e.target.value,
-                    }))
-                  }
-                  aria-invalid={Boolean(fieldError(createError, "full_name"))}
-                  disabled={isLoading}
-                />
-                <AdminFieldMessage
-                  message={fieldError(createError, "full_name")}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="staff-email"
-                  className="text-sm font-medium text-foreground"
-                >
-                  Email
-                </label>
-                <input
-                  id="staff-email"
-                  type="email"
-                  required
-                  className={ADMIN_INPUT_CLASS}
-                  value={createForm.email}
-                  onChange={(e) =>
-                    setCreateForm((prev) => ({
-                      ...prev,
-                      email: e.target.value,
-                    }))
-                  }
-                  aria-invalid={Boolean(fieldError(createError, "email"))}
-                  disabled={isLoading}
-                />
-                <AdminFieldMessage message={fieldError(createError, "email")} />
-              </div>
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="staff-role"
-                  className="text-sm font-medium text-foreground"
-                >
-                  Peran
-                </label>
-                <select
-                  id="staff-role"
-                  className={ADMIN_INPUT_CLASS}
-                  value={createForm.role}
-                  onChange={(e) =>
-                    setCreateForm((prev) => ({ ...prev, role: e.target.value }))
-                  }
-                  disabled={isLoading}
-                >
-                  <option value="lecturer">Dosen</option>
-                  <option value="admin">Administrator</option>
-                </select>
-                <AdminFieldMessage message={fieldError(createError, "role")} />
-              </div>
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="staff-password"
-                  className="text-sm font-medium text-foreground"
-                >
-                  Kata Sandi
-                </label>
-                <input
-                  id="staff-password"
-                  type="password"
-                  className={ADMIN_INPUT_CLASS}
-                  placeholder="Kosongkan untuk kata sandi sementara"
-                  value={createForm.password}
-                  onChange={(e) =>
-                    setCreateForm((prev) => ({
-                      ...prev,
-                      password: e.target.value,
-                    }))
-                  }
-                  aria-invalid={Boolean(fieldError(createError, "password"))}
-                  disabled={isLoading}
-                />
-                <AdminFieldMessage
-                  message={fieldError(createError, "password")}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsCreateOpen(false)}
-                  className={cn(
-                    ADMIN_ACTION_CLASS,
-                    "border border-border bg-background text-foreground hover:bg-secondary",
-                  )}
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  className={cn(
-                    ADMIN_ACTION_CLASS,
-                    "bg-navy text-white hover:bg-navy-light",
-                  )}
-                >
-                  Buat akun
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {temporaryPassword && (
         <div
           role="dialog"
@@ -1618,9 +1397,10 @@ function AppShell() {
     if (role === "lecturer") {
       return [
         { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-        { id: "course-finder", label: "Course Finder", icon: Search },
+        { id: "pj-courses", label: "Rekap & Kelola MK", icon: BookOpen },
       ] as const
     }
+
     if (role === "admin") {
       return [
         { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -1787,13 +1567,15 @@ function AppShell() {
             <h2 className="font-heading text-xl md:text-2xl font-bold text-navy capitalize truncate">
               {activePage === "admin-accounts"
                 ? "Manajemen Akun"
-                : activePage === "chatbot"
-                  ? "Compass AI"
-                  : activePage === "profile"
-                    ? "Profil Pengguna"
-                    : activePage === "course-finder" && user?.role === "admin"
-                      ? "Course Management"
-                      : activePage.replace("-", " ")}
+                : activePage === "pj-courses"
+                  ? "Rekap & Kelola MK"
+                  : activePage === "chatbot"
+                    ? "Compass AI"
+                    : activePage === "profile"
+                      ? "Profil Pengguna"
+                      : activePage === "course-finder" && user?.role === "admin"
+                        ? "Course Management"
+                        : activePage.replace("-", " ")}
             </h2>
           </div>
           <div className="flex items-center gap-2 md:gap-4">
@@ -1848,6 +1630,9 @@ function AppShell() {
                   initialCourse={finderInitialCourse}
                   onClearInitialCourse={() => setFinderInitialCourse(null)}
                 />
+              )}
+              {activePage === "pj-courses" && user?.role === "lecturer" && (
+                <PjCoursesPage onNavigate={handleNavigate} />
               )}
               {activePage === "degree-planner" && (
                 <DegreePlanner

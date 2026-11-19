@@ -13,6 +13,8 @@ interface ApiCourseItem {
   desc?: string
   program: string
   prerequisites?: string[]
+  is_active?: boolean | null
+  course_scope?: string | null
 }
 
 interface ApiCoursesResponse {
@@ -46,6 +48,8 @@ export async function fetchCatalog(program?: string): Promise<CatalogResult> {
         desc: item.desc,
         program: item.program,
         prerequisites: item.prerequisites,
+        is_active: item.is_active ?? undefined,
+        course_scope: item.course_scope ?? undefined,
       },
       usedIds,
     ),

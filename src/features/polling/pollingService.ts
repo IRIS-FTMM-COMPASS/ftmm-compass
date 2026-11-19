@@ -50,7 +50,38 @@ export interface DemandAnalyticsResponse {
   items: CourseDemandItem[]
 }
 
-const ADMIN_ROLES = ["lecturer", "admin", "faculty_staff"]
+export const ADMIN_ROLES = ["admin", "lecturer"]
+
+export interface PjAvailabilityItem {
+  curriculum_course_id: string
+  course_id: string
+  course_code: string
+  course_name: string
+  credits: number
+  semester: number | null
+  type: string
+  course_scope: string
+  is_active: boolean
+  can_toggle: boolean
+  lock_reason: string | null
+}
+
+export interface PjAvailabilityMeta {
+  period_id: string
+  target_semester: number
+  study_program: string
+  total: number
+}
+
+export interface PjAvailabilityResponse {
+  data: PjAvailabilityItem[]
+  meta: PjAvailabilityMeta
+}
+
+export interface PjAvailabilityParams {
+  periodId?: string
+  semester?: number
+}
 
 export const pollingService = {
   getActivePeriod(): Promise<PollingPeriod> {
@@ -88,5 +119,42 @@ export const pollingService = {
       ? "/api/v1/admin/polling/demand-analytics"
       : "/api/v1/polling/demand-analytics"
     return apiFetch<DemandAnalyticsResponse>(`${base}${query}`, { auth: true })
+  },
+}
+
+export const pjService = {
+  getAvailability(
+    params: PjAvailabilityParams = {},
+  ): Promise<PjAvailabilityResponse> {
+    const query: string[] = []
+    if (params.periodId) {
+      query.push(`period_id=${encodeURIComponent(params.periodId)}`)
+    }
+    if (params.semester !== undefined) {
+      query.push(`semester=${encodeURIComponent(String(params.semester))}`)
+    }
+    const suffix = query.length > 0 ? `?${query.join("&")}` : ""
+    return apiFetch<PjAvailabilityResponse>(
+      `/api/v1/pj/course-availability${suffix}`,
+      { auth: true },
+    )
+  },
+
+  setAvailability(
+    curriculumCourseId: string,
+    isActive: boolean,
+    reason?: string,
+  ): Promise<PjAvailabilityItem> {
+    return apiFetch<PjAvailabilityItem>(
+      `/api/v1/pj/course-availability/${encodeURIComponent(curriculumCourseId)}`,
+      {
+        method: "PATCH",
+        body: {
+          is_active: isActive,
+          ...(reason ? { reason } : {}),
+        },
+        auth: true,
+      },
+    )
   },
 }

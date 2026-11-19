@@ -55,6 +55,12 @@ class User(Base):
         uselist=False,
         cascade="all, delete-orphan",
     )
+    lecturer_profile: Mapped[Optional["LecturerProfile"]] = relationship(
+        "LecturerProfile",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
     elective_votes: Mapped[list["ElectiveCourseVote"]] = relationship(
         "ElectiveCourseVote",
         back_populates="user",
@@ -87,7 +93,43 @@ class StudyProgram(Base):
         "StudentProfile",
         back_populates="study_program",
     )
+    lecturer_profiles: Mapped[list["LecturerProfile"]] = relationship(
+        "LecturerProfile",
+        back_populates="study_program",
+    )
 
+
+class LecturerProfile(Base):
+    __tablename__ = "lecturer_profiles"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.user_id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    study_program_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("study_programs.study_program_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    is_program_coordinator: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    employee_number: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user: Mapped["User"] = relationship("User", back_populates="lecturer_profile")
+    study_program: Mapped["StudyProgram"] = relationship("StudyProgram", back_populates="lecturer_profiles")
 
 class StudentProfile(Base):
     __tablename__ = "student_profiles"

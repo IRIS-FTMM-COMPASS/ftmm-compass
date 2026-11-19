@@ -43,6 +43,8 @@ export default function PollingPanel({
   isLoadingAnalytics,
   handleExportCSV,
 }: PollingPanelProps) {
+  const isProgramCoordinator =
+    user?.role === "lecturer" && Boolean(user?.is_program_coordinator)
   return (
     <>
       {user?.role === "student" ? (
@@ -172,34 +174,38 @@ export default function PollingPanel({
                 </div>
                 <p className="text-xs text-muted mt-0.5">
                   Monitoring kuota real-time dan proyeksi pembukaan kelas untuk
-                  Kaprodi &amp; Dosen FTMM UNAIR.
+                  PJ Prodi &amp; Admin FTMM UNAIR.
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-2 self-start md:self-center">
-              <div className="relative">
-                <select
-                  value={selectedProdi}
-                  onChange={(e) => setSelectedProdi(e.target.value)}
-                  className="h-11 pl-8 pr-8 rounded-lg border border-border bg-background text-xs font-semibold text-foreground hover:border-gold focus:border-gold focus:ring-1 focus:ring-gold outline-hidden cursor-pointer appearance-none transition-colors"
-                  aria-label="Filter Program Studi Analitik"
-                >
-                  <option value="all">Semua Prodi FTMM</option>
-                  <option value="Teknologi Sains Data">
-                    Teknologi Sains Data (TSD)
-                  </option>
-                  <option value="Rekayasa Nanoteknologi">
-                    Rekayasa Nanoteknologi (RN)
-                  </option>
-                  <option value="Teknik Industri">Teknik Industri (TI)</option>
-                  <option value="Teknik Elektro">Teknik Elektro (TE)</option>
-                  <option value="TRKB">TRKB</option>
-                </select>
-                <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-2.5 text-muted">
-                  <Filter className="w-3.5 h-3.5" />
+              {!isProgramCoordinator && (
+                <div className="relative">
+                  <select
+                    value={selectedProdi}
+                    onChange={(e) => setSelectedProdi(e.target.value)}
+                    className="h-11 pl-8 pr-8 rounded-lg border border-border bg-background text-xs font-semibold text-foreground hover:border-gold focus:border-gold focus:ring-1 focus:ring-gold outline-hidden cursor-pointer appearance-none transition-colors"
+                    aria-label="Filter Program Studi Analitik"
+                  >
+                    <option value="all">Semua Prodi FTMM</option>
+                    <option value="Teknologi Sains Data">
+                      Teknologi Sains Data (TSD)
+                    </option>
+                    <option value="Rekayasa Nanoteknologi">
+                      Rekayasa Nanoteknologi (RN)
+                    </option>
+                    <option value="Teknik Industri">
+                      Teknik Industri (TI)
+                    </option>
+                    <option value="Teknik Elektro">Teknik Elektro (TE)</option>
+                    <option value="TRKB">TRKB</option>
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-2.5 text-muted">
+                    <Filter className="w-3.5 h-3.5" />
+                  </div>
                 </div>
-              </div>
+              )}
 
               <button
                 type="button"

@@ -3,6 +3,7 @@ import type {
   CourseCategory,
   PrerequisiteNode,
 } from "@/shared/domain/models"
+import type { PollingPeriod } from "@/features/polling/pollingService"
 import { parityOfSemester } from "@/shared/domain/academics"
 
 export const PROGRAM_ABBREVIATIONS: Record<string, string> = {
@@ -212,6 +213,8 @@ export interface CourseSource {
   desc?: string
   program: string
   prerequisites?: unknown
+  is_active?: boolean
+  course_scope?: string
 }
 
 /**
@@ -246,7 +249,34 @@ export function normalizeCourse(
       semester: Number(source.semester) || 1,
     }),
     prerequisites: toPrerequisiteNodes(source.prerequisites),
+    is_active: source.is_active,
+    course_scope: source.course_scope,
   }
+}
+
+export interface CourseLockStatus {
+  locked: boolean
+  reason: "parity" | "pj" | null
+}
+
+/**
+ * MK terkunci bila PJ menonaktifkannya atau paritasnya tidak sesuai periode
+ * polling. Cakupan fakultas/universitas bukan alasan kunci.
+ */
+export function isCourseLocked(
+  course: Course,
+  pollingPeriod: PollingPeriod | null | undefined,
+): CourseLockStatus {
+  if (course.is_active === false) return { locked: true, reason: "pj" }
+  if (!pollingPeriod) return { locked: false, reason: null }
+
+  const targetTerm = pollingPeriod.target_semester_type ?? pollingPeriod.term
+  const expectedParity =
+    targetTerm === "ganjil" ? "odd" : targetTerm === "genap" ? "even" : null
+  if (expectedParity && course.parity !== expectedParity) {
+    return { locked: true, reason: "parity" }
+  }
+  return { locked: false, reason: null }
 }
 
 /** Mencari Course resmi berdasarkan nama atau kode, mengutamakan prodi pemilik. */

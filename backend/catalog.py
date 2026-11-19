@@ -194,6 +194,8 @@ def _build_course(
     prerequisites: List[str],
     used_ids: set,
     lecturer: Optional[str] = None,
+    is_active: bool = True,
+    course_scope: str = "program_studi",
 ) -> CourseModel:
     course_id = f"{slugify(program)}:{code or slugify(name)}"
     if course_id in used_ids:
@@ -218,6 +220,8 @@ def _build_course(
         program=program,
         lecturer=lecturer,
         prerequisites=prerequisites,
+        is_active=is_active,
+        course_scope=course_scope,
     )
 
 
@@ -265,6 +269,8 @@ def load_ekstrak(directory: str = EKSTRAK_DIR) -> Dict[str, List[CourseModel]]:
                     desc=item.get("deskripsi") or "",
                     prerequisites=prerequisites,
                     used_ids=used_ids,
+                    is_active=True,
+                    course_scope="program_studi",
                 )
             )
         if courses:
@@ -490,11 +496,13 @@ async def build_catalog_from_db(db: AsyncSession) -> Optional[Dict[str, List[Cou
                 CurriculumCourse.description,
                 Course.course_code,
                 Course.course_name,
+                CurriculumCourse.course_scope,
+                CurriculumCourse.is_active,
             )
             .join(CurriculumCourse, CurriculumCourse.course_id == Course.course_id)
             .join(Curriculum, Curriculum.curriculum_id == CurriculumCourse.curriculum_id)
             .join(StudyProgram, StudyProgram.study_program_id == Curriculum.study_program_id)
-            .where(Course.is_active.is_(True), CurriculumCourse.is_active.is_(True))
+            .where(Course.is_active.is_(True))
         )
     ).mappings().all()
 
@@ -526,6 +534,8 @@ async def build_catalog_from_db(db: AsyncSession) -> Optional[Dict[str, List[Cou
                 desc=row["description"] or "",
                 prerequisites=leaves.get(str(row["curriculum_course_id"]), []),
                 used_ids=used_by_program[program],
+                is_active=row["is_active"],
+                course_scope=row["course_scope"],
             )
         )
     return catalog
@@ -636,11 +646,13 @@ def get_all_courses(catalog: Optional[Dict[str, List[CourseModel]]] = None) -> L
     return [course for courses in source.values() for course in courses]
 
 
-def get_course(course_id: str) -> Optional[CourseModel]:
+def get_course(
+    course_id: str, catalog: Optional[Dict[str, List[CourseModel]]] = None
+) -> Optional[CourseModel]:
     if not course_id:
         return None
     needle = course_id.strip().lower()
-    for course in get_all_courses():
+    for course in get_all_courses(catalog):
         if course.id.lower() == needle or (course.code or "").lower() == needle:
             return course
     return None

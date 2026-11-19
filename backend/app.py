@@ -13,6 +13,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from slowapi.errors import RateLimitExceeded
 
 from api import (
@@ -27,14 +28,15 @@ from api import (
     dashboard,
     degree_plans,
     health,
+    pj_courses,
     plans,
     polling,
 )
-import settings
 from api.errors import error_response
 from catalog import refresh_from_db
 from rate_limit import limiter
 from schemas import DegreePlanPayload, PlanValidationResponse
+import settings
 
 
 @asynccontextmanager
@@ -110,6 +112,7 @@ for resource in (
     chat,
     plans,
     polling,
+    pj_courses,
     dashboard,
     academic_periods,
     degree_plans,
@@ -251,6 +254,37 @@ async def http_exception_handler(request: Request, exc: HTTPException):
         str(exc.detail),
         detail=exc.detail,
         headers=headers,
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def starlette_http_exception_handler(
+    request: Request, exc: StarletteHTTPException
+):
+    code_by_status = {
+        status.HTTP_401_UNAUTHORIZED: "unauthorized",
+        status.HTTP_403_FORBIDDEN: "forbidden",
+        status.HTTP_404_NOT_FOUND: "not_found",
+        422: "validation_error",
+    }
+    status_code = exc.status_code
+    if (
+        status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+        and request.url.path.rstrip("/")
+        in ("/api/v1/admin/accounts", "/api/admin/accounts")
+    ):
+        status_code = status.HTTP_404_NOT_FOUND
+    message = (
+        "Endpoint tidak ditemukan."
+        if status_code == status.HTTP_404_NOT_FOUND
+        else str(exc.detail)
+    )
+    return error_response(
+        status_code,
+        code_by_status.get(status_code, "http_error"),
+        message,
+        detail=exc.detail,
+        headers=getattr(exc, "headers", None),
     )
 
 
