@@ -2,15 +2,17 @@ import asyncio
 import datetime
 import sys
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 
 from academics import current_period, semester_end, semester_start
 from auth import get_password_hash
+from catalog import get_all_courses, prodi_code, refresh_from_db
 from database import AsyncSessionLocal
 from models import (
     StudyProgram,
     User,
+    LecturerProfile,
     StudentProfile,
     AcademicPeriod,
     Course,
@@ -62,6 +64,11 @@ PRODIS = [
         "degree_level": "sarjana",
     },
 ]
+
+PJ_PRODI_CODES = ("TSD", "TRKB", "RN", "TI", "TE")
+PJ_PASSWORD = "PjProdi2026!"
+LEGACY_LECTURER_EMAIL = "dosen.testing@ftmm.unair.ac.id"
+VOTERS_PER_PRODI = 9
 
 COURSES_DATA = [
     {"code": "KIK101", "name": "Kalkulus I", "credits": 3, "sem": 1, "term": "ganjil", "type": "wajib"},
@@ -225,24 +232,72 @@ async def seed_data():
                 session.add(profile)
             print(f"  [EXISTS] Mahasiswa user: {mhs_email}")
 
-        dosen_email = "dosen.testing@ftmm.unair.ac.id"
-        stmt = select(User).where(User.email == dosen_email)
-        dosen_user = (await session.execute(stmt)).scalars().first()
-        if not dosen_user:
-            dosen_user = User(
-                email=dosen_email,
-                full_name="Dr. Ir. Hendra Kurniawan, S.T., M.T.",
-                role="lecturer",
-                password_hash=get_password_hash("DosenFTMM2026!"),
-                is_active=True,
+        # Akun dosen uji lama tidak dipakai lagi: nonaktifkan bila sudah ada,
+        # dan jangan pernah dibuat ulang sebagai akun aktif.
+        legacy_lecturer = (
+            await session.execute(
+                select(User)
+                .options(selectinload(User.lecturer_profile))
+                .where(User.email == LEGACY_LECTURER_EMAIL)
             )
-            session.add(dosen_user)
-            await session.flush()
-            print(f"  [CREATED] Dosen user: {dosen_email}")
-        else:
-            dosen_user.password_hash = get_password_hash("DosenFTMM2026!")
-            dosen_user.full_name = "Dr. Ir. Hendra Kurniawan, S.T., M.T."
-            print(f"  [EXISTS] Dosen user: {dosen_email}")
+        ).scalars().first()
+        if legacy_lecturer:
+            legacy_lecturer.is_active = False
+            if legacy_lecturer.lecturer_profile is not None:
+                legacy_lecturer.lecturer_profile.is_program_coordinator = False
+            print(f"  [DEACTIVATED] Legacy lecturer user: {LEGACY_LECTURER_EMAIL}")
+
+        for code in PJ_PRODI_CODES:
+            pj_email = f"pj.{code.lower()}@ftmm.unair.ac.id"
+            stmt_pj = (
+                select(User)
+                .options(selectinload(User.lecturer_profile))
+                .where(User.email == pj_email)
+            )
+            pj_user = (await session.execute(stmt_pj)).scalars().first()
+            prodi = prodi_map[code]
+            if pj_user is None:
+                pj_user = User(
+                    email=pj_email,
+                    full_name=f"PJ Prodi {code}",
+                    role="lecturer",
+                    password_hash=get_password_hash(PJ_PASSWORD),
+                    is_active=True,
+                )
+                session.add(pj_user)
+                await session.flush()
+                session.add(
+                    LecturerProfile(
+                        user_id=pj_user.user_id,
+                        study_program_id=prodi.study_program_id,
+                        is_program_coordinator=True,
+                        employee_number=None,
+                    )
+                )
+                print(f"  [CREATED] PJ Prodi user: {pj_email}")
+            else:
+                pj_user.full_name = f"PJ Prodi {code}"
+                pj_user.role = "lecturer"
+                pj_user.is_active = True
+                pj_user.password_hash = get_password_hash(PJ_PASSWORD)
+                pj_profile = pj_user.lecturer_profile
+                if pj_profile is None:
+                    session.add(
+                        LecturerProfile(
+                            user_id=pj_user.user_id,
+                            study_program_id=prodi.study_program_id,
+                            is_program_coordinator=True,
+                            employee_number=None,
+                        )
+                    )
+                else:
+                    pj_profile.study_program_id = prodi.study_program_id
+                    pj_profile.is_program_coordinator = True
+                    pj_profile.employee_number = None
+                print(f"  [EXISTS] PJ Prodi user: {pj_email}")
+
+        await session.flush()
+        print(f"  [OK] {len(PJ_PRODI_CODES)} PJ Prodi accounts with one coordinator per program")
 
         print("\n[SEED 4/8] Checking and seeding Curriculum & Courses...")
         stmt_curr = select(Curriculum).where(
@@ -431,7 +486,6 @@ async def seed_data():
                 "start": datetime.time(8, 0),
                 "end": datetime.time(10, 30),
                 "room": "Lab Komputasi A (Gedung Nano Lt. 2)",
-                "lecturer_user": dosen_user,
             },
             {
                 "code": "TSD202",
@@ -440,7 +494,6 @@ async def seed_data():
                 "start": datetime.time(8, 0),
                 "end": datetime.time(10, 30),
                 "room": "Ruang Kuliah 3.01 (Gedung Nano)",
-                "lecturer_user": None,
             },
             {
                 "code": "TSD203",
@@ -449,7 +502,6 @@ async def seed_data():
                 "start": datetime.time(13, 0),
                 "end": datetime.time(15, 30),
                 "room": "Lab Komputasi B (Gedung Nano Lt. 2)",
-                "lecturer_user": None,
             },
             {
                 "code": "TSD204",
@@ -458,7 +510,6 @@ async def seed_data():
                 "start": datetime.time(10, 0),
                 "end": datetime.time(12, 30),
                 "room": "Ruang Kuliah 3.02 (Gedung Nano)",
-                "lecturer_user": None,
             },
             {
                 "code": "TSD205",
@@ -467,7 +518,6 @@ async def seed_data():
                 "start": datetime.time(8, 0),
                 "end": datetime.time(10, 30),
                 "room": "Ruang Kuliah 2.04 (Gedung Nano)",
-                "lecturer_user": None,
             },
             {
                 "code": "TSD206",
@@ -476,7 +526,6 @@ async def seed_data():
                 "start": datetime.time(13, 0),
                 "end": datetime.time(14, 40),
                 "room": "Ruang Kuliah 3.01 (Gedung Nano)",
-                "lecturer_user": None,
             },
             {
                 "code": "TSD302",
@@ -485,7 +534,6 @@ async def seed_data():
                 "start": datetime.time(13, 0),
                 "end": datetime.time(15, 30),
                 "room": "Ruang Kuliah 3.01 (Gedung Nano)",
-                "lecturer_user": dosen_user,
             },
             {
                 "code": "TSD301",
@@ -494,7 +542,6 @@ async def seed_data():
                 "start": datetime.time(8, 0),
                 "end": datetime.time(10, 30),
                 "room": "Lab Komputasi A (Gedung Nano Lt. 2)",
-                "lecturer_user": dosen_user,
             },
         ]
 
@@ -593,7 +640,7 @@ async def seed_data():
         print("  [OK] Activated student timetable with scheduled class items")
         print("  [OK] Seeded course offerings, sections, schedules, and timetable items")
 
-        print("\n[SEED 7/8] Checking and seeding Active Polling Period & Wishlist Votes...")
+        print("\n[SEED 7/8] Checking and seeding Active Polling Period & Votes Peminatan...")
         stmt_poll = select(ElectivePollingPeriod).where(ElectivePollingPeriod.status == "open")
         polling_period = (await session.execute(stmt_poll)).scalars().first()
         if not polling_period:
@@ -615,14 +662,43 @@ async def seed_data():
         else:
             print(f"  [EXISTS] Active Polling Period: {polling_period.title}")
 
-        # 7a. Seed realistic elective votes dari mahasiswa sintetis; mahasiswa uji
-        # diberi vote sendiri sebanyak batas periode agar tidak melampaui kuota.
-        voter_users = []
-        for i in range(1, 46):
+        # 7a. Voter demo: sembilan mahasiswa per prodi, masing-masing punya profil
+        # dengan paritas semester sesuai periode aktif. Vote diambil dari katalog,
+        # bukan daftar kode hardcoded, dan vote demo lama dihapus agar reseed idempoten.
+        target_term = (polling_period.target_term or "ganjil").strip().lower()
+        target_parity = "odd" if target_term == "ganjil" else "even"
+        target_semester = int(
+            polling_period.target_semester or (1 if target_parity == "odd" else 2)
+        )
+        if (target_semester % 2 == 1) != (target_parity == "odd"):
+            target_semester += 1
+        max_votes = max(1, int(polling_period.max_votes_per_student or 3))
+
+        await refresh_from_db(session)
+        catalog_courses = get_all_courses()
+        elective_by_prodi: dict[str, list] = {}
+        for code in PJ_PRODI_CODES:
+            candidates = [
+                course
+                for course in catalog_courses
+                if course.type == "Pilihan" and prodi_code(course.program) == code
+            ]
+            in_term = [course for course in candidates if course.parity == target_parity]
+            elective_by_prodi[code] = in_term or candidates
+
+        voter_users: list[tuple[User, str]] = []
+        voter_count = VOTERS_PER_PRODI * len(PJ_PRODI_CODES)
+        for i in range(1, voter_count + 1):
+            voter_prodi_code = PJ_PRODI_CODES[(i - 1) % len(PJ_PRODI_CODES)]
+            prodi = prodi_map[voter_prodi_code]
             v_email = f"student.voter{i:02d}@ftmm.unair.ac.id"
-            stmt_vu = select(User).where(User.email == v_email)
+            stmt_vu = (
+                select(User)
+                .options(selectinload(User.student_profile))
+                .where(User.email == v_email)
+            )
             vu = (await session.execute(stmt_vu)).scalars().first()
-            if not vu:
+            if vu is None:
                 vu = User(
                     email=v_email,
                     full_name=f"Mahasiswa Pemilih {i:02d}",
@@ -632,61 +708,78 @@ async def seed_data():
                 )
                 session.add(vu)
                 await session.flush()
-            voter_users.append(vu)
-
-        vote_distributions = [
-            {"code": "SIC304", "name": "Natural Language Processing", "credits": 3, "count": 42},
-            {"code": "SID307", "name": "Teknologi Big Data", "credits": 3, "count": 35},
-            {"code": "RKK304", "name": "Deep Learning", "credits": 3, "count": 28},
-            {"code": "MAS317", "name": "Analisis Data Spasial", "credits": 3, "count": 18},
-            {"code": "RKS305", "name": "Autonomous Vehicle", "credits": 3, "count": 16},
-            {"code": "TEL302", "name": "Elektronika Daya", "credits": 3, "count": 14},
-            {"code": "RNT201", "name": "Nanoteknologi Pertanian dan Pemrosesan Makanan", "credits": 2, "count": 12},
-            {"code": "MNU215", "name": "Bisnis dan Komersialisasi Nanoteknologi", "credits": 2, "count": 8},
-        ]
-
-        for dist in vote_distributions:
-            for idx in range(dist["count"]):
-                user_voter = voter_users[idx % len(voter_users)]
-                stmt_chk = select(ElectiveCourseVote).where(
-                    ElectiveCourseVote.polling_period_id == polling_period.polling_period_id,
-                    ElectiveCourseVote.user_id == user_voter.user_id,
-                    ElectiveCourseVote.course_id == dist["code"],
-                )
-                v_exists = (await session.execute(stmt_chk)).scalars().first()
-                if not v_exists:
-                    p_val = 1 if idx < dist["count"] // 2 else (2 if idx < (dist["count"] * 4) // 5 else 3)
-                    new_v = ElectiveCourseVote(
-                        polling_period_id=polling_period.polling_period_id,
-                        user_id=user_voter.user_id,
-                        course_id=dist["code"],
-                        course_code=dist["code"],
-                        course_name=dist["name"],
-                        credits=dist["credits"],
-                        priority=p_val,
+                session.add(
+                    StudentProfile(
+                        user_id=vu.user_id,
+                        study_program_id=prodi.study_program_id,
+                        student_number=f"VOTER{i:04d}",
+                        admission_year=today.year - 2,
+                        current_semester=target_semester,
                     )
-                    session.add(new_v)
-        for index, dist in enumerate(vote_distributions[: polling_period.max_votes_per_student]):
-            stmt_chk = select(ElectiveCourseVote).where(
+                )
+            else:
+                profile = vu.student_profile
+                if profile is None:
+                    session.add(
+                        StudentProfile(
+                            user_id=vu.user_id,
+                            study_program_id=prodi.study_program_id,
+                            student_number=f"VOTER{i:04d}",
+                            admission_year=today.year - 2,
+                            current_semester=target_semester,
+                        )
+                    )
+                else:
+                    profile.study_program_id = prodi.study_program_id
+                    if not profile.student_number:
+                        profile.student_number = f"VOTER{i:04d}"
+                    profile.current_semester = target_semester
+            voter_users.append((vu, voter_prodi_code))
+
+        demo_user_ids = [user.user_id for user, _ in voter_users] + [mhs_user.user_id]
+        await session.execute(
+            delete(ElectiveCourseVote).where(
                 ElectiveCourseVote.polling_period_id == polling_period.polling_period_id,
-                ElectiveCourseVote.user_id == mhs_user.user_id,
-                ElectiveCourseVote.course_id == dist["code"],
+                ElectiveCourseVote.user_id.in_(demo_user_ids),
             )
-            if (await session.execute(stmt_chk)).scalars().first():
+        )
+
+        for index, (voter, code) in enumerate(voter_users):
+            candidates = elective_by_prodi[code]
+            if not candidates:
                 continue
+            take = min(max_votes, len(candidates))
+            offset = index % len(candidates)
+            for priority, step in enumerate(range(take), start=1):
+                course = candidates[(offset + step) % len(candidates)]
+                session.add(
+                    ElectiveCourseVote(
+                        polling_period_id=polling_period.polling_period_id,
+                        user_id=voter.user_id,
+                        course_id=course.id,
+                        course_code=course.code or course.id,
+                        course_name=course.name,
+                        credits=course.credits,
+                        priority=priority,
+                    )
+                )
+
+        mhs_candidates = elective_by_prodi["TSD"]
+        for priority, course in enumerate(mhs_candidates[:max_votes], start=1):
             session.add(
                 ElectiveCourseVote(
                     polling_period_id=polling_period.polling_period_id,
                     user_id=mhs_user.user_id,
-                    course_id=dist["code"],
-                    course_code=dist["code"],
-                    course_name=dist["name"],
-                    credits=dist["credits"],
-                    priority=index + 1,
+                    course_id=course.id,
+                    course_code=course.code or course.id,
+                    course_name=course.name,
+                    credits=course.credits,
+                    priority=priority,
                 )
             )
+
         await session.flush()
-        print(f"  [OK] Seeded {len(vote_distributions)} elective courses with realistic student quorum votes")
+        print(f"  [OK] Seeded {len(voter_users)} prodi-scoped voters with up to {max_votes} elective votes each")
 
         print("\n[SEED 8/8] Checking and seeding Persistent Notifications...")
         notifications_seed_data = [

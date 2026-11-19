@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { getProdiAbbreviation } from "@/shared/domain/course"
+import { getProdiAbbreviation, isCourseLocked } from "@/shared/domain/course"
 import type { Course } from "@/shared/domain/models"
 import type { PollingPeriod } from "@/features/polling/pollingService"
 
@@ -116,7 +116,8 @@ export function useCourseFilters({
       const matchesType = selectedType === "all" || c.type === selectedType
 
       const votes = votesFor(c)
-      const isCourseOpen = c.type === "Wajib" || votes >= minQ
+      const { locked } = isCourseLocked(c, pollingPeriod)
+      const isCourseOpen = !locked && (c.type === "Wajib" || votes >= minQ)
 
       const matchesAvailability =
         selectedAvailability === "all" ||

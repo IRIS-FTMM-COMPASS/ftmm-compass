@@ -59,6 +59,8 @@ class CourseModel(BaseModel):
     program: Optional[str] = None
     lecturer: Optional[str] = None
     prerequisites: List[str] = Field(default_factory=list)
+    is_active: bool = True
+    course_scope: str = "program_studi"
 class AdminCourseCreateRequest(BaseModel):
     course_code: str = Field(..., min_length=1, max_length=30)
     course_name: str = Field(..., min_length=1, max_length=200)
@@ -279,6 +281,7 @@ class UserResponse(BaseModel):
     permissions: List[str] = Field(default_factory=list)
     student_profile: Optional[UserStudentProfileResponse] = None
     needs_revalidation: bool = False
+    is_program_coordinator: bool = False
 
 class LoginResponse(BaseModel):
     access_token: str
@@ -340,18 +343,6 @@ class AccountResponse(BaseModel):
 class AccountListResponse(BaseModel):
     data: List[AccountResponse] = Field(default_factory=list)
     meta: Dict[str, int] = Field(default_factory=dict)
-
-
-class AccountCreateRequest(BaseModel):
-    email: str = Field(..., max_length=255)
-    full_name: str = Field(..., min_length=2, max_length=150)
-    role: Literal["admin", "lecturer"] = "lecturer"
-    password: Optional[str] = Field(None, min_length=8, max_length=128)
-
-
-class AccountCreateResponse(BaseModel):
-    data: AccountResponse
-    temporary_password: Optional[str] = None
 
 
 class AccountUpdateRequest(BaseModel):

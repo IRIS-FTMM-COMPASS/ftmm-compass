@@ -32,6 +32,10 @@ export interface Course {
   type: "Wajib" | "Pilihan"
   desc: string
   parity: "odd" | "even"
+  /** False when the program coordinator deactivated this course for polling. */
+  is_active?: boolean
+  /** Curriculum scope: program studi, fakultas, or universitas. */
+  course_scope?: string
   prerequisites?: PrerequisiteNode[]
   workload?: WorkloadInfo
   lecturer?: string

@@ -17,7 +17,8 @@ from seed import seed_data
 
 SEEDED_STUDENT = ("mahasiswa.testing@ftmm.unair.ac.id", "Mahasiswa2026!")
 SEEDED_ADMIN = ("admin@ftmm.unair.ac.id", "AdminFTMM2026!")
-SEEDED_LECTURER = ("dosen.testing@ftmm.unair.ac.id", "DosenFTMM2026!")
+SEEDED_PJ = ("pj.tsd@ftmm.unair.ac.id", "PjProdi2026!")
+SEEDED_LECTURER = SEEDED_PJ
 
 
 def _database_reachable() -> bool:
@@ -127,3 +128,13 @@ def admin_headers(admin_token) -> dict[str, str]:
 @pytest.fixture
 def lecturer_headers(lecturer_token) -> dict[str, str]:
     return {"Authorization": f"Bearer {lecturer_token}"}
+
+
+@pytest.fixture(scope="session")
+def pj_token(client) -> str:
+    return _login(client, SEEDED_PJ)
+
+
+@pytest.fixture
+def pj_headers(pj_token) -> dict[str, str]:
+    return {"Authorization": f"Bearer {pj_token}"}

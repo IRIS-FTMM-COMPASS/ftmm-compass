@@ -9,6 +9,8 @@ adalah status HTTP, envelope kanonik, dan state yang terbaca lewat API.
 
 import uuid
 
+from auth import get_password_hash
+from models import User
 from sqlalchemy import text
 from rate_limit import limiter
 from tests.conftest import SEEDED_ADMIN
@@ -16,6 +18,8 @@ from tests.conftest import SEEDED_ADMIN
 V1 = "/api/v1"
 LEGACY = "/api"
 REASON = "Koreksi keamanan akun FTMM Compass"
+
+_TEMPORARY_PASSWORD = "TmpStafUji2026!"
 
 
 def _label() -> str:
@@ -38,23 +42,24 @@ def _detail(response, key: str = "code"):
     return details[0][key]
 
 
-def _create_staff(client, admin_headers, *, role="lecturer", password=None, email=None):
+def _create_staff(client, db_session, *, role="lecturer", password=None, email=None):
     email = email or f"uji.{_label()}@ftmm.unair.ac.id"
-    payload = {
-        "email": email,
-        "full_name": f"Staf Uji {_label()}",
-        "role": role,
-    }
-    if password is not None:
-        payload["password"] = password
-    response = client.post(f"{V1}/admin/accounts", headers=admin_headers, json=payload)
-    assert response.status_code == 201, response.text
-    body = response.json()
-    return {
-        "user_id": body["data"]["user_id"],
-        "email": email,
-        "password": password or body["temporary_password"],
-    }
+    password = password or _TEMPORARY_PASSWORD
+
+    async def insert():
+        user = User(
+            email=email,
+            full_name=f"Staf Uji {_label()}",
+            role=role,
+            password_hash=get_password_hash(password),
+            is_active=True,
+        )
+        db_session.add(user)
+        await db_session.flush()
+        return str(user.user_id)
+
+    user_id = client.portal.call(insert)
+    return {"user_id": user_id, "email": email, "password": password}
 
 
 def _register_student(client, *, email=None, student_number=None, admission_year=2024):
@@ -233,8 +238,8 @@ def _activate_plan(client, headers: dict, name: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_nonaktifkan_akun_menolak_alasan_kosong(client, admin_headers):
-    staff = _create_staff(client, admin_headers)
+def test_nonaktifkan_akun_menolak_alasan_kosong(client, admin_headers, db_session):
+    staff = _create_staff(client, db_session)
 
     rejected = client.patch(
         f"{V1}/admin/accounts/{staff['user_id']}",
@@ -257,9 +262,11 @@ def test_nonaktifkan_akun_menolak_alasan_kosong(client, admin_headers):
     assert accepted.json()["data"]["status"] == "inactive"
 
 
-def test_admin_guard_menolak_nonaktifkan_akun_sendiri(client, admin_headers):
+def test_admin_guard_menolak_nonaktifkan_akun_sendiri(
+    client, admin_headers, db_session
+):
     # Admin lain masih aktif agar ini benar-benar kasus "akun sendiri".
-    _create_staff(client, admin_headers, role="admin")
+    _create_staff(client, db_session, role="admin")
     own_id = _current_user_id(client, admin_headers)
 
     response = client.patch(
@@ -301,8 +308,10 @@ def test_perubahan_status_menolak_pengguna_non_admin(
         assert _error(response)["code"] == "forbidden"
 
 
-def test_status_change_mencabut_token_lama_setelah_reaktivasi(client, admin_headers):
-    staff = _create_staff(client, admin_headers, password="StafUji2026!")
+def test_status_change_mencabut_token_lama_setelah_reaktivasi(
+    client, admin_headers, db_session
+):
+    staff = _create_staff(client, db_session, password="StafUji2026!")
     old_headers = _login(client, staff["email"], staff["password"])
     assert client.get(f"{V1}/auth/me", headers=old_headers).status_code == 200
 
@@ -329,8 +338,10 @@ def test_status_change_mencabut_token_lama_setelah_reaktivasi(client, admin_head
 # ---------------------------------------------------------------------------
 
 
-def test_jejak_wewenang_admin_mencatat_perubahan_status(client, admin_headers):
-    staff = _create_staff(client, admin_headers)
+def test_jejak_wewenang_admin_mencatat_perubahan_status(
+    client, admin_headers, db_session
+):
+    staff = _create_staff(client, db_session)
     actor_id = _current_user_id(client, admin_headers)
 
     changed = client.patch(
@@ -379,9 +390,9 @@ def test_jejak_wewenang_admin_menolak_non_admin(
         assert _error(response)["code"] == "forbidden"
 
 
-def test_jejak_wewenang_admin_mendukung_paginasi(client, admin_headers):
+def test_jejak_wewenang_admin_mendukung_paginasi(client, admin_headers, db_session):
     for _ in range(2):
-        staff = _create_staff(client, admin_headers)
+        staff = _create_staff(client, db_session)
         changed = client.patch(
             f"{V1}/admin/accounts/{staff['user_id']}",
             headers=admin_headers,
@@ -416,8 +427,8 @@ def test_jejak_wewenang_admin_mendukung_paginasi(client, admin_headers):
 # ---------------------------------------------------------------------------
 
 
-def test_login_salah_kata_sandi_memakai_pesan_umum(client, admin_headers):
-    staff = _create_staff(client, admin_headers, password="StafUji2026!")
+def test_login_salah_kata_sandi_memakai_pesan_umum(client, admin_headers, db_session):
+    staff = _create_staff(client, db_session, password="StafUji2026!")
     limiter.reset()
     wrong = client.post(
         f"{V1}/auth/login",
@@ -435,9 +446,11 @@ def test_login_salah_kata_sandi_memakai_pesan_umum(client, admin_headers):
     assert _error(wrong)["message"] == _error(unknown)["message"]
 
 
-def test_login_akun_nonaktif_mengembalikan_account_inactive(client, admin_headers):
+def test_login_akun_nonaktif_mengembalikan_account_inactive(
+    client, admin_headers, db_session
+):
     password = "StafNonaktif2026!"
-    staff = _create_staff(client, admin_headers, password=password)
+    staff = _create_staff(client, db_session, password=password)
     deactivated = client.patch(
         f"{V1}/admin/accounts/{staff['user_id']}",
         headers=admin_headers,
@@ -518,8 +531,10 @@ def test_koreksi_profil_nim_saja_menolak_alasan_kosong(client, admin_headers):
     )
 
 
-def test_koreksi_profil_menolak_target_bukan_mahasiswa(client, admin_headers):
-    staff = _create_staff(client, admin_headers)
+def test_koreksi_profil_menolak_target_bukan_mahasiswa(
+    client, admin_headers, db_session
+):
+    staff = _create_staff(client, db_session)
     profile = {
         "study_program_id": str(uuid.uuid4()),
         "admission_year": 2024,
@@ -769,7 +784,9 @@ def test_pendaftaran_ulang_email_akun_dianonimisasi_menghasilkan_user_id_baru(
 # ---------------------------------------------------------------------------
 
 
-def test_paritas_tier_v1_dan_legacy_untuk_endpoint_baru(client, admin_headers):
+def test_paritas_tier_v1_dan_legacy_untuk_endpoint_baru(
+    client, admin_headers, db_session
+):
     v1_traces = client.get(f"{V1}/admin/authority-traces", headers=admin_headers)
     legacy_traces = client.get(
         f"{LEGACY}/admin/authority-traces", headers=admin_headers
@@ -777,8 +794,8 @@ def test_paritas_tier_v1_dan_legacy_untuk_endpoint_baru(client, admin_headers):
     assert v1_traces.status_code == legacy_traces.status_code == 200
     assert v1_traces.json()["meta"]["page"] == legacy_traces.json()["meta"]["page"]
 
-    staff_v1 = _create_staff(client, admin_headers)
-    staff_legacy = _create_staff(client, admin_headers)
+    staff_v1 = _create_staff(client, db_session)
+    staff_legacy = _create_staff(client, db_session)
     changed_v1 = client.patch(
         f"{V1}/admin/accounts/{staff_v1['user_id']}",
         headers=admin_headers,
@@ -814,7 +831,7 @@ def test_paritas_tier_v1_dan_legacy_untuk_endpoint_baru(client, admin_headers):
     assert corrected.status_code == 200, corrected.text
     assert corrected.json()["data"]["student_number"] == student["student_number"]
 
-    lecturer = _create_staff(client, admin_headers)
+    lecturer = _create_staff(client, db_session)
     anonymized = client.post(
         f"{LEGACY}/admin/accounts/{lecturer['user_id']}/anonymize",
         headers=admin_headers,

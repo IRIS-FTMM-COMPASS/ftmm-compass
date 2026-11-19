@@ -32,8 +32,6 @@ from schemas import (
     ChangePasswordResponse,
     AccountResponse,
     AccountListResponse,
-    AccountCreateRequest,
-    AccountCreateResponse,
     AccountUpdateRequest,
     AccountUpdateResponse,
     ResetPasswordRequest,
@@ -43,6 +41,7 @@ from database import get_db
 from models import (
     User,
     StudentProfile as StudentProfileModel,
+    LecturerProfile,
     StudyProgram,
     AcademicPeriod,
     Curriculum,
@@ -174,6 +173,7 @@ def _temporary_password() -> str:
 
 def _build_user_response(user: User) -> UserResponse:
     student_profile_data = None
+    is_program_coordinator = False
     if user.student_profile:
         sp = user.student_profile
         student_profile_data = UserStudentProfileResponse(
@@ -196,8 +196,16 @@ def _build_user_response(user: User) -> UserResponse:
         default_bio = "Mahasiswa FTMM peminat Data Science dan Machine Learning"
         default_interests = ["Machine Learning", "Data Science"]
     elif user.role == "lecturer":
-        academic_id = "198803152015041002"
-        unit_name = "Teknologi Sains Data"
+        lecturer_profile = user.lecturer_profile
+        academic_id = lecturer_profile.employee_number if lecturer_profile else None
+        unit_name = (
+            lecturer_profile.study_program.program_name
+            if (lecturer_profile and lecturer_profile.study_program)
+            else None
+        )
+        is_program_coordinator = (
+            bool(lecturer_profile.is_program_coordinator) if lecturer_profile else False
+        )
         permissions = ["view_catalog", "view_demand_analytics", "review_study_plans", "use_chatbot"]
         default_phone = "081398765432"
         default_bio = "Dosen Pengajar dan Pembina Akademik FTMM UNAIR"
@@ -231,6 +239,7 @@ def _build_user_response(user: User) -> UserResponse:
         permissions=permissions,
         student_profile=student_profile_data,
         needs_revalidation=getattr(user, "needs_revalidation", False),
+        is_program_coordinator=is_program_coordinator,
     )
 
 
@@ -498,7 +507,10 @@ async def v1_update_profile(
     await db.commit()
     stmt = (
         select(User)
-        .options(selectinload(User.student_profile).selectinload(StudentProfileModel.study_program))
+        .options(
+            selectinload(User.student_profile).selectinload(StudentProfileModel.study_program),
+            selectinload(User.lecturer_profile).selectinload(LecturerProfile.study_program),
+        )
         .where(User.user_id == current_user.user_id)
     )
     res = await db.execute(stmt)
@@ -565,44 +577,6 @@ async def list_accounts(
             "page_size": page_size,
             "pages": (total + page_size - 1) // page_size,
         },
-    )
-
-
-@router.post(
-    "/admin/accounts",
-    response_model=AccountCreateResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def create_account(
-    payload: AccountCreateRequest,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    _require_admin(current_user)
-    email = payload.email.strip().lower()
-    if not email or "@" not in email:
-        return _field_error("email", "Email tidak valid.", "invalid_email")
-
-    existing = (
-        await db.execute(select(User).where(User.email == email))
-    ).scalars().first()
-    if existing is not None:
-        return _field_error("email", "Email sudah terdaftar.", "duplicate_email")
-
-    temporary_password = payload.password or _temporary_password()
-    user = User(
-        email=email,
-        full_name=payload.full_name.strip(),
-        password_hash=get_password_hash(temporary_password),
-        role=payload.role,
-        is_active=True,
-    )
-    db.add(user)
-    await db.flush()
-    await db.commit()
-    return AccountCreateResponse(
-        data=_account_response(user),
-        temporary_password=None if payload.password else temporary_password,
     )
 
 

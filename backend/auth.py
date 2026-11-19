@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from database import get_db
-from models import StudentProfile, User
+from models import LecturerProfile, StudentProfile, User
 
 from settings import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
@@ -114,7 +114,10 @@ async def authenticate_user(
         select(User)
         .outerjoin(StudentProfile, User.user_id == StudentProfile.user_id)
         .options(
-            selectinload(User.student_profile).selectinload(StudentProfile.study_program)
+            selectinload(User.student_profile).selectinload(StudentProfile.study_program),
+            selectinload(User.lecturer_profile).selectinload(
+                LecturerProfile.study_program
+            ),
         )
         .where(
             or_(
@@ -157,7 +160,10 @@ async def get_current_user(
     stmt = (
         select(User)
         .options(
-            selectinload(User.student_profile).selectinload(StudentProfile.study_program)
+            selectinload(User.student_profile).selectinload(StudentProfile.study_program),
+            selectinload(User.lecturer_profile).selectinload(
+                LecturerProfile.study_program
+            ),
         )
         .where(User.user_id == user_id)
     )

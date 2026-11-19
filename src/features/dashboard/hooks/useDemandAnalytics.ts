@@ -1,13 +1,53 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import type { AuthUser } from "@/features/auth/authService"
 import { usePolling } from "@/features/polling/polling"
+import {
+  PROGRAM_ABBREVIATIONS,
+  normalizeProgramName,
+} from "@/shared/domain/course"
+
+const PROGRAM_NAMES_BY_CODE: Record<string, string> = Object.fromEntries(
+  Object.entries(PROGRAM_ABBREVIATIONS).map(([name, code]) => [
+    code.toLowerCase(),
+    name,
+  ]),
+)
+
+function coordinatorProdi(unitName?: string): string {
+  const raw = unitName?.trim()
+  if (!raw) return ""
+
+  const normalized = normalizeProgramName(raw)
+  const byCode = PROGRAM_NAMES_BY_CODE[normalized.toLowerCase()]
+  if (byCode) return byCode
+  if (PROGRAM_ABBREVIATIONS[normalized]) return normalized
+
+  const byName = Object.keys(PROGRAM_ABBREVIATIONS).find((name) =>
+    normalized.toLowerCase().includes(name.toLowerCase()),
+  )
+  return byName ?? normalized
+}
 
 export function useDemandAnalytics(user: AuthUser | null) {
   const { demand, loadDemand, isLoading } = usePolling()
-  const [selectedProdi, setSelectedProdi] = useState<string>("all")
+  const [chosenProdi, setChosenProdi] = useState<string>("all")
+  const isProgramCoordinator =
+    user?.role === "lecturer" && Boolean(user.is_program_coordinator)
+  const lockedProdi = isProgramCoordinator
+    ? coordinatorProdi(user?.unit_name)
+    : null
+  const selectedProdi = lockedProdi ?? chosenProdi
+
+  const setSelectedProdi = useCallback(
+    (value: string) => {
+      if (isProgramCoordinator) return
+      setChosenProdi(value)
+    },
+    [isProgramCoordinator],
+  )
 
   useEffect(() => {
-    if (!user || user.role === "student") return
+    if (!user || user.role === "student" || !selectedProdi) return
     if (demand[selectedProdi]) return
     void loadDemand(selectedProdi)
   }, [demand, loadDemand, selectedProdi, user])

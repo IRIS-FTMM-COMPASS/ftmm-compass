@@ -1,6 +1,61 @@
 """Kontrak sumber katalog publik: database dengan fallback lokal."""
 
+import uuid
 from unittest.mock import AsyncMock, patch
+
+import pytest
+
+from catalog import authoritative_curriculum_id, invalidate_catalog_cache
+from models import Course, CurriculumCourse
+
+
+@pytest.fixture(autouse=True)
+def isolated_catalog_cache():
+    invalidate_catalog_cache()
+    yield
+    invalidate_catalog_cache()
+
+
+def _new_code() -> str:
+    return f"UJI{int(uuid.uuid4().hex[:4], 16) % 10000:04d}"
+
+
+def _add_course_row(
+    client, db_session, *, course_is_active=None, cc_is_active=None, course_scope=None
+):
+    """Insert a course into the authoritative curriculum inside the test transaction."""
+
+    async def insert():
+        code = _new_code()
+        course_fields = {"course_code": code, "course_name": f"MK Uji {code}"}
+        if course_is_active is not None:
+            course_fields["is_active"] = course_is_active
+        course = Course(**course_fields)
+        db_session.add(course)
+        await db_session.flush()
+
+        curriculum_id = await authoritative_curriculum_id(
+            db_session, "Teknologi Sains Data"
+        )
+        assert curriculum_id is not None
+        cc_fields = {
+            "curriculum_id": curriculum_id,
+            "course_id": course.course_id,
+            "credits_total": 3,
+            "recommended_semester": 7,
+            "term": "ganjil",
+            "course_type": "pilihan",
+        }
+        if cc_is_active is not None:
+            cc_fields["is_active"] = cc_is_active
+        if course_scope is not None:
+            cc_fields["course_scope"] = course_scope
+        db_session.add(CurriculumCourse(**cc_fields))
+        await db_session.flush()
+        return code
+
+    return client.portal.call(insert)
+
 
 def test_catalog_lists_all_programs(client):
     response = client.get("/api/v1/courses")
@@ -102,3 +157,48 @@ def test_course_search_matches_code(client):
 def test_legacy_courses_alias(client):
     assert client.get("/api/courses").status_code == 200
     assert client.get("/api/courses/search", params={"q": "kalkulus"}).status_code == 200
+
+
+def test_pj_deactivated_course_stays_visible_with_status_and_scope(client, db_session):
+    code = _add_course_row(
+        client, db_session, course_is_active=True, cc_is_active=False,
+        course_scope="fakultas",
+    )
+
+    response = client.get("/api/v1/courses")
+    assert response.status_code == 200
+    course = next(
+        (item for item in response.json()["courses"] if item["code"] == code), None
+    )
+    assert course is not None
+    assert course["is_active"] is False
+    assert course["course_scope"] == "fakultas"
+
+    detail = client.get(f"/api/v1/courses/{code}")
+    assert detail.status_code == 200
+    assert detail.json()["is_active"] is False
+    assert detail.json()["course_scope"] == "fakultas"
+
+
+def test_globally_deactivated_course_is_hidden(client, db_session):
+    code = _add_course_row(
+        client, db_session, course_is_active=False, cc_is_active=True,
+        course_scope="fakultas",
+    )
+
+    response = client.get("/api/v1/courses")
+    assert response.status_code == 200
+    assert code not in {item["code"] for item in response.json()["courses"]}
+
+
+def test_catalog_rows_use_default_status_and_scope(client, db_session):
+    code = _add_course_row(client, db_session)
+
+    response = client.get("/api/v1/courses")
+    assert response.status_code == 200
+    course = next(
+        (item for item in response.json()["courses"] if item["code"] == code), None
+    )
+    assert course is not None
+    assert course["is_active"] is True
+    assert course["course_scope"] == "program_studi"

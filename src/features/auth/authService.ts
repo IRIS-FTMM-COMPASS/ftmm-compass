@@ -33,6 +33,7 @@ export interface AuthUser {
   career_interests?: string[]
   permissions?: string[]
   student_profile?: StudentProfile
+  is_program_coordinator?: boolean
 }
 
 export interface ProfileUpdatePayload {
@@ -148,18 +149,6 @@ export interface AdminAccountFilters {
   status?: string
   page?: number
   page_size?: number
-}
-
-export interface CreateStaffPayload {
-  email: string
-  full_name: string
-  role: "admin" | "lecturer"
-  password?: string
-}
-
-export interface CreateStaffResponse {
-  account: AdminAccount
-  temporary_password: string | null
 }
 
 export interface ResetPasswordResponse {
@@ -567,21 +556,6 @@ export const authService = {
     params.set("page_size", String(filters.page_size ?? 20))
     const raw = await request<unknown>(`/api/v1/admin/accounts?${params}`)
     return normalizeAccountList(raw)
-  },
-
-  async createStaff(payload: CreateStaffPayload): Promise<CreateStaffResponse> {
-    const raw = await request<unknown>("/api/v1/admin/accounts", {
-      method: "POST",
-      body: payload,
-    })
-    const body = asRecord(raw)
-    return {
-      account: normalizeAccount(body.data ?? raw),
-      temporary_password:
-        typeof body.temporary_password === "string"
-          ? body.temporary_password
-          : null,
-    }
   },
 
   async setAccountStatus(
