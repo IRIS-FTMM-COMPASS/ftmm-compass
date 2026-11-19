@@ -26,6 +26,7 @@ import {
   useEffect,
   useCallback,
   type FormEvent,
+  type MouseEvent,
 } from "react"
 import { cn } from "@/shared/utils"
 import type { Course } from "@/shared/domain/models"
@@ -76,6 +77,37 @@ import {
 } from "@/shared/academic-period/academic"
 
 type Page = "dashboard" | "course-finder" | "pj-courses" | "degree-planner" | "chatbot" | "profile" | "admin-accounts"
+
+const PAGES: Page[] = [
+  "dashboard",
+  "course-finder",
+  "pj-courses",
+  "degree-planner",
+  "chatbot",
+  "profile",
+  "admin-accounts",
+]
+
+function isPage(value: string): value is Page {
+  return PAGES.includes(value as Page)
+}
+
+function pathSegment(): string {
+  return window.location.pathname.replace(/^\/+|\/+$/g, "")
+}
+
+function pageFromLocation(): Page {
+  const path = pathSegment()
+  return isPage(path) ? path : "dashboard"
+}
+
+function pageUrl(page: Page): string {
+  return `/${page}`
+}
+
+function pageUrlWithContext(page: Page): string {
+  return pageUrl(page) + window.location.search + window.location.hash
+}
 
 const ADMIN_ROLE_LABELS: Record<string, string> = {
   admin: "Administrator",
@@ -1322,7 +1354,7 @@ function AppShell() {
   const { period } = useAcademicPeriod()
   const { error: catalogError, reload: reloadCatalog } = useCatalog()
   const planner = usePlanner()
-  const [activePage, setActivePage] = useState<Page>("dashboard")
+  const [activePage, setActivePage] = useState<Page>(pageFromLocation)
   const [isSidebarOpen, setIsSidebarOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth >= 768,
   )
@@ -1341,17 +1373,47 @@ function AppShell() {
   const [chatAppliedPlanId, setChatAppliedPlanId] = useState<string | null>(
     null,
   )
+  const hasBeenLoggedIn = useRef(isLoggedIn)
+
+  const navigate = useCallback((page: Page, replace = false) => {
+    const url = pageUrlWithContext(page)
+    if (replace) {
+      window.history.replaceState(null, "", url)
+    } else {
+      window.history.pushState(null, "", url)
+    }
+    setActivePage(page)
+  }, [])
+
   useEffect(() => {
-    if (!canAccess(activePage)) setActivePage("dashboard")
-  }, [activePage, canAccess])
+    const syncFromLocation = () => {
+      const pathname = pathSegment()
+      const page = pageFromLocation()
+      if (pathname !== "" && !isPage(pathname)) {
+        window.history.replaceState(null, "", pageUrlWithContext("dashboard"))
+      }
+      setActivePage(page)
+    }
+    syncFromLocation()
+    window.addEventListener("popstate", syncFromLocation)
+    return () => window.removeEventListener("popstate", syncFromLocation)
+  }, [])
   useEffect(() => {
-    if (isLoggedIn) return
+    if (isLoggedIn && !canAccess(activePage)) navigate("dashboard", true)
+  }, [activePage, canAccess, isLoggedIn, navigate])
+  useEffect(() => {
+    if (isLoggedIn) {
+      hasBeenLoggedIn.current = true
+      return
+    }
+    if (!hasBeenLoggedIn.current) return
+    hasBeenLoggedIn.current = false
     setChatMessages(INITIAL_CHAT_MESSAGES)
     setChatProfile(INITIAL_STUDENT_PROFILE)
     setChatAppliedPlanId(null)
     setIsLogoutModalOpen(false)
-    setActivePage("dashboard")
-  }, [isLoggedIn])
+    navigate("dashboard", true)
+  }, [isLoggedIn, navigate])
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return
@@ -1369,10 +1431,31 @@ function AppShell() {
       course?: Course
     },
   ) => {
+    const validPage = isPage(page) ? page : "dashboard"
     setPlannerInitialTab(options?.tab || "roadmap")
     setFinderInitialCourse(options?.course || null)
-    setActivePage(page as Page)
+    navigate(validPage)
   }
+
+  const handleAnchorNavigate = (
+    event: MouseEvent<HTMLAnchorElement>,
+    page: Page,
+  ) => {
+    if (
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return
+    }
+    event.preventDefault()
+    handleNavigate(page)
+    if (window.innerWidth < 768) setIsSidebarOpen(false)
+  }
+
+  const visiblePage = canAccess(activePage) ? activePage : "dashboard"
 
   const handleApplyPlanFromChatbot = (payload: DegreePlanPayload) => {
     planner.applyPlan(payload)
@@ -1382,10 +1465,6 @@ function AppShell() {
   const handleLogout = () => {
     logout()
     setIsLogoutModalOpen(false)
-    setChatMessages(INITIAL_CHAT_MESSAGES)
-    setChatProfile(INITIAL_STUDENT_PROFILE)
-    setChatAppliedPlanId(null)
-    setActivePage("dashboard")
   }
 
   const addedCourseIds = new Set(
@@ -1421,7 +1500,7 @@ function AppShell() {
       <Login
         onLogin={(next, expiresInSeconds) => {
           login(next, expiresInSeconds)
-          setActivePage("dashboard")
+          navigate("dashboard", true)
         }}
       />
     )
@@ -1455,14 +1534,12 @@ function AppShell() {
           <nav className="flex-1 px-4 py-6 space-y-2 border-t border-navy-light/50">
             {navItems.map((item) => {
               const Icon = item.icon
-              const isActive = activePage === item.id
+              const isActive = visiblePage === item.id
               return (
-                <button
+                <a
                   key={item.id}
-                  onClick={() => {
-                    handleNavigate(item.id)
-                    if (window.innerWidth < 768) setIsSidebarOpen(false)
-                  }}
+                  href={pageUrlWithContext(item.id)}
+                  onClick={(event) => handleAnchorNavigate(event, item.id)}
                   className={cn(
                     "w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors duration-150 group text-left",
                     isActive
@@ -1481,7 +1558,7 @@ function AppShell() {
                   <span className="font-medium whitespace-nowrap">
                     {item.label}
                   </span>
-                </button>
+                </a>
               )
             })}
           </nav>
@@ -1490,24 +1567,21 @@ function AppShell() {
             <div
               className={cn(
                 "flex items-center gap-2 p-1.5 rounded-xl transition-all",
-                activePage === "profile"
+                visiblePage === "profile"
                   ? "bg-navy-light border border-gold/40 text-white shadow-xs"
                   : "hover:bg-navy-light/50 text-teal-light hover:text-white border border-transparent",
               )}
             >
-              <button
-                type="button"
-                onClick={() => {
-                  handleNavigate("profile")
-                  if (window.innerWidth < 768) setIsSidebarOpen(false)
-                }}
+              <a
+                href={pageUrlWithContext("profile")}
+                onClick={(event) => handleAnchorNavigate(event, "profile")}
                 className="flex items-center gap-3 flex-1 min-w-0 text-left cursor-pointer group p-1 rounded-lg"
                 title="Buka Halaman Profil Pengguna"
               >
                 <div
                   className={cn(
                     "w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 font-heading font-bold text-xs transition-transform group-hover:scale-105",
-                    activePage === "profile"
+                    visiblePage === "profile"
                       ? "bg-gold text-navy"
                       : "bg-teal text-navy-dark",
                   )}
@@ -1534,7 +1608,7 @@ function AppShell() {
                       user?.role}
                   </p>
                 </div>
-              </button>
+              </a>
 
               <button
                 type="button"
@@ -1565,17 +1639,18 @@ function AppShell() {
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
             />
             <h2 className="font-heading text-xl md:text-2xl font-bold text-navy capitalize truncate">
-              {activePage === "admin-accounts"
+              {visiblePage === "admin-accounts"
                 ? "Manajemen Akun"
-                : activePage === "pj-courses"
+                : visiblePage === "pj-courses"
                   ? "Rekap & Kelola MK"
-                  : activePage === "chatbot"
+                  : visiblePage === "chatbot"
                     ? "Compass AI"
-                    : activePage === "profile"
+                    : visiblePage === "profile"
                       ? "Profil Pengguna"
-                      : activePage === "course-finder" && user?.role === "admin"
+                      : visiblePage === "course-finder" &&
+                          user?.role === "admin"
                         ? "Course Management"
-                        : activePage.replace("-", " ")}
+                        : visiblePage.replace("-", " ")}
             </h2>
           </div>
           <div className="flex items-center gap-2 md:gap-4">
@@ -1594,7 +1669,7 @@ function AppShell() {
         <div
           className={cn(
             "flex-1 overflow-auto relative",
-            activePage === "degree-planner"
+            visiblePage === "degree-planner"
               ? "p-4 md:px-6 md:py-4"
               : "p-4 md:p-8",
           )}
@@ -1614,16 +1689,16 @@ function AppShell() {
           <div
             className={cn(
               "mx-auto h-full",
-              activePage === "degree-planner"
+              visiblePage === "degree-planner"
                 ? "w-full max-w-none"
                 : "max-w-7xl",
             )}
           >
-            <ErrorBoundary key={activePage}>
-              {activePage === "dashboard" && (
+            <ErrorBoundary key={visiblePage}>
+              {visiblePage === "dashboard" && (
                 <Dashboard onNavigate={handleNavigate} />
               )}
-              {activePage === "course-finder" && (
+              {visiblePage === "course-finder" && (
                 <CourseFinder
                   onAddToPlanner={planner.addPendingCourse}
                   addedCourseIds={addedCourseIds}
@@ -1631,16 +1706,16 @@ function AppShell() {
                   onClearInitialCourse={() => setFinderInitialCourse(null)}
                 />
               )}
-              {activePage === "pj-courses" && user?.role === "lecturer" && (
+              {visiblePage === "pj-courses" && user?.role === "lecturer" && (
                 <PjCoursesPage onNavigate={handleNavigate} />
               )}
-              {activePage === "degree-planner" && (
+              {visiblePage === "degree-planner" && (
                 <DegreePlanner
                   onNavigate={handleNavigate}
                   initialTab={plannerInitialTab}
                 />
               )}
-              {activePage === "chatbot" && (
+              {visiblePage === "chatbot" && (
                 <Chatbot
                   messages={chatMessages}
                   onMessagesChange={setChatMessages}
@@ -1656,13 +1731,13 @@ function AppShell() {
                   onApplyPlan={handleApplyPlanFromChatbot}
                 />
               )}
-              {activePage === "profile" && (
+              {visiblePage === "profile" && (
                 <Profile
                   onNavigate={handleNavigate}
                   onRequestLogout={() => setIsLogoutModalOpen(true)}
                 />
               )}
-              {activePage === "admin-accounts" && user?.role === "admin" && (
+              {visiblePage === "admin-accounts" && user?.role === "admin" && (
                 <AdminAccounts />
               )}
             </ErrorBoundary>

@@ -48,6 +48,10 @@ const ADMIN_ONLY_PAGES: Record<string, true> = {
   "admin-accounts": true,
 }
 
+const LECTURER_ONLY_PAGES: Record<string, true> = {
+  "pj-courses": true,
+}
+
 interface SessionContextValue {
   user: AuthUser | null
   isLoggedIn: boolean
@@ -189,6 +193,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const role = user?.role ?? "student"
       if (ADMIN_ONLY_PAGES[page]) return role === "admin"
       if (STUDENT_ONLY_PAGES[page]) return role === "student"
+      if (LECTURER_ONLY_PAGES[page]) return role === "lecturer"
       return true
     },
     [user?.role],
