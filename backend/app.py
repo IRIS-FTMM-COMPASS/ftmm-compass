@@ -17,6 +17,8 @@ from slowapi.errors import RateLimitExceeded
 
 from api import (
     academic_periods,
+    admin_accounts,
+    admin_traces,
     auth,
     class_sections,
     chat,
@@ -101,6 +103,8 @@ def mount_resource(router):
 for resource in (
     health,
     auth,
+    admin_traces,
+    admin_accounts,
     class_sections,
     courses,
     chat,

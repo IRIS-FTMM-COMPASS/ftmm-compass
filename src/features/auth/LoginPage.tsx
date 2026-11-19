@@ -13,6 +13,7 @@ import {
   User,
 } from "lucide-react"
 import {
+  AuthApiError,
   authService,
   authErrorMessage,
   copyToClipboard,
@@ -55,6 +56,16 @@ const MODE_COPY: Record<Mode, {
     subtitle: "Masukkan kode pemulihan untuk mengatur ulang kata sandi",
     submit: "Perbarui Kata Sandi",
   },
+}
+
+const INACTIVE_ACCOUNT_MESSAGE = "Akun Anda dinonaktifkan oleh admin"
+
+function isInactiveAccountError(error: unknown): boolean {
+  if (!(error instanceof AuthApiError)) return false
+  return (
+    error.code === "account_inactive" ||
+    error.message === INACTIVE_ACCOUNT_MESSAGE
+  )
 }
 
 interface FieldMessageProps {
@@ -212,6 +223,7 @@ export default function Login({ onLogin }: LoginProps) {
         ? "Pemulihan kata sandi gagal. Silakan coba lagi."
         : "Terjadi kesalahan saat masuk. Silakan coba lagi."
   const errorMessage = error ? authErrorMessage(error, fallbackMessage) : null
+  const isAccountInactive = mode === "login" && isInactiveAccountError(error)
 
   const handleLogin = async (e: FormEvent) => {
     e.preventDefault()
@@ -388,7 +400,22 @@ export default function Login({ onLogin }: LoginProps) {
             <p className="text-muted text-sm">{MODE_COPY[mode].subtitle}</p>
           </div>
 
-          {errorMessage && (
+          {isAccountInactive && (
+            <div
+              className="mb-6 p-4 rounded-xl bg-white border border-orange/40 text-orange flex items-start gap-3"
+              role="alert"
+            >
+              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+              <div className="text-sm leading-relaxed">
+                <p className="font-semibold">Akun Dinonaktifkan</p>
+                <p className="mt-1 text-base font-semibold">
+                  {INACTIVE_ACCOUNT_MESSAGE}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {errorMessage && !isAccountInactive && (
             <div
               className="mb-6 p-4 rounded-xl bg-orange/10 border border-orange/30 text-orange flex items-start gap-3"
               role="alert"

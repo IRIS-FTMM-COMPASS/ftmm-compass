@@ -16,8 +16,10 @@ import type { AuthUser, StudentProfile } from "@/features/auth/authService"
 import type { AcademicPeriod } from "@/shared/academic-period/academicService"
 import { isOddSemester, SKS_CAP_BY_IPS } from "@/shared/domain/academics"
 
+type ProfileUser = AuthUser & { needs_revalidation?: boolean }
+
 interface ProfileBodyProps {
-  user: AuthUser | null
+  user: ProfileUser | null
   studentProfile: StudentProfile | undefined
   academicId: string
   period: AcademicPeriod | null
@@ -208,6 +210,11 @@ export default function ProfileBody({
               <span className="text-xs font-mono text-muted bg-background px-2 py-0.5 rounded border border-border">
                 Kurikulum Resmi UNAIR
               </span>
+              {user?.needs_revalidation && (
+                <span className="text-[11px] font-semibold text-orange bg-white border border-orange/30 px-2 py-0.5 rounded-full">
+                  perlu validasi ulang
+                </span>
+              )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">

@@ -10,6 +10,9 @@ import {
 } from "lucide-react"
 import type { AuthUser } from "@/features/auth/authService"
 
+const ACADEMIC_LOCK_NOTICE =
+  "tidak dapat diubah secara mandiri; perubahan hanya oleh admin FTMM Compass"
+
 interface EditProfileModalProps {
   isOpen: boolean
   user: AuthUser | null
@@ -99,9 +102,8 @@ export default function EditProfileModal({
               </p>
               <p className="text-[11px] mt-0.5">
                 NIM/NIP ({academicId}), Program Studi (
-                {user?.unit_name || "FTMM"}), dan Hak Akses ({user?.role})
-                dikelola terpusat oleh Cybercampus UNAIR dan tidak dapat diubah
-                secara mandiri.
+                {user?.unit_name || "FTMM"}), dan Hak Akses ({user?.role}){" "}
+                {ACADEMIC_LOCK_NOTICE}.
               </p>
             </div>
           </div>

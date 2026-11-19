@@ -103,6 +103,12 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 async def authenticate_user(
     db: AsyncSession, identifier: str, password: str
 ) -> Optional[User]:
+    """Cocokkan kredensial berdasarkan kata sandi.
+
+    Status akun sengaja tidak dinilai di sini: kata sandi yang salah dan akun
+    nonaktif harus tetap dapat dibedakan oleh pemanggil (login), tanpa membocorkan
+    status akun kepada percobaan kata sandi yang salah.
+    """
     clean_identifier = identifier.strip().lower()
     stmt = (
         select(User)
@@ -123,8 +129,6 @@ async def authenticate_user(
     if not user:
         return None
     if not user.password_hash or not verify_password(password, user.password_hash):
-        return None
-    if not user.is_active:
         return None
     return user
 

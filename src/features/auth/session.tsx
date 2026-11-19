@@ -11,12 +11,33 @@ import {
 import { API_BASE } from "@/shared/api/client"
 import {
   authService,
+  notifyUnauthorized,
   onTokenRenewed,
   onUnauthorized,
   type AuthUser,
 } from "@/features/auth/authService"
 
 const EXPIRY_KEY = "auth_expires_at"
+
+const INACTIVE_ACCOUNT_MESSAGE = "Akun Anda dinonaktifkan oleh admin"
+
+async function isInactiveAccountResponse(response: Response): Promise<boolean> {
+  try {
+    const payload: unknown = await response.clone().json()
+    if (!payload || typeof payload !== "object") return false
+    const body = payload as Record<string, unknown>
+    const error =
+      body.error && typeof body.error === "object"
+        ? body.error as Record<string, unknown>
+        : body
+    return (
+      error.code === "account_inactive" ||
+      error.message === INACTIVE_ACCOUNT_MESSAGE
+    )
+  } catch {
+    return false
+  }
+}
 
 const STUDENT_ONLY_PAGES: Record<string, true> = {
   "degree-planner": true,
@@ -136,7 +157,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
     const originalFetch = window.fetch.bind(window)
     window.fetch = (input, init) =>
-      originalFetch(input, init).then((response) => {
+      originalFetch(input, init).then(async (response) => {
         if (response.status !== 401 || !isLoggedInRef.current) return response
         const url =
           typeof input === "string"
@@ -144,7 +165,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             : input instanceof URL
               ? input.toString()
               : input.url
-        if (!API_BASE || url.startsWith(API_BASE)) logout()
+        if (!API_BASE || url.startsWith(API_BASE)) {
+          const isInactive = await isInactiveAccountResponse(response)
+          logout()
+          if (isInactive) notifyUnauthorized()
+        }
         return response
       })
     return () => {
