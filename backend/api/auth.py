@@ -36,6 +36,7 @@ from schemas import (
     AccountCreateResponse,
     AccountUpdateRequest,
     AccountUpdateResponse,
+    ResetPasswordRequest,
     ResetPasswordResponse,
 )
 from database import get_db
@@ -60,6 +61,7 @@ from auth import (
     save_recovery_code,
     verify_password,
 )
+from audit import record_admin_action
 from api.errors import error_response
 from rate_limit import limiter
 from slowapi.errors import RateLimitExceeded
@@ -140,10 +142,16 @@ def _require_admin(current_user: User) -> None:
 def _account_response(
     user: User, student_number: str | None = None
 ) -> AccountResponse:
-    if student_number is None and "student_profile" not in inspect(user).unloaded:
+    profile = None
+    if "student_profile" not in inspect(user).unloaded:
         profile = user.student_profile
-        if profile is not None:
+        if profile is not None and student_number is None:
             student_number = profile.student_number
+    study_program = None
+    if profile is not None and "study_program" not in inspect(profile).unloaded:
+        program = profile.study_program
+        if program is not None:
+            study_program = program.program_name or program.program_code
     return AccountResponse(
         user_id=str(user.user_id),
         email=user.email,
@@ -152,6 +160,10 @@ def _account_response(
         is_active=user.is_active,
         status="active" if user.is_active else "inactive",
         student_number=student_number,
+        study_program=study_program,
+        admission_year=profile.admission_year if profile is not None else None,
+        current_semester=profile.current_semester if profile is not None else None,
+        needs_revalidation=getattr(user, "needs_revalidation", False),
         created_at=user.created_at.isoformat() if user.created_at else None,
     )
 
@@ -218,6 +230,7 @@ def _build_user_response(user: User) -> UserResponse:
         career_interests=user.career_interests or default_interests,
         permissions=permissions,
         student_profile=student_profile_data,
+        needs_revalidation=getattr(user, "needs_revalidation", False),
     )
 
 
@@ -233,6 +246,14 @@ async def v1_login(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="NIM/Email atau kata sandi tidak valid",
+        )
+
+    if not user.is_active:
+        return error_response(
+            status.HTTP_401_UNAUTHORIZED,
+            "account_inactive",
+            "Akun Anda dinonaktifkan oleh admin",
+            detail="Akun Anda dinonaktifkan oleh admin",
         )
 
     version = await get_token_version(db, user.user_id)
@@ -526,7 +547,11 @@ async def list_accounts(
     total = int((await db.execute(count_stmt)).scalar_one())
     users = (
         await db.execute(
-            base.options(selectinload(User.student_profile))
+            base.options(
+                selectinload(User.student_profile).selectinload(
+                    StudentProfileModel.study_program
+                )
+            )
             .order_by(User.created_at.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)
@@ -589,10 +614,34 @@ async def update_account(
     db: AsyncSession = Depends(get_db),
 ):
     _require_admin(current_user)
+
+    if payload.is_active is False and not (payload.reason or "").strip():
+        reason_message = "Alasan wajib diisi saat menonaktifkan akun."
+        return error_response(
+            getattr(
+                status,
+                "HTTP_422_UNPROCESSABLE_CONTENT",
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+            ),
+            "validation_error",
+            reason_message,
+            detail=reason_message,
+            details=[
+                {
+                    "field": "reason",
+                    "message": reason_message,
+                    "code": "required_reason",
+                }
+            ],
+        )
     user = (
         await db.execute(
             select(User)
-            .options(selectinload(User.student_profile))
+            .options(
+                selectinload(User.student_profile).selectinload(
+                    StudentProfileModel.study_program
+                )
+            )
             .where(User.user_id == user_id)
         )
     ).scalars().first()
@@ -600,7 +649,46 @@ async def update_account(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Akun tidak ditemukan."
         )
+
+    is_deactivation = not payload.is_active
+    guard_message = None
+    if is_deactivation and current_user.user_id == user.user_id:
+        guard_message = "Anda tidak dapat menonaktifkan akun Anda sendiri."
+    elif is_deactivation and user.is_active and user.role == "admin":
+        other_active_admins = (
+            await db.execute(
+                select(func.count())
+                .select_from(User)
+                .where(
+                    User.role == "admin",
+                    User.is_active.is_(True),
+                    User.user_id != user.user_id,
+                )
+            )
+        ).scalar_one()
+        if other_active_admins == 0:
+            guard_message = "Admin aktif terakhir tidak dapat dinonaktifkan."
+    if guard_message is not None:
+        return error_response(
+            status.HTTP_409_CONFLICT,
+            "admin_guard",
+            guard_message,
+            detail=guard_message,
+        )
+
+    old_value = str(user.is_active).lower()
+    await record_admin_action(
+        db,
+        actor=current_user,
+        target=user,
+        action="status_change",
+        reason=payload.reason,
+        field_name="is_active",
+        old_value=old_value,
+        new_value=str(payload.is_active).lower(),
+    )
     user.is_active = payload.is_active
+    await bump_token_version(db, user.user_id)
     await db.commit()
     return AccountUpdateResponse(data=_account_response(user))
 
@@ -611,6 +699,7 @@ async def update_account(
 )
 async def reset_account_password(
     user_id: uuid.UUID,
+    payload: ResetPasswordRequest | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -623,6 +712,13 @@ async def reset_account_password(
             status_code=status.HTTP_404_NOT_FOUND, detail="Akun tidak ditemukan."
         )
 
+    await record_admin_action(
+        db,
+        actor=current_user,
+        target=user,
+        action="password_reset",
+        reason=payload.reason if payload is not None else None,
+    )
     temporary_password = _temporary_password()
     user.password_hash = get_password_hash(temporary_password)
     await bump_token_version(db, user.user_id)

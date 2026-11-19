@@ -257,7 +257,7 @@ def test_admin_create_update_and_reset_account(client, admin_headers):
     deactivated = client.patch(
         f"/api/v1/admin/accounts/{user_id}",
         headers=admin_headers,
-        json={"is_active": False},
+        json={"is_active": False, "reason": "QA kontrak status akun"},
     )
     assert deactivated.status_code == 200
     assert deactivated.json()["data"]["status"] == "inactive"

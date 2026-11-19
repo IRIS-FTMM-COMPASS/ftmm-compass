@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react"
-import { authService, type AuthUser } from "@/features/auth/authService"
+import {
+  authService,
+  type AuthUser,
+  type ProfileUpdatePayload,
+} from "@/features/auth/authService"
 import { useSession } from "@/features/auth/session"
 
 const ROLE_LABEL_MAP: Record<string, string> = {
@@ -75,11 +79,12 @@ export function useProfileEditor() {
         .map((s) => s.trim())
         .filter(Boolean)
 
-      const updatedUser = await authService.updateProfile({
+      const payload: ProfileUpdatePayload = {
         phone_number: editPhone,
         bio: editBio,
         career_interests: interestsArray,
-      })
+      }
+      const updatedUser = await authService.updateProfile(payload)
       setLocalUser(updatedUser)
       setUser(updatedUser)
       setSaveSuccessMessage("Preferensi profil berhasil disimpan.")

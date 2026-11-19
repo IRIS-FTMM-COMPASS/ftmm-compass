@@ -1,6 +1,7 @@
 from datetime import date, datetime
 from typing import List, Optional, Dict, Literal, Any, Union
-from pydantic import BaseModel, Field
+from uuid import UUID
+from pydantic import BaseModel, ConfigDict, Field
 from settings import ACCESS_TOKEN_EXPIRE_SECONDS
 
 class OllamaHealthDetail(BaseModel):
@@ -260,6 +261,7 @@ class UserProfileUpdateRequest(BaseModel):
     phone_number: Optional[str] = Field(None, max_length=30, description="Nomor telepon atau WhatsApp aktif")
     bio: Optional[str] = Field(None, max_length=500, description="Bio atau deskripsi singkat akademik")
     career_interests: Optional[List[str]] = Field(default_factory=list, description="Minat atau fokus bidang karir")
+    model_config = ConfigDict(extra="forbid")
 
 
 
@@ -276,6 +278,7 @@ class UserResponse(BaseModel):
     career_interests: List[str] = Field(default_factory=list)
     permissions: List[str] = Field(default_factory=list)
     student_profile: Optional[UserStudentProfileResponse] = None
+    needs_revalidation: bool = False
 
 class LoginResponse(BaseModel):
     access_token: str
@@ -328,6 +331,10 @@ class AccountResponse(BaseModel):
     status: str = "active"
     student_number: Optional[str] = None
     created_at: Optional[str] = None
+    needs_revalidation: bool = False
+    study_program: Optional[str] = None
+    admission_year: Optional[int] = None
+    current_semester: Optional[int] = None
 
 
 class AccountListResponse(BaseModel):
@@ -349,6 +356,7 @@ class AccountCreateResponse(BaseModel):
 
 class AccountUpdateRequest(BaseModel):
     is_active: bool
+    reason: Optional[str] = None
 
 
 class AccountUpdateResponse(BaseModel):
@@ -358,6 +366,37 @@ class AccountUpdateResponse(BaseModel):
 class ResetPasswordResponse(BaseModel):
     message: str
     temporary_password: str
+
+class ResetPasswordRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+class AdminAuthorityTraceResponse(BaseModel):
+    trace_id: str
+    actor_user_id: str
+    actor_snapshot: str
+    target_user_id: str
+    target_snapshot: str
+    action: str
+    field_name: Optional[str] = None
+    old_value: Optional[str] = None
+    new_value: Optional[str] = None
+    reason: Optional[str] = None
+    created_at: str
+
+
+class AdminProfileUpdateRequest(BaseModel):
+    study_program_id: UUID
+    admission_year: int
+    student_number: str
+    current_semester: int
+    reason: str
+    model_config = ConfigDict(extra="forbid")
+
+
+class AnonymizeRequest(BaseModel):
+    confirmation: str
+    reason: str
 
 class PollingPeriodResponse(BaseModel):
     period_id: str

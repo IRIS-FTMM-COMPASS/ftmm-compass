@@ -13,6 +13,7 @@ from sqlalchemy import (
     Text,
     Time,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -41,6 +42,12 @@ class User(Base):
     phone_number: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     bio: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     career_interests: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    needs_revalidation: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    anonymized_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     student_profile: Mapped[Optional["StudentProfile"]] = relationship(
         "StudentProfile",

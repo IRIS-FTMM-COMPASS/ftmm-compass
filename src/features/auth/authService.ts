@@ -90,7 +90,48 @@ export interface AdminAccount {
   is_active: boolean
   status: "active" | "inactive"
   student_number: string | null
-  created_at: string | null
+  study_program_id: string | null
+  study_program: string | null
+  admission_year: number | null
+  current_semester: number | null
+  needs_revalidation: boolean
+  anonymized_at: string | null
+  created_at?: string | null
+}
+
+export interface AdminAcademicIdentityUpdate {
+  study_program_id: string
+  admission_year: number
+  student_number: string
+  current_semester: number
+  reason: string
+}
+
+export interface AdminAuthorityTrace {
+  trace_id: string
+  actor_user_id: string
+  actor_snapshot: string
+  target_user_id: string
+  target_snapshot: string
+  action: string
+  field_name: string | null
+  old_value: string | null
+  new_value: string | null
+  reason: string | null
+  created_at: string
+}
+
+export interface AdminAuthorityTraceList {
+  items: AdminAuthorityTrace[]
+  total: number
+  page: number
+  page_size: number
+  pages: number
+}
+
+export interface AdminAuthorityTraceFilters {
+  page?: number
+  page_size?: number
 }
 
 export interface AdminAccountList {
@@ -314,8 +355,27 @@ function asRecord(value: unknown): Record<string, unknown> {
     ? value as Record<string, unknown>
     : {}
 }
+function nullableString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value : null
+}
+
+function nullableInteger(value: unknown): number | null {
+  if (typeof value === "number" && Number.isInteger(value)) return value
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value)
+    if (Number.isInteger(parsed)) return parsed
+  }
+  return null
+}
+
+function traceText(value: unknown): string | null {
+  if (value === null || value === undefined) return null
+  return typeof value === "string" ? value : String(value)
+}
 function normalizeAccount(value: unknown): AdminAccount {
   const item = asRecord(value)
+  const profile = asRecord(item.student_profile)
+  const pick = (key: string): unknown => item[key] ?? profile[key]
   const isActive =
     typeof item.is_active === "boolean"
       ? item.is_active
@@ -327,9 +387,14 @@ function normalizeAccount(value: unknown): AdminAccount {
     role: String(item.role ?? "student"),
     is_active: isActive,
     status: isActive ? "active" : "inactive",
-    student_number:
-      typeof item.student_number === "string" ? item.student_number : null,
-    created_at: typeof item.created_at === "string" ? item.created_at : null,
+    student_number: nullableString(pick("student_number")),
+    study_program_id: nullableString(pick("study_program_id")),
+    study_program: nullableString(pick("study_program")),
+    admission_year: nullableInteger(pick("admission_year")),
+    current_semester: nullableInteger(pick("current_semester")),
+    needs_revalidation: pick("needs_revalidation") === true,
+    anonymized_at: nullableString(item.anonymized_at),
+    created_at: nullableString(item.created_at),
   }
 }
 
@@ -341,6 +406,42 @@ function normalizeAccountList(value: unknown): AdminAccountList {
       ? body.items
       : []
   const items = source.map(normalizeAccount)
+  const meta = asRecord(body.meta)
+  const total = Number(meta.total ?? body.total ?? items.length)
+  const page = Math.max(1, Number(meta.page ?? body.page ?? 1))
+  const page_size = Number(meta.page_size ?? body.per_page ?? 20)
+  const pages = Math.max(
+    1,
+    Number(meta.pages ?? Math.ceil(total / Math.max(1, page_size))),
+  )
+  return { items, total, page, page_size, pages }
+}
+
+function normalizeTrace(value: unknown): AdminAuthorityTrace {
+  const item = asRecord(value)
+  return {
+    trace_id: traceText(item.trace_id) ?? "",
+    actor_user_id: traceText(item.actor_user_id) ?? "",
+    actor_snapshot: traceText(item.actor_snapshot) ?? "",
+    target_user_id: traceText(item.target_user_id) ?? "",
+    target_snapshot: traceText(item.target_snapshot) ?? "",
+    action: traceText(item.action) ?? "",
+    field_name: traceText(item.field_name),
+    old_value: traceText(item.old_value),
+    new_value: traceText(item.new_value),
+    reason: traceText(item.reason),
+    created_at: traceText(item.created_at) ?? "",
+  }
+}
+
+function normalizeTraceList(value: unknown): AdminAuthorityTraceList {
+  const body = asRecord(value)
+  const source = Array.isArray(body.data)
+    ? body.data
+    : Array.isArray(body.items)
+      ? body.items
+      : []
+  const items = source.map(normalizeTrace)
   const meta = asRecord(body.meta)
   const total = Number(meta.total ?? body.total ?? items.length)
   const page = Math.max(1, Number(meta.page ?? body.page ?? 1))
@@ -486,19 +587,34 @@ export const authService = {
   async setAccountStatus(
     userId: string,
     isActive: boolean,
+    reason?: string,
   ): Promise<AdminAccount> {
+    const trimmedReason = reason?.trim()
     const raw = await request<unknown>(
       `/api/v1/admin/accounts/${encodeURIComponent(userId)}`,
-      { method: "PATCH", body: { is_active: isActive } },
+      {
+        method: "PATCH",
+        body: {
+          is_active: isActive,
+          ...(trimmedReason ? { reason: trimmedReason } : {}),
+        },
+      },
     )
     const body = asRecord(raw)
     return normalizeAccount(body.data ?? raw)
   },
 
-  async resetAccountPassword(userId: string): Promise<ResetPasswordResponse> {
+  async resetAccountPassword(
+    userId: string,
+    reason?: string,
+  ): Promise<ResetPasswordResponse> {
+    const trimmedReason = reason?.trim()
     const raw = await request<unknown>(
       `/api/v1/admin/accounts/${encodeURIComponent(userId)}/reset-password`,
-      { method: "POST" },
+      {
+        method: "POST",
+        ...(trimmedReason ? { body: { reason: trimmedReason } } : {}),
+      },
     )
     const body = asRecord(raw)
     return {
@@ -508,5 +624,53 @@ export const authService = {
           ? body.temporary_password
           : "",
     }
+  },
+
+  async getAcademicIdentity(userId: string): Promise<AdminAccount> {
+    const raw = await request<unknown>(
+      `/api/v1/admin/accounts/${encodeURIComponent(userId)}/profile`,
+    )
+    const body = asRecord(raw)
+    return normalizeAccount(body.data ?? raw)
+  },
+
+  async updateAcademicIdentity(
+    userId: string,
+    payload: AdminAcademicIdentityUpdate,
+  ): Promise<AdminAccount> {
+    const raw = await request<unknown>(
+      `/api/v1/admin/accounts/${encodeURIComponent(userId)}/profile`,
+      { method: "PATCH", body: payload },
+    )
+    const body = asRecord(raw)
+    return normalizeAccount(body.data ?? raw)
+  },
+
+  async anonymizeAccount(
+    userId: string,
+    confirmation: string,
+    reason: string,
+  ): Promise<AdminAccount> {
+    const raw = await request<unknown>(
+      `/api/v1/admin/accounts/${encodeURIComponent(userId)}/anonymize`,
+      {
+        method: "POST",
+        body: { confirmation, reason: reason.trim() },
+      },
+    )
+    const body = asRecord(raw)
+    return normalizeAccount(body.data ?? raw)
+  },
+
+  async listAuthorityTraces(
+    filters: AdminAuthorityTraceFilters = {},
+  ): Promise<AdminAuthorityTraceList> {
+    const params = new URLSearchParams()
+    params.set("page", String(filters.page ?? 1))
+    params.set("page_size", String(filters.page_size ?? 20))
+    const raw = await request<unknown>(
+      `/api/v1/admin/authority-traces?${params}`,
+    )
+    return normalizeTraceList(raw)
   },
 }
