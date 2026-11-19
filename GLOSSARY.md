@@ -12,6 +12,20 @@ _Avoid_: tiket, isu, task agen
 Berkas isu lokal di `.scratch/<slug>/issues/` yang diturunkan dari satu kartu Trello dan menjadi unit eksekusi agen.
 _Avoid_: kartu, task Trello, isu eksternal
 
+## Polling & Ketersediaan MK
+
+**PJ Prodi**:
+Dosen penanggung jawab satu program studi yang berwenang melihat rekap peminatan prodinya dan menentukan ketersediaan mata kuliah prodi untuk semester berikutnya. Tepat satu PJ berlaku untuk setiap prodi.
+_Avoid_: kaprodi, koordinator dosen, dosen biasa
+
+**Rekap Peminatan**:
+Agregat jumlah peminat per mata kuliah pilihan pada satu periode polling, tanpa identitas mahasiswa pemilih.
+_Avoid_: wishlist dosen, daftar pemilih, rekap voting per mahasiswa
+
+**MK Terkunci**:
+Mata kuliah yang tetap tampil di katalog tetapi tidak dapat divote karena paritas semester tidak sesuai atau dinonaktifkan oleh PJ Prodi.
+_Avoid_: MK dihapus, MK tersembunyi
+
 ## Manajemen Akun
 
 **Akun nonaktif**:
