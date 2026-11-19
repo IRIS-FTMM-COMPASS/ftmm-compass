@@ -6,6 +6,9 @@ from dotenv import load_dotenv
 
 load_dotenv()  # environment shell menang atas berkas .env
 
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+EKSTRAK_DIR = os.getenv("EKSTRAK_DIR") or os.path.join(REPO_ROOT, "Ekstrak")
+
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql+asyncpg://postgres:postgres@localhost:5432/ftmm_compass_dev",

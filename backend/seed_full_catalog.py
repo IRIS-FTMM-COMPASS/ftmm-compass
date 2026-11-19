@@ -4,6 +4,7 @@ Sumber:
 - database/seed/catalog_canonical.json  (struktur dari tabel Panduan Pendidikan 2024-2025)
 - database/seed/reconciliation.json     (keputusan reviewer + bukti halaman)
 - Ekstrak/derived/catalog_details.json  (opsional, gitignored: deskripsi/CPL; nama dosen tidak di-seed)
+- Ekstrak/FIX *.json                     (fallback gitignored untuk deskripsi bila derived tidak ada)
 
 Idempoten: aman dijalankan berulang (upsert per kunci alami). Rule prasyarat milik
 seeder (notes diawali 'seed:catalog') dibuat ulang setiap run; rule lain tidak disentuh.
@@ -29,7 +30,6 @@ from database import AsyncSessionLocal
 SEED_DIR = rc.OUT_DIR
 CATALOG_PATH = os.path.join(SEED_DIR, "catalog_canonical.json")
 DECISIONS_PATH = os.path.join(SEED_DIR, "reconciliation.json")
-DETAILS_PATH = os.path.join(rc.EKSTRAK_DIR, "derived", "catalog_details.json")
 PDF_DIR = os.path.join(rc.EKSTRAK_DIR, "pdf")
 RULE_TAG = "seed:catalog"
 
@@ -54,15 +54,57 @@ def sha256(path):
     return h.hexdigest()
 
 
+def load_details(catalog=None):
+    """Deskripsi dari file derived (duluan), lalu dari raw FIX *.json untuk kunci yang belum ada."""
+    details = {}
+    details_path = os.path.join(rc.EKSTRAK_DIR, "derived", "catalog_details.json")
+    if os.path.exists(details_path):
+        try:
+            with open(details_path, encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                details = loaded
+        except (OSError, ValueError):
+            pass
+    derived_count = len(details)
+
+    raw_by_record = {}
+    for source, rows in rc.load_rows(include_raw=True):
+        program_code = source.get("program_code")
+        for row in rows:
+            deskripsi = (row.get("raw") or {}).get("deskripsi")
+            record_key = row.get("record_key")
+            if deskripsi and record_key:
+                raw_by_record[(program_code, record_key)] = deskripsi
+
+    courses = list(course_rows(catalog)) if catalog and catalog.get("programs") else []
+    filled = 0
+    for prog, r in courses:
+        json_key = r.get("json_record_key")
+        if not json_key:
+            continue
+        detail_key = f"{prog}:{r['code']}:{r['name']}"
+        if detail_key in details:
+            continue
+        deskripsi = raw_by_record.get((prog, json_key))
+        if deskripsi:
+            details[detail_key] = {"deskripsi": deskripsi}
+            filled += 1
+
+    missing = sum(
+        1 for prog, r in courses
+        if f"{prog}:{r['code']}:{r['name']}" not in details
+    )
+    print(f"[detail] derived={derived_count} raw_filled={filled} still_missing={missing}")
+    return details
+
+
 def load_inputs():
     with open(CATALOG_PATH, encoding="utf-8") as f:
         catalog = json.load(f)
     with open(DECISIONS_PATH, encoding="utf-8") as f:
         decisions = json.load(f)
-    details = {}
-    if os.path.exists(DETAILS_PATH):
-        with open(DETAILS_PATH, encoding="utf-8") as f:
-            details = json.load(f)
+    details = load_details(catalog)
     rc.POLICIES.update(decisions.get("policies", {}))
     return catalog, decisions, details
 

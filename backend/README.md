@@ -70,6 +70,7 @@ cp .env.example .env
 | `CHATBOT_SERVICE_URL` | `http://127.0.0.1:8000` (host) / `http://ftmm-compass-chatbot:8000` (Docker) | Upstream URL for Chatbot AI microservice |
 | `CHATBOT_TIMEOUT_SECONDS` | `45.0` | Timeout in seconds for Chatbot microservice calls |
 | `JWT_SECRET_KEY` | random per proses | Signing key access token; wajib di-set untuk multi-worker |
+| `EKSTRAK_DIR` | `<repo>/Ekstrak` | lokasi data Ekstrak gitignored untuk seed katalog |
 | `DEFAULT_RATE_LIMIT` | none | Slowapi global limit per client; kosongkan untuk menonaktifkan |
 | `CORS_ORIGINS` | `*` | Allowed CORS origins, dipisah koma |
 ### 3. Run Development Server
