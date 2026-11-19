@@ -89,7 +89,14 @@ async def _create_course(db_session):
 
 
 def _prepare_own_course(
-    client, db_session, *, target, semester=None, course_type="Pilihan", is_active=True
+    client,
+    db_session,
+    *,
+    target,
+    semester=None,
+    course_type="Pilihan",
+    is_active=True,
+    course_scope="program_studi",
 ):
     async def prepare():
         curriculum_id = await authoritative_curriculum_id(
@@ -106,7 +113,7 @@ def _prepare_own_course(
             recommended_semester=chosen_semester,
             term=_term_for(chosen_semester),
             course_type="wajib" if course_type == "Wajib" else "pilihan",
-            course_scope="program_studi",
+            course_scope=course_scope,
             is_active=is_active,
         )
         db_session.add(curriculum_course)
@@ -224,6 +231,22 @@ def _is_active(client, db_session, curriculum_course_id):
     return client.portal.call(query)
 
 
+def _own_course_ids(client, db_session, curriculum_course_ids):
+    async def query():
+        curriculum_id = await authoritative_curriculum_id(
+            db_session, "Teknologi Sains Data"
+        )
+        result = await db_session.execute(
+            select(CurriculumCourse.curriculum_course_id).where(
+                CurriculumCourse.curriculum_course_id.in_(curriculum_course_ids),
+                CurriculumCourse.curriculum_id == curriculum_id,
+            )
+        )
+        return {str(row[0]) for row in result}
+
+    return client.portal.call(query)
+
+
 def test_pj_sees_only_own_and_shared_courses(client, db_session, pj_headers):
     _, target = _active_period(client, db_session)
     own_id = _prepare_own_course(client, db_session, target=target)
@@ -246,13 +269,23 @@ def test_pj_sees_only_own_and_shared_courses(client, db_session, pj_headers):
     assert foreign_id not in {item["curriculum_course_id"] for item in items}
     assert any(item["course_id"] == shared_course_id for item in items)
     assert all(set(item) == ITEM_KEYS for item in items)
+    own_ids = _own_course_ids(
+        client,
+        db_session,
+        [uuid.UUID(item["curriculum_course_id"]) for item in items],
+    )
 
     for item in items:
         semester = item["semester"]
+        is_foreign = item["curriculum_course_id"] not in own_ids
         assert item["can_toggle"] == (
-            item["type"] == "Pilihan" and (semester is None or semester >= target)
+            not is_foreign
+            and item["type"] == "Pilihan"
+            and (semester is None or semester >= target)
         )
-        if semester is not None and semester < target:
+        if is_foreign:
+            expected_reason = "prodi_lain"
+        elif semester is not None and semester < target:
             expected_reason = "semester_berjalan"
         elif item["type"] != "Pilihan":
             expected_reason = "bukan_pilihan"
@@ -377,6 +410,78 @@ def test_cross_prodi_patch_is_denied(client, db_session, pj_headers):
         json={"is_active": False},
     )
     _assert_error(response, 403, "prodi_mismatch")
+
+
+def test_cross_prodi_shared_scope_patch_is_denied(client, db_session, pj_headers):
+    for scope in ("fakultas", "universitas"):
+        foreign_id, _ = _create_scoped_course(client, db_session, scope=scope)
+        response = client.patch(
+            f"{V1}/pj/course-availability/{foreign_id}",
+            headers=pj_headers,
+            json={"is_active": False},
+        )
+        _assert_error(response, 403, "prodi_mismatch")
+        assert _is_active(client, db_session, foreign_id) is True
+
+
+def test_foreign_shared_scope_course_is_locked(client, db_session, pj_headers):
+    for scope in ("fakultas", "universitas"):
+        foreign_id, _ = _create_scoped_course(client, db_session, scope=scope)
+        listed = client.get(f"{V1}/pj/course-availability", headers=pj_headers)
+        assert listed.status_code == 200, listed.text
+        item = next(
+            row
+            for row in listed.json()["data"]
+            if row["curriculum_course_id"] == foreign_id
+        )
+        assert item["course_scope"] == scope
+        assert item["can_toggle"] is False
+        assert isinstance(item["lock_reason"], str) and item["lock_reason"]
+        assert item["lock_reason"] == "prodi_lain"
+
+
+def test_own_shared_scope_course_can_be_toggled(
+    client, db_session, pj_headers, admin_headers
+):
+    _, target = _active_period(client, db_session)
+    for scope in ("fakultas", "universitas"):
+        cc_id = _prepare_own_course(
+            client, db_session, target=target, course_scope=scope
+        )
+        listed = client.get(f"{V1}/pj/course-availability", headers=pj_headers)
+        item = next(
+            row
+            for row in listed.json()["data"]
+            if row["curriculum_course_id"] == cc_id
+        )
+        assert item["course_scope"] == scope
+        assert item["can_toggle"] is True
+        assert item["lock_reason"] is None
+
+        changed = client.patch(
+            f"{V1}/pj/course-availability/{cc_id}",
+            headers=pj_headers,
+            json={"is_active": False, "reason": f"Alasan {scope}"},
+        )
+        assert changed.status_code == 200, changed.text
+        assert changed.json()["is_active"] is False
+        assert changed.json()["lock_reason"] == "dinonaktifkan"
+        assert _is_active(client, db_session, cc_id) is False
+
+        traces = client.get(
+            f"{V1}/admin/authority-traces",
+            headers=admin_headers,
+            params={"page": 1, "page_size": 100},
+        )
+        assert traces.status_code == 200, traces.text
+        assert any(
+            row["action"] == "course_availability_change"
+            and row["field_name"] == f"curriculum_course:{cc_id}"
+            and row["old_value"] == "true"
+            and row["new_value"] == "false"
+            and row["reason"] == f"Alasan {scope}"
+            for row in traces.json()["data"]
+        ), traces.json()
 
 
 def test_running_semester_patch_is_denied(client, db_session, pj_headers):

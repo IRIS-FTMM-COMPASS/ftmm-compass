@@ -50,7 +50,7 @@ def require_pj_scope(
         return _deny(
             status.HTTP_403_FORBIDDEN,
             "not_program_coordinator",
-            "Hanya koordinator program studi yang dapat melihat rekap peminatan.",
+            "Hanya PJ Prodi yang dapat melihat rekap peminatan.",
         )
 
     own_prodi = normalize_prodi(profile.study_program.program_name) or profile.study_program.program_code

@@ -133,8 +133,8 @@ export default function CourseResultsList({
                           className={cn(
                             "px-1.5 py-0.5 rounded text-[9px] font-bold",
                             isElectiveOpen
-                              ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
-                              : "bg-zinc-100 text-zinc-700 border border-zinc-200",
+                              ? "bg-teal/10 text-navy border border-teal/30"
+                              : "bg-background text-muted border border-border",
                           )}
                         >
                           {isElectiveOpen ? "Dibuka" : "Ditutup"}

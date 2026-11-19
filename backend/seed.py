@@ -297,7 +297,7 @@ async def seed_data():
                 print(f"  [EXISTS] PJ Prodi user: {pj_email}")
 
         await session.flush()
-        print(f"  [OK] {len(PJ_PRODI_CODES)} PJ Prodi accounts with one coordinator per program")
+        print(f"  [OK] {len(PJ_PRODI_CODES)} akun PJ Prodi aktif, satu PJ per prodi")
 
         print("\n[SEED 4/8] Checking and seeding Curriculum & Courses...")
         stmt_curr = select(Curriculum).where(

@@ -37,6 +37,21 @@ def _catalog_course(code):
     return next(course for course in get_all_courses() if course.code == code)
 
 
+def _period_parity(period):
+    return "odd" if period["term"] == "ganjil" else "even"
+
+
+def _electives_for_parity(period, *, matching=True, limit=1):
+    parity = _period_parity(period)
+    return [
+        course
+        for course in get_all_courses()
+        if course.type == "Pilihan"
+        and prodi_code(course.program) == "TSD"
+        and (course.parity == parity) is matching
+    ][:limit]
+
+
 def _create_user(
     client,
     db_session,
@@ -139,10 +154,28 @@ def test_vote_outside_period_parity_is_rejected(client, db_session):
         role="student",
         semester=_semester_for(period["term"]) + 1,
     )
+    course = _electives_for_parity(period)[0]
     response = client.post(
         "/api/v1/polling/votes",
         headers=headers,
-        json={"course_id": "SIC304", "priority": 1},
+        json={"course_id": course.id, "priority": 1},
+    )
+    _assert_error(response, 400, "parity_mismatch")
+
+
+def test_vote_for_course_outside_period_parity_is_rejected(client, db_session):
+    period = _active_period(client, None)
+    headers = _create_user(
+        client,
+        db_session,
+        role="student",
+        semester=_semester_for(period["term"]),
+    )
+    course = _electives_for_parity(period, matching=False)[0]
+    response = client.post(
+        "/api/v1/polling/votes",
+        headers=headers,
+        json={"course_id": course.id, "priority": 1},
     )
     _assert_error(response, 400, "parity_mismatch")
 
@@ -334,8 +367,7 @@ def test_duplicate_priority_is_rejected(client, db_session):
     headers = _create_user(
         client, db_session, role="student", semester=_semester_for(period["term"])
     )
-    first = _catalog_course("SIC304")
-    second = _catalog_course("SID307")
+    first, second = _electives_for_parity(period, limit=2)
     assert client.post(
         "/api/v1/polling/votes",
         headers=headers,
@@ -367,8 +399,7 @@ def test_quota_reached_is_rejected(client, db_session):
         await db_session.flush()
 
     client.portal.call(shrink_quota)
-    first = _catalog_course("SIC304")
-    second = _catalog_course("SID307")
+    first, second = _electives_for_parity(period, limit=2)
     assert client.post(
         "/api/v1/polling/votes",
         headers=headers,
@@ -387,8 +418,7 @@ def test_updating_existing_vote_changes_priority_only(client, db_session):
     headers = _create_user(
         client, db_session, role="student", semester=_semester_for(period["term"])
     )
-    first = _catalog_course("SIC304")
-    second = _catalog_course("SID307")
+    first, second = _electives_for_parity(period, limit=2)
     client.post(
         "/api/v1/polling/votes",
         headers=headers,

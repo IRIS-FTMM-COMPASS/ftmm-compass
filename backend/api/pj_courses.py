@@ -78,16 +78,23 @@ def _availability_select():
     )
 
 
-def _item(row: Any, target_semester: int) -> dict[str, Any]:
+def _item(
+    row: Any, target_semester: int, scope: Optional[str] = None
+) -> dict[str, Any]:
     course_type = normalize_course_type(row["course_type"])
     semester = row["recommended_semester"]
     is_active = bool(row["is_active"])
-    can_toggle = course_type == "Pilihan" and (
-        semester is None or semester >= target_semester
+    own_program = scope is None or _is_own_program(row, scope)
+    can_toggle = (
+        own_program
+        and course_type == "Pilihan"
+        and (semester is None or semester >= target_semester)
     )
 
-    if semester is not None and semester < target_semester:
-        lock_reason: Optional[str] = "semester_berjalan"
+    if not own_program:
+        lock_reason: Optional[str] = "prodi_lain"
+    elif semester is not None and semester < target_semester:
+        lock_reason = "semester_berjalan"
     elif course_type != "Pilihan":
         lock_reason = "bukan_pilihan"
     elif not is_active:
@@ -178,7 +185,7 @@ async def get_course_availability(
         if course_id in seen:
             continue
         seen.add(course_id)
-        items.append(_item(row, target_semester))
+        items.append(_item(row, target_semester, scope))
 
     return {
         "data": items,
@@ -227,7 +234,7 @@ async def update_course_availability(
     if row is None:
         return _deny(status.HTTP_404_NOT_FOUND, "not_found", "MK kurikulum tidak ditemukan.")
 
-    if not _is_own_program(row, scope) and row["course_scope"] not in SHARED_SCOPES:
+    if not _is_own_program(row, scope):
         return _deny(
             status.HTTP_403_FORBIDDEN,
             "prodi_mismatch",
@@ -258,7 +265,6 @@ async def update_course_availability(
     ).scalars().one()
     old_value = bool(course.is_active)
     course.is_active = payload.is_active
-    await db.commit()
 
     await record_admin_action(
         db,

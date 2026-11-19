@@ -39,6 +39,7 @@ from catalog import (
     normalize_prodi,
     prodi_code,
 )
+from academics import parity_of
 from prodi_access import require_pj_scope
 
 logger = logging.getLogger("ftmm_compass.polling")
@@ -282,6 +283,19 @@ async def submit_vote(
     ).all()
     if active_rows and not any(cc_active and c_active for cc_active, c_active in active_rows):
         return _reject(409, "course_inactive", "Mata kuliah ini sedang dinonaktifkan.")
+
+    period_parity = "odd" if active_period.target_term == "ganjil" else "even"
+    if active_period.target_term not in ("ganjil", "genap") and active_period.target_semester:
+        period_parity = parity_of(int(active_period.target_semester))
+    if matched_course.parity != period_parity:
+        course_term = "ganjil" if matched_course.parity == "odd" else "genap"
+        period_term = "ganjil" if period_parity == "odd" else "genap"
+        return _reject(
+            status.HTTP_400_BAD_REQUEST,
+            "parity_mismatch",
+            f"Mata kuliah {course_code} ditawarkan pada semester {course_term} dan tidak dapat divote "
+            f"pada periode polling semester {period_term}.",
+        )
 
     stmt_existing = select(ElectiveCourseVote).where(
         ElectiveCourseVote.polling_period_id == active_period.polling_period_id,
