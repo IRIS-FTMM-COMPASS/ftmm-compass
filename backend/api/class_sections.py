@@ -100,7 +100,7 @@ async def _resolve_period_id(
     if period_id is None and required:
         raise HTTPException(
             status_code=getattr(
-                status, "HTTP_422_UNPROCESSABLE_CONTENT", status.HTTP_422_UNPROCESSABLE_ENTITY
+                status, "HTTP_422_UNPROCESSABLE_CONTENT", 422
             ),
             detail=(
                 "Tidak ada periode akademik aktif. Hubungi admin untuk mengaktifkan "

@@ -113,6 +113,7 @@ export default function DegreePlanner({
     courses: catalog,
     activeDraftId,
     plan,
+    isLoading,
     setPlan,
     switchDraft,
     createDraft,
@@ -156,6 +157,33 @@ export default function DegreePlanner({
   const [activeTimetableSem, setActiveTimetableSem] = useState<number>(() =>
     Math.min(8, Math.max(1, user?.student_profile?.current_semester ?? 1)),
   )
+  const [timetableSemesterResolved, setTimetableSemesterResolved] =
+    useState(false)
+  const timetableSemesterResolvedRef = useRef(false)
+
+  useEffect(() => {
+    if (timetableSemesterResolvedRef.current || isLoading) return
+    // The plan is only meaningful once drafts have been loaded from the
+    // server. While the session is still resolving the drafts are empty, so
+    // resolving here would be one-shot and skip the semester switch below.
+    if (drafts.length === 0 && !activeDraftId) return
+    timetableSemesterResolvedRef.current = true
+
+    // A saved plan can place courses outside the student's current semester.
+    const firstPopulated = SEMESTERS.find((sem) => (plan[sem]?.length ?? 0) > 0)
+    if (firstPopulated === undefined) {
+      // Every loaded draft is empty. Keep the current semester, but seed the
+      // saved signature so hydration cannot send a destructive empty PUT that
+      // would wipe a previously saved timetable.
+      timetableSavedSignatureRef.current = effectiveSignature
+    } else if ((plan[activeTimetableSem]?.length ?? 0) === 0) {
+      // Switch before hydration/autosave are enabled so saved sections are
+      // restored for the populated semester instead of an empty one.
+      setActiveTimetableSem(firstPopulated)
+    }
+    setTimetableSemesterResolved(true)
+  }, [isLoading, plan, activeTimetableSem, drafts.length, activeDraftId])
+
   const [selectedSections, setSelectedSections] =
     useState<Record<string, string>>({})
   const [planValidation, setPlanValidation] =
@@ -495,8 +523,15 @@ export default function DegreePlanner({
   }, [])
 
   useEffect(() => {
-    if (timetableHydratedRef.current) return
-    if (sectionsState.status !== "ready") return
+    if (!timetableSemesterResolved || timetableHydratedRef.current) return
+    // The initial empty fetch leaves stale section data; wait for the
+    // resolved semester's sections before hydrating saved selections.
+    if (
+      sectionsState.status !== "ready" ||
+      !timetableCodes.every((code) => sectionsByCourse[code] !== undefined)
+    ) {
+      return
+    }
 
     // Nothing to hydrate from the API. Mark hydration complete so an empty
     // selection set can still be persisted to clear a stale timetable.
@@ -548,10 +583,17 @@ export default function DegreePlanner({
       .finally(() => {
         if (timetableMountedRef.current) setTimetableHydrated(true)
       })
-  }, [sectionsState.status, timetableCodes, offerings, selectedSections])
+  }, [
+    timetableSemesterResolved,
+    sectionsState.status,
+    timetableCodes,
+    offerings,
+    selectedSections,
+    sectionsByCourse,
+  ])
 
   useEffect(() => {
-    if (!timetableHydrated) return
+    if (!timetableSemesterResolved || !timetableHydrated) return
     if (effectiveSignature === timetableSavedSignatureRef.current) return
 
     const controller = new AbortController()
@@ -573,7 +615,12 @@ export default function DegreePlanner({
       window.clearTimeout(timer)
       controller.abort()
     }
-  }, [timetableHydrated, effectiveSignature, effectiveSelections])
+  }, [
+    timetableSemesterResolved,
+    timetableHydrated,
+    effectiveSignature,
+    effectiveSelections,
+  ])
 
   const validationState = useReloadableFetch<ScheduleValidationResult>(
     (signal) => {

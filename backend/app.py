@@ -215,7 +215,7 @@ async def httpx_timeout_handler(request: Request, exc: httpx.TimeoutException):
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     message = "Request validation failed"
     return error_response(
-        getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", status.HTTP_422_UNPROCESSABLE_ENTITY),
+        getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", 422),
         "validation_error",
         message,
         detail=message,
