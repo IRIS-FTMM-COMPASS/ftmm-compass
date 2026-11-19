@@ -535,3 +535,20 @@ class NotificationItemResponse(BaseModel):
 class NotificationListResponse(BaseModel):
     unread_count: int
     items: List[NotificationItemResponse]
+
+
+class TimetableSelectionInput(BaseModel):
+    course_code: str = Field(min_length=1, max_length=30)
+    section_id: UUID
+
+
+class TimetableSelectionResponse(BaseModel):
+    course_code: str
+    section_id: str
+    section_code: str
+
+
+class TimetableResponse(BaseModel):
+    academic_period_id: Optional[str] = None
+    selections: List[TimetableSelectionResponse] = Field(default_factory=list)
+    updated_at: Optional[str] = None

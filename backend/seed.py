@@ -692,6 +692,117 @@ async def seed_data():
         print("  [OK] Activated student timetable with scheduled class items")
         print("  [OK] Seeded course offerings, sections, schedules, and timetable items")
 
+        # Kurikulum kanonik 2021 dipakai mahasiswa baru. Setiap penawaran kelas
+        # harus memiliki eligibility ke curriculum_course kurikulum itu agar
+        # timetable lolos trg_timetable_items_validate.
+        active_curricula = (
+            await session.execute(
+                select(Curriculum)
+                .where(Curriculum.is_active.is_(True))
+                .order_by(Curriculum.curriculum_year, Curriculum.curriculum_id)
+            )
+        ).scalars().all()
+        section_slots: dict[object, int] = {}
+        for curriculum in active_curricula:
+            stmt_pick = (
+                select(CurriculumCourse, Course.course_code)
+                .join(Course, Course.course_id == CurriculumCourse.course_id)
+                .where(
+                    CurriculumCourse.curriculum_id == curriculum.curriculum_id,
+                    CurriculumCourse.term == active_period.term,
+                    CurriculumCourse.is_active.is_(True),
+                    Course.is_active.is_(True),
+                )
+                .order_by(Course.course_code)
+                .limit(3)
+            )
+            for cc_obj, code in (await session.execute(stmt_pick)).all():
+                offering_code = f"{code}-2024-GANJIL-KURIKULUM"
+                stmt_off = select(CourseOffering).where(
+                    CourseOffering.academic_period_id == active_period.academic_period_id,
+                    CourseOffering.course_id == cc_obj.course_id,
+                    CourseOffering.offering_code == offering_code,
+                )
+                offering = (await session.execute(stmt_off)).scalars().first()
+                if not offering:
+                    offering = CourseOffering(
+                        academic_period_id=active_period.academic_period_id,
+                        course_id=cc_obj.course_id,
+                        offering_code=offering_code,
+                    )
+                    session.add(offering)
+                    await session.flush()
+
+                stmt_coe = select(CourseOfferingEligibility).where(
+                    CourseOfferingEligibility.course_offering_id == offering.course_offering_id,
+                    CourseOfferingEligibility.curriculum_course_id == cc_obj.curriculum_course_id,
+                )
+                coe = (await session.execute(stmt_coe)).scalars().first()
+                if not coe:
+                    session.add(
+                        CourseOfferingEligibility(
+                            course_offering_id=offering.course_offering_id,
+                            curriculum_course_id=cc_obj.curriculum_course_id,
+                        )
+                    )
+                    await session.flush()
+
+                stmt_comp = select(OfferingComponent).where(
+                    OfferingComponent.course_offering_id == offering.course_offering_id,
+                    OfferingComponent.component_code == "KULIAH",
+                )
+                comp = (await session.execute(stmt_comp)).scalars().first()
+                if not comp:
+                    comp = OfferingComponent(
+                        course_offering_id=offering.course_offering_id,
+                        component_code="KULIAH",
+                        component_type="lecture",
+                    )
+                    session.add(comp)
+                    await session.flush()
+
+                stmt_sec = select(ClassSection).where(
+                    ClassSection.offering_component_id == comp.offering_component_id,
+                    ClassSection.section_code == "A",
+                )
+                sec = (await session.execute(stmt_sec)).scalars().first()
+                if not sec:
+                    sec = ClassSection(
+                        offering_component_id=comp.offering_component_id,
+                        section_code="A",
+                        capacity=40,
+                        enrollment_status="open",
+                    )
+                    session.add(sec)
+                    await session.flush()
+
+                slot = section_slots.setdefault(offering.course_offering_id, len(section_slots))
+                day_of_week = (slot % 5) + 1
+                start_time = datetime.time(8 + slot, 0)
+                end_time = (
+                    datetime.datetime.combine(datetime.date.today(), start_time)
+                    + datetime.timedelta(hours=1, minutes=30)
+                ).time()
+                stmt_cs = select(ClassSchedule).where(
+                    ClassSchedule.class_section_id == sec.class_section_id,
+                    ClassSchedule.day_of_week == day_of_week,
+                    ClassSchedule.start_time == start_time,
+                )
+                cs = (await session.execute(stmt_cs)).scalars().first()
+                if not cs:
+                    session.add(
+                        ClassSchedule(
+                            class_section_id=sec.class_section_id,
+                            day_of_week=day_of_week,
+                            start_time=start_time,
+                            end_time=end_time,
+                            room_name=f"Ruang Kelas {sec.section_code}",
+                        )
+                    )
+                    await session.flush()
+
+        print("  [OK] Seeded curriculum-eligible class sections for active curricula")
+
         print("\n[SEED 7/8] Checking and seeding Active Polling Period & Votes Peminatan...")
         stmt_poll = select(ElectivePollingPeriod).where(ElectivePollingPeriod.status == "open")
         polling_period = (await session.execute(stmt_poll)).scalars().first()

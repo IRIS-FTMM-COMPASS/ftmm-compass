@@ -31,6 +31,7 @@ from api import (
     pj_courses,
     plans,
     polling,
+    timetable,
 )
 from api.errors import error_response
 from catalog import refresh_from_db
@@ -117,6 +118,7 @@ for resource in (
     academic_periods,
     degree_plans,
     course_records,
+    timetable,
 ):
     mount_resource(resource.router)
 
