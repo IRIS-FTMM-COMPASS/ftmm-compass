@@ -45,8 +45,9 @@ Gambar ini menjawab: *apa saja lapisan yang dilalui permintaan web, dan mana yan
 <div class="wf-arch-wing-items">
 <div class="wf-arch-wing-item">SessionProvider<small> JWT + expires_at</small></div>
 <div class="wf-arch-wing-item">canAccess(page)<small> role student / lecturer / admin</small></div>
-<div class="wf-arch-wing-item">activePage state<small> swap halaman, bukan URL router</small></div>
+<div class="wf-arch-wing-item">activePage ↔ pathname URL<small> pathname dan activePage selalu sinkron</small></div>
 <div class="wf-arch-wing-item">STUDENT_ONLY_PAGES<small> degree-planner</small></div>
+<div class="wf-arch-wing-item">LECTURER_ONLY_PAGES<small> pj-courses</small></div>
 <div class="wf-arch-wing-item">ADMIN_ONLY_PAGES<small> admin-accounts</small></div>
 </div>
 </aside>
@@ -122,7 +123,7 @@ Ringkasan lapisan dalam bentuk teks:
 
 | Lapisan | File / simbol kunci | Peran |
 |---|---|---|
-| Shell | `src/app/App.tsx` (`App`, `AppShell`) | `useState<Page>` mengganti halaman; sidebar memanggil `handleNavigate` |
+| Shell | `src/app/App.tsx` (`App`, `AppShell`) | `handleNavigate` menulis path halaman ke history; `popstate` membacanya untuk Back/Forward |
 | Sesi | `src/features/auth/session.tsx` | `canAccess`, expiry timer, intercept `fetch` untuk 401 |
 | Katalog | `src/features/catalog/catalog.tsx`, `courseData.ts` | `fetchCatalog` → `normalizeCourse`; `upsert`/`remove` untuk CRUD admin |
 | Polling | `src/features/polling/polling.tsx`, `pollingService.ts` | periode aktif, vote mahasiswa, rekap demand |
@@ -155,8 +156,9 @@ else (gagal)
   :tampilkan AuthApiError di form;
   stop
 endif
-:AppShell aktif dengan activePage = dashboard;
-:canAccess(activePage) per role;
+:AppShell aktif, replace history ke /dashboard;
+:canAccess(activePage dari pathname) per role;
+:menu dipilih → handleNavigate menulis path halaman ke history;
 if (menu dipilih) then (dashboard)
   :GET /api/v1/dashboard/me;
 else (course finder)
@@ -169,9 +171,9 @@ else (profile)
 else (admin accounts, admin)
   :GET /api/v1/admin/accounts;
 endif
-:ErrorBoundary key = activePage merender halaman;
+:ErrorBoundary key = activePage dari pathname merender halaman;
 if (logout atau 401) then (ya)
-  :clearSession, reset activePage = dashboard;
+  :clearSession, replace history ke /dashboard;
   stop
 else (tidak)
   :tetap di halaman aktif;
@@ -180,12 +182,12 @@ endif
 @enduml
 ```
 
-Aturan rute bukan URL, melainkan state: `canAccess` mengembalikan `false` untuk `degree-planner` pada peran bukan student dan untuk `admin-accounts` pada peran bukan admin; `useEffect` di `AppShell` lalu memaksa `activePage` kembali ke `dashboard`. Profil dibuka dari blok identitas di bawah sidebar, tersedia untuk semua peran.
+Pathname URL kini menjadi identitas halaman aktif: `handleNavigate` menulis path saat menu dipilih dan `popstate` membacanya saat Back/Forward. Aturan akses tetap berasal dari `canAccess`; penolakan peran mengganti entri riwayat dengan `/dashboard`. Profil dibuka dari blok identitas di bawah sidebar, tersedia untuk semua peran.
 
 | Peran | Menu sidebar (tanpa Compass AI) | Catatan akses |
 |---|---|---|
 | `student` | Dashboard, Course Finder, Degree Planner | Profil lewat blok identitas; Compass AI ada di UI tetapi di luar lingkup |
-| `lecturer` | Dashboard, Course Finder | Degree Planner ditolak `canAccess` |
+| `lecturer` | Dashboard, Rekap & Kelola MK | Degree Planner dan Compass AI ditolak `canAccess`; Course Finder tidak muncul di sidebar tetapi tetap bisa dibuka lewat URL/quick access |
 | `admin` | Dashboard, Course Management, Manajemen Akun | Course Finder berubah judul menjadi Course Management; CRUD via `/api/v1/admin/courses` |
 
 ## 3. Alur data: katalog → planner → tersimpan
