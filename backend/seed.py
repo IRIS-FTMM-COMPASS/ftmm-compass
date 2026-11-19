@@ -692,165 +692,198 @@ async def seed_data():
         print("  [OK] Activated student timetable with scheduled class items")
         print("  [OK] Seeded course offerings, sections, schedules, and timetable items")
 
-        # Kurikulum kanonik 2021 dipakai mahasiswa baru. Setiap penawaran kelas
-        # harus memiliki eligibility ke curriculum_course kurikulum itu agar
-        # timetable lolos trg_timetable_items_validate.
-        active_curricula = (
-            await session.execute(
-                select(Curriculum)
-                .where(Curriculum.is_active.is_(True))
-                .order_by(Curriculum.curriculum_year, Curriculum.curriculum_id)
+        # Seluruh MK wajib pada periode aktif dari semua kurikulum aktif mendapat
+        # satu penawaran per course_id; eligibility dibuat per curriculum_course
+        # agar timetable lolos trg_timetable_items_validate.
+        # Jadwal seksi legacy tidak diubah. Jadwal seksi kanonik yang dibuat blok
+        # ini direkonsiliasi ke slot hasil komputasi ulang agar seed idempoten.
+        stmt_mandatory = (
+            select(CurriculumCourse, Course.course_code)
+            .join(Course, Course.course_id == CurriculumCourse.course_id)
+            .join(Curriculum, Curriculum.curriculum_id == CurriculumCourse.curriculum_id)
+            .where(
+                Curriculum.is_active.is_(True),
+                CurriculumCourse.is_active.is_(True),
+                CurriculumCourse.course_type == "wajib",
+                CurriculumCourse.term == active_period.term,
+                Course.is_active.is_(True),
             )
-        ).scalars().all()
-        # Jadwal yang sudah ada (termasuk seksi legacy) tidak boleh ditimpa.
-        existing_schedules = [
-            (row.day_of_week, row.start_time, row.end_time)
-            for row in (
-                await session.execute(
-                    select(
-                        ClassSchedule.day_of_week,
-                        ClassSchedule.start_time,
-                        ClassSchedule.end_time,
-                    )
-                    .join(
-                        ClassSection,
-                        ClassSection.class_section_id == ClassSchedule.class_section_id,
-                    )
-                    .join(
-                        OfferingComponent,
-                        OfferingComponent.offering_component_id
-                        == ClassSection.offering_component_id,
-                    )
-                    .join(
-                        CourseOffering,
-                        CourseOffering.course_offering_id
-                        == OfferingComponent.course_offering_id,
-                    )
-                    .where(
-                        CourseOffering.academic_period_id == active_period.academic_period_id
-                    )
-                )
-            ).all()
-        ]
-
-        def next_free_slot(slot: int) -> tuple[int, int, datetime.time, datetime.time]:
-            # Lima hari kerja, sembilan slot 60 menit dalam batas 08:00-17:00.
-            for candidate in range(slot, slot + 100):
-                day_of_week = (candidate % 5) + 1
-                wave = (candidate // 5) % 9
-                start_time = (
-                    datetime.datetime.combine(datetime.date.today(), datetime.time(8, 0))
-                    + datetime.timedelta(minutes=60 * wave)
-                ).time()
-                end_time = (
-                    datetime.datetime.combine(datetime.date.today(), start_time)
-                    + datetime.timedelta(hours=1)
-                ).time()
-                if not any(
-                    day == day_of_week and start_time < occupied_end and occupied_start < end_time
-                    for day, occupied_start, occupied_end in existing_schedules
-                ):
-                    return candidate, day_of_week, start_time, end_time
-            raise RuntimeError("Tidak ada slot jadwal kelas yang tersedia")
-
-        section_slots: dict[object, int] = {}
-        for curriculum in active_curricula:
-            stmt_pick = (
-                select(CurriculumCourse, Course.course_code)
-                .join(Course, Course.course_id == CurriculumCourse.course_id)
-                .where(
-                    CurriculumCourse.curriculum_id == curriculum.curriculum_id,
-                    CurriculumCourse.term == active_period.term,
-                    CurriculumCourse.is_active.is_(True),
-                    Course.is_active.is_(True),
-                )
-                .order_by(
-                    CurriculumCourse.recommended_semester.asc().nullslast(),
-                    Course.course_code,
-                )
-                .limit(8)
+            .order_by(
+                Course.course_code,
+                Curriculum.curriculum_year,
+                Curriculum.curriculum_id,
+                CurriculumCourse.curriculum_course_id,
             )
-            for cc_obj, code in (await session.execute(stmt_pick)).all():
+        )
+        mandatory_rows = (await session.execute(stmt_mandatory)).all()
+
+        offerings_by_course: dict[object, CourseOffering] = {}
+        canonical_sections: list[tuple[object, ClassSection]] = []
+        for cc_obj, code in mandatory_rows:
+            course_id = cc_obj.course_id
+            offering = offerings_by_course.get(course_id)
+            first_for_course = offering is None
+            if first_for_course:
                 offering_code = f"{code}-2024-GANJIL-KURIKULUM"
                 stmt_off = select(CourseOffering).where(
                     CourseOffering.academic_period_id == active_period.academic_period_id,
-                    CourseOffering.course_id == cc_obj.course_id,
+                    CourseOffering.course_id == course_id,
                     CourseOffering.offering_code == offering_code,
                 )
                 offering = (await session.execute(stmt_off)).scalars().first()
                 if not offering:
                     offering = CourseOffering(
                         academic_period_id=active_period.academic_period_id,
-                        course_id=cc_obj.course_id,
+                        course_id=course_id,
                         offering_code=offering_code,
                     )
                     session.add(offering)
                     await session.flush()
+                offerings_by_course[course_id] = offering
 
-                stmt_coe = select(CourseOfferingEligibility).where(
-                    CourseOfferingEligibility.course_offering_id == offering.course_offering_id,
-                    CourseOfferingEligibility.curriculum_course_id == cc_obj.curriculum_course_id,
-                )
-                coe = (await session.execute(stmt_coe)).scalars().first()
-                if not coe:
-                    session.add(
-                        CourseOfferingEligibility(
-                            course_offering_id=offering.course_offering_id,
-                            curriculum_course_id=cc_obj.curriculum_course_id,
-                        )
-                    )
-                    await session.flush()
-
-                stmt_comp = select(OfferingComponent).where(
-                    OfferingComponent.course_offering_id == offering.course_offering_id,
-                    OfferingComponent.component_code == "KULIAH",
-                )
-                comp = (await session.execute(stmt_comp)).scalars().first()
-                if not comp:
-                    comp = OfferingComponent(
+            stmt_coe = select(CourseOfferingEligibility).where(
+                CourseOfferingEligibility.course_offering_id == offering.course_offering_id,
+                CourseOfferingEligibility.curriculum_course_id == cc_obj.curriculum_course_id,
+            )
+            coe = (await session.execute(stmt_coe)).scalars().first()
+            if not coe:
+                session.add(
+                    CourseOfferingEligibility(
                         course_offering_id=offering.course_offering_id,
-                        component_code="KULIAH",
-                        component_type="lecture",
+                        curriculum_course_id=cc_obj.curriculum_course_id,
                     )
-                    session.add(comp)
-                    await session.flush()
-
-                stmt_sec = select(ClassSection).where(
-                    ClassSection.offering_component_id == comp.offering_component_id,
-                    ClassSection.section_code == "A",
                 )
-                sec = (await session.execute(stmt_sec)).scalars().first()
-                if not sec:
-                    sec = ClassSection(
-                        offering_component_id=comp.offering_component_id,
-                        section_code="A",
-                        capacity=40,
-                        enrollment_status="open",
-                    )
-                    session.add(sec)
-                    await session.flush()
+                await session.flush()
 
-                slot = section_slots.setdefault(offering.course_offering_id, len(section_slots))
-                stmt_cs = select(ClassSchedule).where(
-                    ClassSchedule.class_section_id == sec.class_section_id
+            if not first_for_course:
+                continue
+
+            stmt_comp = select(OfferingComponent).where(
+                OfferingComponent.course_offering_id == offering.course_offering_id,
+                OfferingComponent.component_code == "KULIAH",
+            )
+            comp = (await session.execute(stmt_comp)).scalars().first()
+            if not comp:
+                comp = OfferingComponent(
+                    course_offering_id=offering.course_offering_id,
+                    component_code="KULIAH",
+                    component_type="lecture",
                 )
-                cs = (await session.execute(stmt_cs)).scalars().first()
-                if not cs:
-                    slot, day_of_week, start_time, end_time = next_free_slot(slot)
-                    section_slots[offering.course_offering_id] = slot
-                    session.add(
-                        ClassSchedule(
-                            class_section_id=sec.class_section_id,
-                            day_of_week=day_of_week,
-                            start_time=start_time,
-                            end_time=end_time,
-                            room_name=f"Ruang Kelas {sec.section_code}",
-                        )
-                    )
-                    await session.flush()
-                    existing_schedules.append((day_of_week, start_time, end_time))
+                session.add(comp)
+                await session.flush()
 
-        print("  [OK] Seeded curriculum-eligible class sections for active curricula")
+            # Kode khas kanonik: seksi legacy "A"/"B" pada penawaran lain tetap
+            # menjadi seksi yang dipakai timetable dan uji validasi.
+            canonical_section_code = "Z"
+            # Penawaran kanonik hanya dikelola blok ini: pakai seksi apa pun
+            # yang sudah ada (termasuk kode lama) lalu samakan kodenya.
+            stmt_sec = select(ClassSection).where(
+                ClassSection.offering_component_id == comp.offering_component_id,
+            )
+            sec = (await session.execute(stmt_sec)).scalars().first()
+            if not sec:
+                sec = ClassSection(
+                    offering_component_id=comp.offering_component_id,
+                    section_code=canonical_section_code,
+                    capacity=40,
+                    enrollment_status="open",
+                )
+                session.add(sec)
+                await session.flush()
+            elif sec.section_code != canonical_section_code:
+                sec.section_code = canonical_section_code
+                await session.flush()
+
+            canonical_sections.append((course_id, sec))
+
+        # Jadwal seksi kanonik dikecualikan dari slot terpakai: baris lamanya
+        # akan diperbarui ke slot hasil komputasi ulang. Jadwal legacy (dan
+        # seksi lain pada periode aktif) tetap dipertahankan sebagai penghalang.
+        canonical_section_ids = {sec.class_section_id for _, sec in canonical_sections}
+        active_schedule_rows = (
+            await session.execute(
+                select(ClassSchedule)
+                .join(
+                    ClassSection,
+                    ClassSection.class_section_id == ClassSchedule.class_section_id,
+                )
+                .join(
+                    OfferingComponent,
+                    OfferingComponent.offering_component_id
+                    == ClassSection.offering_component_id,
+                )
+                .join(
+                    CourseOffering,
+                    CourseOffering.course_offering_id
+                    == OfferingComponent.course_offering_id,
+                )
+                .where(
+                    CourseOffering.academic_period_id == active_period.academic_period_id
+                )
+            )
+        ).scalars().all()
+        existing_schedules: list[tuple[int, datetime.time, datetime.time]] = []
+        canonical_schedules_by_section: dict[object, ClassSchedule] = {}
+        for row in active_schedule_rows:
+            if row.class_section_id in canonical_section_ids:
+                canonical_schedules_by_section[row.class_section_id] = row
+            else:
+                existing_schedules.append(
+                    (row.day_of_week, row.start_time, row.end_time)
+                )
+
+        # Senin-Jumat, 40 slot 15 menit per hari antara 07:00-17:00 (200 slot).
+        slot_minutes = 15
+        waves_per_day = 40
+        days_per_week = 5
+        total_slots = waves_per_day * days_per_week
+
+        def slot_bounds(candidate: int) -> tuple[int, datetime.time, datetime.time]:
+            index = candidate % total_slots
+            day_of_week = (index % days_per_week) + 1
+            wave = index // days_per_week
+            start_dt = datetime.datetime.combine(
+                datetime.date.today(), datetime.time(7, 0)
+            ) + datetime.timedelta(minutes=slot_minutes * wave)
+            end_dt = start_dt + datetime.timedelta(minutes=slot_minutes)
+            return day_of_week, start_dt.time(), end_dt.time()
+
+        def slot_is_free(
+            day_of_week: int, start_time: datetime.time, end_time: datetime.time
+        ) -> bool:
+            return not any(
+                day == day_of_week and start_time < occupied_end and occupied_start < end_time
+                for day, occupied_start, occupied_end in existing_schedules
+            )
+
+        def next_free_slot(slot: int) -> tuple[int, int, datetime.time, datetime.time]:
+            for candidate in range(slot, slot + total_slots):
+                day_of_week, start_time, end_time = slot_bounds(candidate)
+                if slot_is_free(day_of_week, start_time, end_time):
+                    return candidate, day_of_week, start_time, end_time
+            raise RuntimeError(
+                "Tidak ada slot jadwal bebas tersisa untuk MK wajib pada "
+                f"periode aktif ({len(canonical_sections)} seksi, {total_slots} slot)."
+            )
+
+        section_slots: dict[object, int] = {}
+        for course_id, sec in canonical_sections:
+            slot = section_slots.setdefault(course_id, len(section_slots))
+            slot, day_of_week, start_time, end_time = next_free_slot(slot)
+            section_slots[course_id] = slot
+
+            cs = canonical_schedules_by_section.get(sec.class_section_id)
+            if cs is None:
+                cs = ClassSchedule(class_section_id=sec.class_section_id)
+                session.add(cs)
+            cs.day_of_week = day_of_week
+            cs.start_time = start_time
+            cs.end_time = end_time
+            cs.room_name = f"Ruang Kelas {sec.section_code}"
+            await session.flush()
+            existing_schedules.append((day_of_week, start_time, end_time))
+
+        print("  [OK] Seeded mandatory curriculum-eligible class sections for active curricula")
 
         print("\n[SEED 7/8] Checking and seeding Active Polling Period & Votes Peminatan...")
         stmt_poll = select(ElectivePollingPeriod).where(ElectivePollingPeriod.status == "open")
