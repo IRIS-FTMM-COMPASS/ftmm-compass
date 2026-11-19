@@ -67,6 +67,11 @@ export function useDashboardData(user: AuthUser | null) {
     }
   }, [user, attempt])
 
+  useEffect(() => {
+    window.addEventListener("timetable-updated", retry)
+    return () => window.removeEventListener("timetable-updated", retry)
+  }, [retry])
+
   const displayedSchedule = useMemo<ScheduleItem[]>(() => {
     if (user?.role === "admin") return []
     const apiSchedule = (dashboardData?.schedule ?? [])

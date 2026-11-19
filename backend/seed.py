@@ -702,6 +702,57 @@ async def seed_data():
                 .order_by(Curriculum.curriculum_year, Curriculum.curriculum_id)
             )
         ).scalars().all()
+        # Jadwal yang sudah ada (termasuk seksi legacy) tidak boleh ditimpa.
+        existing_schedules = [
+            (row.day_of_week, row.start_time, row.end_time)
+            for row in (
+                await session.execute(
+                    select(
+                        ClassSchedule.day_of_week,
+                        ClassSchedule.start_time,
+                        ClassSchedule.end_time,
+                    )
+                    .join(
+                        ClassSection,
+                        ClassSection.class_section_id == ClassSchedule.class_section_id,
+                    )
+                    .join(
+                        OfferingComponent,
+                        OfferingComponent.offering_component_id
+                        == ClassSection.offering_component_id,
+                    )
+                    .join(
+                        CourseOffering,
+                        CourseOffering.course_offering_id
+                        == OfferingComponent.course_offering_id,
+                    )
+                    .where(
+                        CourseOffering.academic_period_id == active_period.academic_period_id
+                    )
+                )
+            ).all()
+        ]
+
+        def next_free_slot(slot: int) -> tuple[int, int, datetime.time, datetime.time]:
+            # Lima hari kerja, sembilan slot 60 menit dalam batas 08:00-17:00.
+            for candidate in range(slot, slot + 100):
+                day_of_week = (candidate % 5) + 1
+                wave = (candidate // 5) % 9
+                start_time = (
+                    datetime.datetime.combine(datetime.date.today(), datetime.time(8, 0))
+                    + datetime.timedelta(minutes=60 * wave)
+                ).time()
+                end_time = (
+                    datetime.datetime.combine(datetime.date.today(), start_time)
+                    + datetime.timedelta(hours=1)
+                ).time()
+                if not any(
+                    day == day_of_week and start_time < occupied_end and occupied_start < end_time
+                    for day, occupied_start, occupied_end in existing_schedules
+                ):
+                    return candidate, day_of_week, start_time, end_time
+            raise RuntimeError("Tidak ada slot jadwal kelas yang tersedia")
+
         section_slots: dict[object, int] = {}
         for curriculum in active_curricula:
             stmt_pick = (
@@ -713,8 +764,11 @@ async def seed_data():
                     CurriculumCourse.is_active.is_(True),
                     Course.is_active.is_(True),
                 )
-                .order_by(Course.course_code)
-                .limit(3)
+                .order_by(
+                    CurriculumCourse.recommended_semester.asc().nullslast(),
+                    Course.course_code,
+                )
+                .limit(8)
             )
             for cc_obj, code in (await session.execute(stmt_pick)).all():
                 offering_code = f"{code}-2024-GANJIL-KURIKULUM"
@@ -777,19 +831,13 @@ async def seed_data():
                     await session.flush()
 
                 slot = section_slots.setdefault(offering.course_offering_id, len(section_slots))
-                day_of_week = (slot % 5) + 1
-                start_time = datetime.time(8 + slot, 0)
-                end_time = (
-                    datetime.datetime.combine(datetime.date.today(), start_time)
-                    + datetime.timedelta(hours=1, minutes=30)
-                ).time()
                 stmt_cs = select(ClassSchedule).where(
-                    ClassSchedule.class_section_id == sec.class_section_id,
-                    ClassSchedule.day_of_week == day_of_week,
-                    ClassSchedule.start_time == start_time,
+                    ClassSchedule.class_section_id == sec.class_section_id
                 )
                 cs = (await session.execute(stmt_cs)).scalars().first()
                 if not cs:
+                    slot, day_of_week, start_time, end_time = next_free_slot(slot)
+                    section_slots[offering.course_offering_id] = slot
                     session.add(
                         ClassSchedule(
                             class_section_id=sec.class_section_id,
@@ -800,6 +848,7 @@ async def seed_data():
                         )
                     )
                     await session.flush()
+                    existing_schedules.append((day_of_week, start_time, end_time))
 
         print("  [OK] Seeded curriculum-eligible class sections for active curricula")
 

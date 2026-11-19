@@ -9,6 +9,7 @@ from academics import TOTAL_SKS_FOR_GRADUATION, grade_points
 from auth import get_current_user
 from database import get_db
 from models import (
+    AcademicPeriod,
     ClassSchedule,
     ClassSection,
     Course,
@@ -68,10 +69,15 @@ def _schedule_item(
 
 
 async def _student_schedule(db: AsyncSession, user_id) -> list[DashboardScheduleItem]:
+    active_period_id = select(AcademicPeriod.academic_period_id).where(
+        AcademicPeriod.is_active.is_(True)
+    ).scalar_subquery()
     timetable = (
         await db.execute(
             select(Timetable).where(
-                Timetable.user_id == user_id, Timetable.is_active.is_(True)
+                Timetable.user_id == user_id,
+                Timetable.is_active.is_(True),
+                Timetable.academic_period_id == active_period_id,
             )
         )
     ).scalars().first()

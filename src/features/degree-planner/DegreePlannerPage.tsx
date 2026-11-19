@@ -3,11 +3,12 @@ import { BookOpen, Calendar } from "lucide-react"
 import { cn } from "@/shared/utils"
 import {
   Course,
-  TIMETABLE_DAYS,
+  type CourseOffering,
   type ClassSection,
   formatTime,
   getOfferingForCourse,
   ScheduleItem,
+  TIMETABLE_DAYS,
 } from "@/shared/domain/models"
 import { SEMESTERS } from "@/shared/domain/academics"
 import { courseReligion } from "@/shared/domain/course"
@@ -57,6 +58,29 @@ import {
 } from "@/features/degree-planner/services/timetableService"
 
 const EMPTY_SECTIONS: Record<string, ClassSection[]> = {}
+
+function buildTimetableSelections(
+  codes: string[],
+  offerings: CourseOffering[],
+  selectedSections: Record<string, string>,
+): TimetableSelectionInput[] {
+  return codes.flatMap((code) => {
+    const offering = offerings.find((item) => item.courseCode === code)
+    const sectionId = offering
+      ? (selectedSections[offering.courseId] ??
+        selectedSections[code] ??
+        offering.sections[0]?.sectionId)
+      : selectedSections[code]
+    return sectionId ? [{ course_code: code, section_id: sectionId }] : []
+  })
+}
+
+function selectionSignature(selections: TimetableSelectionInput[]): string {
+  return selections
+    .map((selection) => `${selection.course_code}:${selection.section_id}`)
+    .sort()
+    .join("|")
+}
 
 export type { PlacedCourse } from "@/features/degree-planner/types"
 
@@ -144,6 +168,8 @@ export default function DegreePlanner({
   const [timetableSaveStatus, setTimetableSaveStatus] =
     useState<"idle" | "saving" | "saved" | "error">("idle")
   const timetableHydratedRef = useRef(false)
+  const [timetableHydrated, setTimetableHydrated] = useState(false)
+  const timetableSavedSignatureRef = useRef<string | null>(null)
   const timetableTouchedRef = useRef(false)
   const timetableMountedRef = useRef(true)
   const activeReligion = useMemo(() => {
@@ -452,6 +478,14 @@ export default function DegreePlanner({
       ),
     [currentTimetableCourses, sectionsByCourse],
   )
+  const effectiveSelections = useMemo(
+    () => buildTimetableSelections(timetableCodes, offerings, selectedSections),
+    [timetableCodes, offerings, selectedSections],
+  )
+  const effectiveSignature = useMemo(
+    () => selectionSignature(effectiveSelections),
+    [effectiveSelections],
+  )
 
   useEffect(() => {
     timetableMountedRef.current = true
@@ -463,11 +497,23 @@ export default function DegreePlanner({
   useEffect(() => {
     if (timetableHydratedRef.current) return
     if (sectionsState.status !== "ready") return
-    if (timetableCodes.length === 0) return
-    if (!offerings.some((offering) => offering.sections.length > 0)) return
+
+    // Nothing to hydrate from the API. Mark hydration complete so an empty
+    // selection set can still be persisted to clear a stale timetable.
+    if (
+      timetableCodes.length === 0 ||
+      !offerings.some((offering) => offering.sections.length > 0)
+    ) {
+      timetableHydratedRef.current = true
+      setTimetableHydrated(true)
+      return
+    }
 
     timetableHydratedRef.current = true
-    if (timetableTouchedRef.current) return
+    if (timetableTouchedRef.current) {
+      setTimetableHydrated(true)
+      return
+    }
 
     timetableService
       .get()
@@ -480,44 +526,44 @@ export default function DegreePlanner({
             .filter((item) => timetableCodes.includes(item.course_code))
             .map((item) => [item.course_code, item.section_id] as const),
         )
-        if (savedByCode.size === 0) return
-        setSelectedSections((prev) => {
-          if (timetableTouchedRef.current) return prev
-          const next = { ...prev }
+        if (savedByCode.size > 0) {
+          const restoredEntries: Record<string, string> = {}
           offerings.forEach((offering) => {
             const sectionId = savedByCode.get(offering.courseCode)
-            if (sectionId) next[offering.courseId] = sectionId
+            if (sectionId) restoredEntries[offering.courseId] = sectionId
           })
-          return next
-        })
+          timetableSavedSignatureRef.current = selectionSignature(
+            buildTimetableSelections(timetableCodes, offerings, {
+              ...selectedSections,
+              ...restoredEntries,
+            }),
+          )
+          setSelectedSections((prev) => {
+            if (timetableTouchedRef.current) return prev
+            return { ...prev, ...restoredEntries }
+          })
+        }
       })
       .catch(() => {})
-  }, [sectionsState.status, timetableCodes, offerings])
+      .finally(() => {
+        if (timetableMountedRef.current) setTimetableHydrated(true)
+      })
+  }, [sectionsState.status, timetableCodes, offerings, selectedSections])
 
   useEffect(() => {
-    if (!timetableHydratedRef.current || !timetableTouchedRef.current) return
+    if (!timetableHydrated) return
+    if (effectiveSignature === timetableSavedSignatureRef.current) return
+
     const controller = new AbortController()
     setTimetableSaveStatus("saving")
     const timer = window.setTimeout(() => {
-      const selections: TimetableSelectionInput[] = timetableCodes.flatMap(
-        (code) => {
-          const offering = offerings.find((item) => item.courseCode === code)
-          const sectionId = offering
-            ? (selectedSections[offering.courseId] ??
-              selectedSections[code] ??
-              offering.sections[0]?.sectionId)
-            : selectedSections[code]
-          return sectionId ? [{ course_code: code, section_id: sectionId }] : []
-        },
-      )
-      if (selections.length === 0) {
-        setTimetableSaveStatus("idle")
-        return
-      }
       timetableService
-        .replace(selections, controller.signal)
+        .replace(effectiveSelections, controller.signal)
         .then(() => {
-          if (!controller.signal.aborted) setTimetableSaveStatus("saved")
+          if (controller.signal.aborted) return
+          timetableSavedSignatureRef.current = effectiveSignature
+          setTimetableSaveStatus("saved")
+          window.dispatchEvent(new Event("timetable-updated"))
         })
         .catch(() => {
           if (!controller.signal.aborted) setTimetableSaveStatus("error")
@@ -527,7 +573,7 @@ export default function DegreePlanner({
       window.clearTimeout(timer)
       controller.abort()
     }
-  }, [selectedSections])
+  }, [timetableHydrated, effectiveSignature, effectiveSelections])
 
   const validationState = useReloadableFetch<ScheduleValidationResult>(
     (signal) => {

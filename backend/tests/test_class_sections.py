@@ -64,7 +64,7 @@ def test_unknown_course_returns_course_not_found(client, student_headers):
 
 def test_course_without_sections_returns_empty_collection(client, student_headers):
     response = client.get(
-        PATH, params={"course_code": "TSD101"}, headers=student_headers
+        PATH, params={"course_code": "KID101"}, headers=student_headers
     )
 
     assert response.status_code == 200
