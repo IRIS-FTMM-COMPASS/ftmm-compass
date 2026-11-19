@@ -1431,6 +1431,7 @@ function AppShell() {
       course?: Course
     },
   ) => {
+    const validPage = isPage(page) ? page : "dashboard"
     setPlannerInitialTab(options?.tab || "roadmap")
     setFinderInitialCourse(options?.course || null)
     navigate(validPage)
