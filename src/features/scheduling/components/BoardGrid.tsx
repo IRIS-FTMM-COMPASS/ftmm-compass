@@ -23,6 +23,29 @@ function timeLabel(hour: number): string {
   return `${String(hour).padStart(2, "0")}:00`
 }
 
+const CONFLICT_KIND_LABEL: Record<BoardConflictItem["kind"], string> = {
+  lecturer: "Dosen",
+  room: "Ruangan",
+}
+
+function clockLabel(hour: number): string {
+  return `${String(hour).padStart(2, "0")}.00`
+}
+
+function conflictTimeLabel(conflict: BoardConflictItem): string {
+  const day = DAYS.find((entry) => entry.day === conflict.day_of_week)
+  const dayLabel = day ? day.label : `Hari ${conflict.day_of_week}`
+  return `${dayLabel} ${clockLabel(conflict.start_hour)}-${clockLabel(conflict.end_hour)}`
+}
+
+export function conflictMarkerLabel(conflict: BoardConflictItem): string {
+  return `Bentrok ${conflictTimeLabel(conflict)}`
+}
+
+export function conflictKindLabel(kind: BoardConflictItem["kind"]): string {
+  return CONFLICT_KIND_LABEL[kind]
+}
+
 export interface BoardGridProps {
   classes: BoardClassItem[]
   conflicts?: BoardConflictItem[]
@@ -46,15 +69,17 @@ export default function BoardGrid({
   const visibleIds = new Set(
     visibleClasses.map((item) => item.class_section_id),
   )
-  const conflictIds = new Set<string>()
+  const conflictsBySection = new Map<string, BoardConflictItem[]>()
   conflicts.forEach((conflict) => {
-    const touchesVisibleClass =
-      visibleIds.has(conflict.class_section_a_id) ||
-      visibleIds.has(conflict.class_section_b_id)
-    if (touchesVisibleClass) {
-      conflictIds.add(conflict.class_section_a_id)
-      conflictIds.add(conflict.class_section_b_id)
-    }
+    const sectionIds = [
+      conflict.class_section_a_id,
+      conflict.class_section_b_id,
+    ].filter((id) => visibleIds.has(id))
+    sectionIds.forEach((id) => {
+      const sectionConflicts = conflictsBySection.get(id) ?? []
+      sectionConflicts.push(conflict)
+      conflictsBySection.set(id, sectionConflicts)
+    })
   })
 
   return (
@@ -152,7 +177,12 @@ export default function BoardGrid({
                         item.end_hour > hour,
                     )
                     .map((item) => {
-                      const isConflict = conflictIds.has(item.class_section_id)
+                      const sectionConflicts =
+                        conflictsBySection.get(item.class_section_id) ?? []
+                      const isConflict = sectionConflicts.length > 0
+                      const clashText = sectionConflicts
+                        .map(conflictMarkerLabel)
+                        .join(", ")
                       const canEdit =
                         Boolean(onEditClass) && canEditClass?.(item) === true
                       const endHour = Math.min(item.end_hour, END_HOUR)
@@ -170,9 +200,10 @@ export default function BoardGrid({
                           key={item.class_section_id}
                           role="group"
                           aria-label={`${item.course_code} ${item.course_name}, kelas ${item.section_code}, ${lecturers}, ${item.room_code ?? "ruangan belum ditentukan"}${
-                            isConflict ? ", bentrok" : ""
+                            isConflict ? `, ${clashText}` : ""
                           }`}
                           style={{ height: blockHeight }}
+                          title={isConflict ? clashText : undefined}
                           className={cn(
                             "absolute inset-x-1 top-0 z-10 flex flex-col gap-0.5 overflow-hidden rounded-lg border px-2 py-1 text-left shadow-2xs",
                             isConflict
@@ -201,8 +232,11 @@ export default function BoardGrid({
                           </p>
                           <div className="mt-auto flex items-center justify-between gap-1">
                             {isConflict && (
-                              <span className="rounded bg-danger/20 px-1.5 py-0.5 text-[10px] font-semibold text-danger">
-                                Bentrok
+                              <span
+                                title={clashText}
+                                className="min-w-0 truncate rounded bg-danger/20 px-1.5 py-0.5 text-[10px] font-semibold text-danger"
+                              >
+                                {clashText}
                               </span>
                             )}
                             {canEdit && onEditClass && (

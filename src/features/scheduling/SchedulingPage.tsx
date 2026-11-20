@@ -14,7 +14,10 @@ import ConfirmDialog, {
   type ConfirmDialogValues,
 } from "@/shared/ui/ConfirmDialog"
 import { cn } from "@/shared/utils"
-import BoardGrid from "./components/BoardGrid"
+import BoardGrid, {
+  conflictKindLabel,
+  conflictMarkerLabel,
+} from "./components/BoardGrid"
 import RoomAdminPanel from "./components/RoomAdminPanel"
 import InstructorMappingPanel from "./components/InstructorMappingPanel"
 import AvailabilityPanel from "./components/AvailabilityPanel"
@@ -165,6 +168,38 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
   const allClasses = data?.classes ?? []
   const unassigned: UnassignedItem[] = data?.unassigned ?? []
   const conflicts = data?.conflicts ?? []
+  const actorStudyProgramId =
+    typeof board?.meta?.actor_study_program_id === "string"
+      ? board.meta.actor_study_program_id
+      : null
+  const classesById = useMemo(
+    () => new Map(allClasses.map((item) => [item.class_section_id, item])),
+    [allClasses],
+  )
+  const visibleConflictRows = useMemo(
+    () =>
+      conflicts
+        .map((conflict) => ({
+          key: [
+            conflict.class_section_a_id,
+            conflict.class_section_b_id,
+            conflict.kind,
+            conflict.day_of_week,
+            conflict.start_hour,
+          ].join(":"),
+          classA: classesById.get(conflict.class_section_a_id),
+          classB: classesById.get(conflict.class_section_b_id),
+          conflict,
+        }))
+        .filter(
+          (row) =>
+            (row.classA || row.classB) &&
+            (!selectedProgramId ||
+              row.classA?.study_program_id === selectedProgramId ||
+              row.classB?.study_program_id === selectedProgramId),
+        ),
+    [classesById, conflicts, selectedProgramId],
+  )
   const canGenerate = isAdmin || isPjProdi
   const overrideOptions = useMemo(() => {
     const grouped = new Map<string, ClassCountOption>()
@@ -775,6 +810,58 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
             </section>
           )}
 
+          <section aria-labelledby="conflict-list-title" className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2
+                id="conflict-list-title"
+                className="font-heading text-base font-bold text-navy"
+              >
+                Bentrok Jadwal
+              </h2>
+              <span className="rounded-full border border-danger/40 bg-danger/10 px-2.5 py-1 text-[11px] font-semibold text-danger">
+                {visibleConflictRows.length} bentrok
+              </span>
+            </div>
+            {visibleConflictRows.length === 0 ? (
+              <p
+                role="status"
+                className="rounded-xl border border-teal/40 bg-teal/15 px-4 py-3 text-xs text-navy"
+              >
+                Tidak ada bentrok yang terdeteksi pada tampilan ini.
+              </p>
+            ) : (
+              <ul className="divide-y divide-border rounded-xl border border-danger/30 bg-surface">
+                {visibleConflictRows.map((row) => (
+                  <li
+                    key={row.key}
+                    className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-xs"
+                  >
+                    <div className="min-w-0 space-y-0.5">
+                      <p className="font-mono font-semibold text-navy">
+                        {row.classA
+                          ? `${row.classA.course_code} ${row.classA.section_code}`
+                          : "Kelas A belum tersedia"}
+                        {" · "}
+                        {row.classB
+                          ? `${row.classB.course_code} ${row.classB.section_code}`
+                          : "Kelas B belum tersedia"}
+                      </p>
+                      <p className="text-muted">
+                        {conflictKindLabel(row.conflict.kind)}
+                      </p>
+                    </div>
+                    <span
+                      title={conflictMarkerLabel(row.conflict)}
+                      className="rounded bg-danger/20 px-1.5 py-0.5 text-[10px] font-semibold text-danger"
+                    >
+                      {conflictMarkerLabel(row.conflict)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
           <section aria-labelledby="diagnostics-title" className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2
@@ -856,9 +943,12 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
                   classes={allClasses}
                   conflicts={conflicts}
                   selectedProgramId={selectedProgramId || null}
-                  canEditClass={(item) =>
-                    !isFinal && (isAdmin || isPjProdi) && item.state !== "final"
-                  }
+                  canEditClass={(item) => {
+                    if (isFinal || item.state === "final") return false
+                    if (isAdmin) return true
+                    if (!isPjProdi || !actorStudyProgramId) return false
+                    return item.study_program_id === actorStudyProgramId
+                  }}
                   onEditClass={openEdit}
                 />
               )}

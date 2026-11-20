@@ -535,3 +535,152 @@ def test_student_cannot_move_class(client, student_headers, scheduling_data):
     )
     assert response.status_code == 403, response.text
 
+
+def test_edit_log_scoped_by_role_and_program(
+    client, admin_headers, pj_headers, other_pj_headers, student_headers, scheduling_data
+):
+    data = scheduling_data
+    moved_own = client.patch(
+        f"{BASE}/classes/{data['section_a']}",
+        json=_move_payload(data, room_id=data["room_a"], day=4, start=8),
+        headers=pj_headers,
+    )
+    assert moved_own.status_code == 200, moved_own.text
+    moved_other = client.patch(
+        f"{BASE}/classes/{data['section_c']}",
+        json=_move_payload(data, room_id=data["room_trkb"], day=5, start=9),
+        headers=other_pj_headers,
+    )
+    assert moved_other.status_code == 200, moved_other.text
+
+    params = {"period_id": data["period_id"]}
+    admin = client.get(f"{BASE}/edit-log", params=params, headers=admin_headers)
+    assert admin.status_code == 200, admin.text
+    admin_body = admin.json()
+    assert admin_body["meta"]["total"] == len(admin_body["data"])
+    admin_sections = {row["class_section_id"] for row in admin_body["data"]}
+    assert {data["section_a"], data["section_c"]} <= admin_sections
+
+    sample = next(
+        row for row in admin_body["data"]
+        if row["class_section_id"] == data["section_a"]
+    )
+    assert sample["reason"] == "Perbaikan jadwal"
+    assert uuid.UUID(sample["changed_by"])
+    assert sample["changed_by_name"]
+    assert sample["before_state"]["start_hour"] == 8
+    assert sample["after_state"]["day_of_week"] == 4
+    assert sample["created_at"]
+
+    tsd = client.get(f"{BASE}/edit-log", params=params, headers=pj_headers)
+    assert tsd.status_code == 200, tsd.text
+    tsd_sections = {row["class_section_id"] for row in tsd.json()["data"]}
+    assert data["section_a"] in tsd_sections
+    assert data["section_c"] not in tsd_sections
+
+    trkb = client.get(f"{BASE}/edit-log", params=params, headers=other_pj_headers)
+    assert trkb.status_code == 200, trkb.text
+    trkb_sections = {row["class_section_id"] for row in trkb.json()["data"]}
+    assert data["section_c"] in trkb_sections
+    assert data["section_a"] not in trkb_sections
+
+    denied = client.get(f"{BASE}/edit-log", params=params, headers=student_headers)
+    assert denied.status_code == 403, denied.text
+
+    filtered = client.get(
+        f"{BASE}/edit-log",
+        params={"class_section_id": data["section_c"]},
+        headers=admin_headers,
+    )
+    assert filtered.status_code == 200, filtered.text
+    assert {row["class_section_id"] for row in filtered.json()["data"]} == {
+        data["section_c"]
+    }
+
+
+def test_edit_log_records_generate_and_full_reset(
+    client, admin_headers, scheduling_data
+):
+    data = scheduling_data
+    generated = client.post(
+        f"{BASE}/generate",
+        json={
+            "academic_period_id": data["period_id"],
+            "mode": "full_reset",
+            "confirm_full_reset": True,
+        },
+        headers=admin_headers,
+    )
+    assert generated.status_code == 200, generated.text
+
+    logs = client.get(
+        f"{BASE}/edit-log",
+        params={"period_id": data["period_id"]},
+        headers=admin_headers,
+    )
+    assert logs.status_code == 200, logs.text
+    body = logs.json()
+    reasons = {row["reason"] for row in body["data"]}
+    assert {"full_reset", "generate"} <= reasons
+
+    deletion = next(
+        row for row in body["data"]
+        if row["reason"] == "full_reset"
+        and row["class_section_id"] == data["section_a"]
+    )
+    assert deletion["before_state"]["day_of_week"] == 1
+    assert deletion["before_state"]["start_hour"] == 8
+    assert deletion["after_state"] is None
+    assert uuid.UUID(deletion["changed_by"])
+    assert deletion["changed_by_name"]
+
+    creation = next(row for row in body["data"] if row["reason"] == "generate")
+    assert creation["before_state"] is None
+    assert creation["after_state"]["day_of_week"] in range(1, 6)
+    assert creation["after_state"]["start_hour"] >= 7
+    assert creation["after_state"]["end_hour"] > creation["after_state"]["start_hour"]
+    assert creation["after_state"]["room_id"]
+
+
+def test_edit_log_records_block_normalization(
+    client, admin_headers, db_session, scheduling_data
+):
+    data = scheduling_data
+
+    async def make_partial_hour():
+        schedule = (
+            await db_session.execute(
+                select(ClassSchedule).where(
+                    ClassSchedule.class_section_id == uuid.UUID(data["section_a"])
+                )
+            )
+        ).scalars().first()
+        assert schedule is not None
+        schedule.end_time = time(10, 40)
+        await db_session.flush()
+
+    client.portal.call(make_partial_hour)
+
+    generated = client.post(
+        f"{BASE}/generate",
+        json={
+            "academic_period_id": data["period_id"],
+            "mode": "fill_empty",
+        },
+        headers=admin_headers,
+    )
+    assert generated.status_code == 200, generated.text
+
+    logs = client.get(
+        f"{BASE}/edit-log",
+        params={"class_section_id": data["section_a"]},
+        headers=admin_headers,
+    )
+    assert logs.status_code == 200, logs.text
+    normalized = [
+        row for row in logs.json()["data"] if row["reason"] == "normalisasi blok"
+    ]
+    assert normalized
+    assert normalized[0]["before_state"]["end_time"] == "10:40"
+    assert normalized[0]["after_state"]["end_time"] == "10:00"
+    assert normalized[0]["changed_by_name"]

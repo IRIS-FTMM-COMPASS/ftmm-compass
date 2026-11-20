@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, time as time_value, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,6 +42,8 @@ from schemas import (
     BoardConflictItem,
     ClassMoveRequest,
     ClassMoveResponse,
+    EditLogEntry,
+    EditLogResponse,
     FinalizeResponse,
     UnlockRequest,
 )
@@ -690,3 +692,95 @@ async def unlock_period(
         "message": "Kunci jadwal dibuka; jadwal kembali dapat diubah.",
         "unlocked_count": final_count,
     }
+
+
+def _scoped_section_ids(actor_program: UUID | None, period_id: UUID | None):
+    """Kelas yang boleh dibaca actor, dibatasi periode dan prodi PJ."""
+    statement = (
+        select(ClassSection.class_section_id)
+        .join(
+            OfferingComponent,
+            ClassSection.offering_component_id
+            == OfferingComponent.offering_component_id,
+        )
+        .join(
+            CourseOffering,
+            CourseOffering.course_offering_id == OfferingComponent.course_offering_id,
+        )
+    )
+    if period_id is not None:
+        statement = statement.where(CourseOffering.academic_period_id == period_id)
+    if actor_program is not None:
+        statement = (
+            statement.join(
+                CourseOfferingEligibility,
+                CourseOfferingEligibility.course_offering_id
+                == CourseOffering.course_offering_id,
+            )
+            .join(
+                CurriculumCourse,
+                CurriculumCourse.curriculum_course_id
+                == CourseOfferingEligibility.curriculum_course_id,
+            )
+            .join(
+                Curriculum,
+                Curriculum.curriculum_id == CurriculumCourse.curriculum_id,
+            )
+            .join(
+                StudyProgram,
+                StudyProgram.study_program_id == Curriculum.study_program_id,
+            )
+            .where(StudyProgram.study_program_id == actor_program)
+        )
+    return statement
+
+
+@router.get("/scheduling/edit-log", response_model=EditLogResponse)
+async def get_edit_log(
+    period_id: str | None = Query(default=None),
+    class_section_id: str | None = Query(default=None),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    actor_program = _actor_program_id(current_user)
+    if isinstance(actor_program, JSONResponse):
+        return actor_program
+
+    try:
+        period_uuid = UUID(period_id) if period_id else None
+        section_uuid = UUID(class_section_id) if class_section_id else None
+    except (ValueError, AttributeError, TypeError):
+        return _deny(
+            status.HTTP_404_NOT_FOUND,
+            "not_found",
+            "Periode atau kelas MK tidak ditemukan.",
+        )
+
+    statement = (
+        select(ScheduleEditLog, User.full_name)
+        .outerjoin(User, User.user_id == ScheduleEditLog.changed_by)
+        .where(
+            ScheduleEditLog.class_section_id.in_(
+                _scoped_section_ids(actor_program, period_uuid)
+            )
+        )
+        .order_by(ScheduleEditLog.created_at.desc(), ScheduleEditLog.id.desc())
+    )
+    if section_uuid is not None:
+        statement = statement.where(ScheduleEditLog.class_section_id == section_uuid)
+
+    rows = (await db.execute(statement)).all()
+    entries = [
+        EditLogEntry(
+            id=str(log.id),
+            class_section_id=str(log.class_section_id),
+            changed_by=str(log.changed_by),
+            changed_by_name=name or "",
+            reason=log.reason,
+            before_state=log.before_state,
+            after_state=log.after_state,
+            created_at=log.created_at.isoformat(),
+        )
+        for log, name in rows
+    ]
+    return EditLogResponse(data=entries, meta={"total": len(entries)})

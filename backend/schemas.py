@@ -769,3 +769,19 @@ class UnlockRequest(BaseModel):
 class ConflictListResponse(BaseModel):
     data: List[BoardConflictItem] = Field(default_factory=list)
     meta: Dict[str, Any] = Field(default_factory=dict)
+
+
+class EditLogEntry(BaseModel):
+    id: str
+    class_section_id: str
+    changed_by: str
+    changed_by_name: str
+    reason: str
+    before_state: Optional[Dict[str, Any]] = None
+    after_state: Optional[Dict[str, Any]] = None
+    created_at: str
+
+
+class EditLogResponse(BaseModel):
+    data: List[EditLogEntry] = Field(default_factory=list)
+    meta: Dict[str, int] = Field(default_factory=dict)

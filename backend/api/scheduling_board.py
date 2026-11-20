@@ -110,6 +110,16 @@ def _deny(code: str, message: str, status_code: int) -> JSONResponse:
     return error_response(status_code, code, message, detail=message)
 
 
+def _actor_study_program_id(user: User) -> str | None:
+    """Prodi PJ Prodi untuk penyaringan affordance edit pada UI."""
+    if user.role != "lecturer":
+        return None
+    profile = user.lecturer_profile
+    if profile is None or not profile.is_program_coordinator:
+        return None
+    return str(profile.study_program_id) if profile.study_program_id else None
+
+
 async def _resolve_period(
     db: AsyncSession, period_id: str | None
 ) -> AcademicPeriod | None:
@@ -473,13 +483,14 @@ async def _board_context(
     )
 
 
-def _meta(context: _BoardContext) -> dict[str, Any]:
+def _meta(context: _BoardContext, actor_study_program_id: str | None = None) -> dict[str, Any]:
     return {
         "period_label": _period_label(context.period),
         "class_count": len(context.classes),
         "conflict_count": len(context.conflicts),
         "program_count": len(context.programs),
         "unassigned_count": len(context.unassigned),
+        "actor_study_program_id": actor_study_program_id,
     }
 
 
@@ -501,7 +512,7 @@ async def get_board(
             programs=context.programs,
             unassigned=context.unassigned,
         ),
-        meta=_meta(context),
+        meta=_meta(context, _actor_study_program_id(_user)),
     )
 
 
@@ -514,4 +525,4 @@ async def get_conflicts(
     context = await _board_context(db, period_id)
     if isinstance(context, JSONResponse):
         return context
-    return ConflictListResponse(data=context.conflicts, meta=_meta(context))
+    return ConflictListResponse(data=context.conflicts, meta=_meta(context, _actor_study_program_id(_user)))

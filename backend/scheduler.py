@@ -33,6 +33,7 @@ from models import (
     LecturerAvailability,
     OfferingComponent,
     Room,
+    ScheduleEditLog,
     ScheduleRun,
     StudentCourseRecord,
     StudentProfile,
@@ -58,6 +59,18 @@ REASON_PARITY = "paritas tidak sesuai"
 DEFAULT_SECTION_CAPACITY = 40
 SECTION_LETTERS = ("A", "B", "C")
 MAX_SEARCH_NODES = 30_000
+
+
+def _schedule_snapshot(schedule: ClassSchedule) -> dict[str, object]:
+    """Ringkasan blok yang dapat diaudit pada ScheduleEditLog."""
+    return {
+        "day_of_week": schedule.day_of_week,
+        "start_hour": schedule.start_time.hour,
+        "end_hour": schedule.end_time.hour,
+        "end_time": schedule.end_time.strftime("%H:%M"),
+        "room_id": str(schedule.room_id) if schedule.room_id else None,
+        "room_code": schedule.room_name or None,
+    }
 
 
 @dataclass(frozen=True)
@@ -567,6 +580,23 @@ async def generate_schedule(
     if mode == "full_reset":
         section_ids = await _period_section_ids(db, period.academic_period_id)
         if section_ids:
+            existing = (
+                await db.execute(
+                    select(ClassSchedule).where(
+                        ClassSchedule.class_section_id.in_(section_ids)
+                    )
+                )
+            ).scalars().all()
+            for schedule in existing:
+                db.add(
+                    ScheduleEditLog(
+                        class_section_id=schedule.class_section_id,
+                        changed_by=triggered_by,
+                        reason="full_reset",
+                        before_state=_schedule_snapshot(schedule),
+                        after_state=None,
+                    )
+                )
             await db.execute(
                 delete(ClassSchedule).where(
                     ClassSchedule.class_section_id.in_(section_ids)
@@ -811,8 +841,18 @@ async def generate_schedule(
                 end = max(schedule.start_time.hour + 1, min(end, 23))
             normalized_end = time(hour=end)
             if schedule.end_time != normalized_end:
+                before_state = _schedule_snapshot(schedule)
                 schedule.end_time = normalized_end
                 normalized = True
+                db.add(
+                    ScheduleEditLog(
+                        class_section_id=schedule.class_section_id,
+                        changed_by=triggered_by,
+                        reason="normalisasi blok",
+                        before_state=before_state,
+                        after_state=_schedule_snapshot(schedule),
+                    )
+                )
             occupied.append(
                 Block(
                     day=schedule.day_of_week,
@@ -836,14 +876,22 @@ async def generate_schedule(
     new_blocks: list[Block] = []
     for section_id, placement in result.assignments.items():
         task = task_by_section[section_id]
+        schedule = ClassSchedule(
+            class_section_id=section_id,
+            day_of_week=placement.day,
+            start_time=time(hour=placement.start),
+            end_time=time(hour=placement.end),
+            room_id=placement.room.room_id,
+            room_name=placement.room.room_code,
+        )
+        db.add(schedule)
         db.add(
-            ClassSchedule(
+            ScheduleEditLog(
                 class_section_id=section_id,
-                day_of_week=placement.day,
-                start_time=time(hour=placement.start),
-                end_time=time(hour=placement.end),
-                room_id=placement.room.room_id,
-                room_name=placement.room.room_code,
+                changed_by=triggered_by,
+                reason="generate",
+                before_state=None,
+                after_state=_schedule_snapshot(schedule),
             )
         )
         new_blocks.append(
