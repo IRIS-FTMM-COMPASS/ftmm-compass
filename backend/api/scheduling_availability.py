@@ -15,6 +15,7 @@ from auth import get_current_user
 from database import get_db
 from models import LecturerAvailability, LecturerProfile, StudyProgram, User
 from schemas import (
+    AvailabilityLecturerListResponse,
     AvailabilityListResponse,
     AvailabilityResponse,
     AvailabilitySlotRequest,
@@ -156,7 +157,10 @@ async def get_my_availability(
     return _response(await _slots_for(db, current_user.user_id))
 
 
-@router.get("/scheduling/availability/lecturers")
+@router.get(
+    "/scheduling/availability/lecturers",
+    response_model=AvailabilityLecturerListResponse,
+)
 async def list_availability_lecturers(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

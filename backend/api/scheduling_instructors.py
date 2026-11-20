@@ -362,6 +362,8 @@ async def list_curriculum_courses(
     stmt = (
         select(
             CurriculumCourse.curriculum_course_id.label("curriculum_course_id"),
+            Course.course_id.label("course_id"),
+            Curriculum.study_program_id.label("study_program_id"),
             Course.course_code.label("course_code"),
             Course.course_name.label("course_name"),
         )
@@ -373,9 +375,13 @@ async def list_curriculum_courses(
         stmt = stmt.where(Curriculum.study_program_id == scope)
     rows = (await db.execute(stmt.order_by(Course.course_code))).all()
     items = [
-        {"curriculum_course_id": str(row.curriculum_course_id),
-         "course_code": row.course_code,
-         "course_name": row.course_name}
+        {
+            "curriculum_course_id": str(row.curriculum_course_id),
+            "course_id": str(row.course_id),
+            "study_program_id": str(row.study_program_id),
+            "course_code": row.course_code,
+            "course_name": row.course_name,
+        }
         for row in rows
     ]
     return CurriculumCourseListResponse(data=items, meta={"total": len(items)})

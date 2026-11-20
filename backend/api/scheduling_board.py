@@ -72,6 +72,7 @@ class _Block:
     room_id: UUID | None = None
     room_label: str = ""
     curriculum_course_ids: set[UUID] = field(default_factory=set)
+    study_program_ids: set[UUID] = field(default_factory=set)
     lecturer_keys: set[str] = field(default_factory=set)
     lecturers: list[str] = field(default_factory=list)
     state: str = "draft"
@@ -272,7 +273,12 @@ async def _blocks(
     ).all()
 
     blocks: dict[tuple[UUID, UUID | None], _Block] = {}
+    program_ids_by_section: dict[UUID, set[UUID]] = {}
     for row in rows:
+        if row.study_program_id is not None:
+            program_ids_by_section.setdefault(row.class_section_id, set()).add(
+                row.study_program_id
+            )
         key = (row.class_section_id, row.class_schedule_id)
         block = blocks.get(key)
         if block is None:
@@ -297,6 +303,10 @@ async def _blocks(
             blocks[key] = block
         if row.curriculum_course_id is not None:
             block.curriculum_course_ids.add(row.curriculum_course_id)
+    for block in blocks.values():
+        block.study_program_ids = program_ids_by_section.get(
+            block.class_section_id, set()
+        )
 
     all_course_ids = set()
     for block in blocks.values():
@@ -463,7 +473,10 @@ async def _board_context(
                 str(block.study_program_id) if block.study_program_id else ""
             ),
             study_program_code=block.study_program_code,
-            day_of_week=block.day_of_week,
+            program_ids=[
+                str(program_id)
+                for program_id in sorted(block.study_program_ids, key=str)
+            ],
             start_hour=block.start_hour,
             end_hour=block.end_hour,
             room_id=str(block.room_id) if block.room_id else None,

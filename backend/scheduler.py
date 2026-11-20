@@ -375,6 +375,7 @@ async def _demand_class_counts(
     """Hitung Kelas MK yang dibutuhkan dari peminat; kuota 40 per kelas."""
     codes_by_target: dict[tuple[UUID, UUID], set[str]] = defaultdict(set)
     failed_ids_by_target: dict[tuple[UUID, UUID], set[UUID]] = defaultdict(set)
+    mandatory_targets: set[tuple[UUID, UUID]] = set()
     program_ids: set[UUID] = set()
     for offering_id, rows in eligible_by_offering.items():
         course = course_by_offering.get(offering_id)
@@ -389,9 +390,10 @@ async def _demand_class_counts(
                 codes_by_target[target].add(course.course_code)
             elif course_type == "wajib":
                 failed_ids_by_target[target].add(row.course.curriculum_course_id)
+                mandatory_targets.add(target)
+                program_ids.add(row.program.study_program_id)
             else:
                 continue
-            program_ids.add(row.program.study_program_id)
 
     codes = {code for values in codes_by_target.values() for code in values}
     votes_by_code: dict[str, int] = {}
@@ -474,7 +476,8 @@ async def _demand_class_counts(
             failed_by_course.get(course_id, 0)
             for course_id in failed_ids_by_target[target]
         )
-        expected += students_by_program.get(target[1], 0)
+        if target in mandatory_targets:
+            expected += students_by_program.get(target[1], 0)
         counts[target] = min(max(ceil(expected / DEFAULT_SECTION_CAPACITY), 1), 3)
     return counts
 

@@ -18,10 +18,12 @@ from models import (
     ElectiveCourseVote,
     ElectivePollingPeriod,
     LecturerAvailability,
+    LecturerProfile,
     OfferingComponent,
     Room,
     SchedulePeriodLock,
     ScheduleProgramStatus,
+    StudentProfile,
     StudyProgram,
     User,
 )
@@ -782,6 +784,185 @@ def test_class_count_override_blocked_after_all_programs_final(
     body = response.json()
     assert body["error"]["code"] == "schedule_final"
     assert "final" in body["error"]["message"].lower()
+
+
+def _pj_study_program_id(client, db_session):
+    async def read():
+        return (
+            await db_session.execute(
+                select(LecturerProfile.study_program_id)
+                .join(User, User.user_id == LecturerProfile.user_id)
+                .where(User.email == "pj.tsd@ftmm.unair.ac.id")
+            )
+        ).scalar_one()
+
+    return client.portal.call(read)
+
+
+def test_class_count_override_blocked_when_actor_prodi_is_final(
+    client, db_session, lecturer_headers
+):
+    case = _make_case(client, db_session)
+    actor_program_id = _pj_study_program_id(client, db_session)
+
+    async def finalize_actor_prodi():
+        curriculum = Curriculum(
+            study_program_id=actor_program_id,
+            curriculum_name=f"Kurikulum PJ Uji {uuid.uuid4().hex[:6]}",
+            curriculum_year=2024,
+            is_active=True,
+        )
+        db_session.add(curriculum)
+        await db_session.flush()
+        db_session.add(
+            CurriculumCourse(
+                curriculum_id=curriculum.curriculum_id,
+                course_id=uuid.UUID(case["course_id"]),
+                credits_total=3,
+                recommended_semester=1,
+                term="ganjil",
+                course_type="wajib",
+                course_scope="program_studi",
+                is_active=True,
+            )
+        )
+        db_session.add(
+            ScheduleProgramStatus(
+                academic_period_id=uuid.UUID(case["period_id"]),
+                study_program_id=actor_program_id,
+                state="final",
+            )
+        )
+        await db_session.flush()
+
+    client.portal.call(finalize_actor_prodi)
+
+    response = client.post(
+        PATH + "/class-count-overrides",
+        json={
+            "academic_period_id": case["period_id"],
+            "course_id": case["course_id"],
+            "study_program_id": str(actor_program_id),
+            "class_count": 2,
+        },
+        headers=lecturer_headers,
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["code"] == "schedule_final"
+
+
+def test_class_count_override_admin_allowed_until_all_programs_final(
+    client, db_session, admin_headers
+):
+    case = _make_case(client, db_session)
+
+    async def finalize_target_prodi():
+        db_session.add(
+            ScheduleProgramStatus(
+                academic_period_id=uuid.UUID(case["period_id"]),
+                study_program_id=uuid.UUID(case["program_id"]),
+                state="final",
+            )
+        )
+        await db_session.flush()
+
+    client.portal.call(finalize_target_prodi)
+
+    response = client.post(
+        PATH + "/class-count-overrides",
+        json={
+            "academic_period_id": case["period_id"],
+            "course_id": case["course_id"],
+            "study_program_id": case["program_id"],
+            "class_count": 2,
+        },
+        headers=admin_headers,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["created"] is True
+
+
+def test_class_count_override_missing_course_or_prodi_precedes_guards(
+    client, db_session, admin_headers
+):
+    case = _make_case(client, db_session)
+    period_id = uuid.UUID(case["period_id"])
+
+    async def seal_period():
+        lock = await db_session.get(SchedulePeriodLock, period_id)
+        if lock is None:
+            lock = SchedulePeriodLock(academic_period_id=period_id)
+            db_session.add(lock)
+        lock.krs_open = True
+        for program_id in await all_study_program_ids(db_session):
+            row = await db_session.get(ScheduleProgramStatus, (period_id, program_id))
+            if row is None:
+                db_session.add(
+                    ScheduleProgramStatus(
+                        academic_period_id=period_id,
+                        study_program_id=program_id,
+                        state="final",
+                    )
+                )
+            else:
+                row.state = "final"
+        await db_session.flush()
+
+    client.portal.call(seal_period)
+
+    for overrides, expected_code in (
+        ({"course_id": str(uuid.uuid4())}, "course_not_found"),
+        ({"study_program_id": str(uuid.uuid4())}, "study_program_not_found"),
+    ):
+        payload = {
+            "academic_period_id": case["period_id"],
+            "course_id": case["course_id"],
+            "study_program_id": case["program_id"],
+            "class_count": 2,
+            **overrides,
+        }
+        response = client.post(
+            PATH + "/class-count-overrides", json=payload, headers=admin_headers
+        )
+        assert response.status_code == 404, response.text
+        assert response.json()["error"]["code"] == expected_code
+
+
+def test_elective_demand_ignores_cohort_size(client, db_session, admin_headers):
+    case = _make_case(client, db_session, course_type="pilihan")
+
+    async def add_cohort():
+        for index in range(41):
+            student = User(
+                email=f"cohort-{case['program_id']}-{index}@ftmm.unair.ac.id",
+                full_name=f"Mahasiswa Angkatan {index}",
+                role="student",
+                is_active=True,
+            )
+            db_session.add(student)
+            await db_session.flush()
+            db_session.add(
+                StudentProfile(
+                    user_id=student.user_id,
+                    study_program_id=uuid.UUID(case["program_id"]),
+                    student_number=f"C{index:05d}",
+                    admission_year=2024,
+                    current_semester=1,
+                )
+            )
+        await db_session.flush()
+
+    client.portal.call(add_cohort)
+
+    response = _generate(
+        client,
+        admin_headers,
+        mode="fill_empty",
+        academic_period_id=case["period_id"],
+    )
+    assert response.status_code == 200, response.text
+    rows = _section_codes(client, db_session, case["course_id"])
+    assert {code for code, _ in rows} == {"A"}, rows
 
 
 def test_class_count_override_rejects_out_of_range_counts(

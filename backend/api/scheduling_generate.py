@@ -108,6 +108,19 @@ async def _resolve_period(
     return period
 
 
+async def _krs_lock_error(db: AsyncSession, period: AcademicPeriod, message: str):
+    """409 bersama saat KRS sudah dibuka untuk generate maupun override."""
+    lock = await db.get(SchedulePeriodLock, period.academic_period_id)
+    if lock is not None and lock.krs_open:
+        return error_response(
+            status.HTTP_409_CONFLICT,
+            "scheduling_locked",
+            message,
+            detail=message,
+        )
+    return None
+
+
 @router.post("/scheduling/generate", response_model=GenerateResponse)
 async def generate(
     payload: GenerateRequest,
@@ -137,15 +150,11 @@ async def generate(
     if not isinstance(period, AcademicPeriod):
         return period
 
-    lock = await db.get(SchedulePeriodLock, period.academic_period_id)
-    if lock is not None and lock.krs_open:
-        message = "KRS sudah dibuka; jadwal periode ini tidak dapat diubah."
-        return error_response(
-            status.HTTP_409_CONFLICT,
-            "scheduling_locked",
-            message,
-            detail=message,
-        )
+    locked = await _krs_lock_error(
+        db, period, "KRS sudah dibuka; jadwal periode ini tidak dapat diubah."
+    )
+    if locked is not None:
+        return locked
 
     return await generate_schedule(
         db,
@@ -203,15 +212,26 @@ async def put_class_count_override(
             "Periode akademik tidak ditemukan.",
             detail="Periode akademik tidak ditemukan.",
         )
-    lock = await db.get(SchedulePeriodLock, period.academic_period_id)
-    if lock is not None and lock.krs_open:
-        message = "KRS sudah dibuka; jumlah kelas tidak dapat diubah."
+    if course is None:
         return error_response(
-            status.HTTP_409_CONFLICT,
-            "scheduling_locked",
-            message,
-            detail=message,
+            status.HTTP_404_NOT_FOUND,
+            "course_not_found",
+            "Mata kuliah tidak ditemukan.",
+            detail="Mata kuliah tidak ditemukan.",
         )
+    if program is None:
+        return error_response(
+            status.HTTP_404_NOT_FOUND,
+            "study_program_not_found",
+            "Program studi tidak ditemukan.",
+            detail="Program studi tidak ditemukan.",
+        )
+
+    locked = await _krs_lock_error(
+        db, period, "KRS sudah dibuka; jumlah kelas tidak dapat diubah."
+    )
+    if locked is not None:
+        return locked
 
     program_ids = await all_study_program_ids(db)
     final_program_ids: set[UUID] = set()
@@ -228,27 +248,23 @@ async def put_class_count_override(
                 )
             ).scalars().all()
         )
-    if program_ids and final_program_ids.issuperset(program_ids):
+    all_final = bool(program_ids) and final_program_ids.issuperset(program_ids)
+
+    profile = current_user.lecturer_profile
+    actor_program_id = profile.study_program_id if profile is not None else None
+    actor_final = False
+    if actor_program_id is not None:
+        actor_status = await db.get(
+            ScheduleProgramStatus, (period.academic_period_id, actor_program_id)
+        )
+        actor_final = actor_status is not None and actor_status.state == "final"
+    if all_final or actor_final:
         message = "Jadwal sudah final; jumlah kelas tidak dapat diubah."
         return error_response(
             status.HTTP_409_CONFLICT,
             "schedule_final",
             message,
             detail=message,
-        )
-    if course is None:
-        return error_response(
-            status.HTTP_404_NOT_FOUND,
-            "course_not_found",
-            "Mata kuliah tidak ditemukan.",
-            detail="Mata kuliah tidak ditemukan.",
-        )
-    if program is None:
-        return error_response(
-            status.HTTP_404_NOT_FOUND,
-            "study_program_not_found",
-            "Program studi tidak ditemukan.",
-            detail="Program studi tidak ditemukan.",
         )
     belongs = (
         await db.execute(

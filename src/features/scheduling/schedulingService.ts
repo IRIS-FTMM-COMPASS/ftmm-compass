@@ -61,6 +61,8 @@ export interface InstructorReferenceCreateRequest {
 
 export interface CurriculumCourseOption {
   curriculum_course_id: string
+  course_id: string
+  study_program_id: string
   course_code: string
   course_name: string
 }
@@ -118,6 +120,7 @@ export interface BoardClassItem {
   course_id: string
   study_program_id: string
   study_program_code: string
+  program_ids?: string[]
   day_of_week: number
   start_hour: number
   end_hour: number

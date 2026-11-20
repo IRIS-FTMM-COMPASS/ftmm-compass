@@ -69,7 +69,11 @@ export function useDashboardData(user: AuthUser | null) {
 
   useEffect(() => {
     window.addEventListener("timetable-updated", retry)
-    return () => window.removeEventListener("timetable-updated", retry)
+    window.addEventListener("scheduling-status-changed", retry)
+    return () => {
+      window.removeEventListener("timetable-updated", retry)
+      window.removeEventListener("scheduling-status-changed", retry)
+    }
   }, [retry])
 
   const displayedSchedule = useMemo<ScheduleItem[]>(() => {

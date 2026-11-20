@@ -628,6 +628,8 @@ class CurriculumCourseOption(BaseModel):
     curriculum_course_id: str
     course_code: str
     course_name: str
+    course_id: str
+    study_program_id: str
 
 
 class CurriculumCourseListResponse(BaseModel):
@@ -661,6 +663,17 @@ class AvailabilityListResponse(BaseModel):
     meta: Dict[str, Any] = Field(default_factory=dict)
 
 
+class AvailabilityLecturerResponse(BaseModel):
+    user_id: str
+    full_name: str
+    study_program_code: str
+
+
+class AvailabilityLecturerListResponse(BaseModel):
+    data: List[AvailabilityLecturerResponse] = Field(default_factory=list)
+    meta: Dict[str, Any] = Field(default_factory=dict)
+
+
 class UnassignedItem(BaseModel):
     class_section_id: str
     course_code: str = ""
@@ -677,6 +690,7 @@ class BoardClassItem(BaseModel):
     course_id: str = ""
     study_program_id: str = ""
     study_program_code: str = ""
+    program_ids: List[str] = Field(default_factory=list)
     day_of_week: int = 0
     start_hour: int = 0
     end_hour: int = 0

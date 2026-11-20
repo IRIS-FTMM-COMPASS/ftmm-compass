@@ -27,6 +27,7 @@ import {
   type BoardClassItem,
   type BoardResponse,
   type ClassMoveRequest,
+  type CurriculumCourseOption,
   type RoomResponse,
   type UnassignedItem,
 } from "./schedulingService"
@@ -102,6 +103,8 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null)
   const [overrideCourseKey, setOverrideCourseKey] = useState("")
   const [overrideClassCount, setOverrideClassCount] = useState(1)
+  const [curriculumCourses, setCurriculumCourses] =
+    useState<CurriculumCourseOption[]>([])
   const [reloadKey, setReloadKey] = useState(0)
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
   const boardLoadCount = useRef(0)
@@ -149,6 +152,20 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
       })
       .catch(() => {
         if (active) setRooms([])
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+  useEffect(() => {
+    let active = true
+    schedulingService
+      .listCurriculumCourses()
+      .then((items) => {
+        if (active) setCurriculumCourses(items)
+      })
+      .catch(() => {
+        if (active) setCurriculumCourses([])
       })
     return () => {
       active = false
@@ -203,6 +220,12 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
   const canGenerate = isAdmin || isPjProdi
   const overrideOptions = useMemo(() => {
     const grouped = new Map<string, ClassCountOption>()
+    const programCodes = new Map(
+      programs.map((program) => [
+        program.study_program_id,
+        program.study_program_code,
+      ]),
+    )
     allClasses.forEach((item) => {
       if (!item.course_id) return
       const key = `${item.course_id}:${item.study_program_id}`
@@ -221,17 +244,41 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
         currentCount: 1,
       })
     })
+    curriculumCourses.forEach((course) => {
+      if (!course.course_id || !course.study_program_id) return
+      const key = `${course.course_id}:${course.study_program_id}`
+      if (grouped.has(key)) return
+      grouped.set(key, {
+        key,
+        course_id: course.course_id,
+        study_program_id: course.study_program_id,
+        course_code: course.course_code,
+        course_name: course.course_name,
+        study_program_code: programCodes.get(course.study_program_id) ?? "",
+        currentCount: 0,
+      })
+    })
     return Array.from(grouped.values()).sort((left, right) =>
       `${left.course_code} ${left.study_program_code}`.localeCompare(
         `${right.course_code} ${right.study_program_code}`,
       ),
     )
-  }, [allClasses])
+  }, [allClasses, curriculumCourses, programs])
   const selectedOverrideOption =
     overrideOptions.find((option) => option.key === overrideCourseKey) ??
     overrideOptions[0] ??
     null
   const canOverrideClassCount = canGenerate && !isFinal
+  const canEditClass = (item: BoardClassItem) => {
+    if (isFinal || item.state === "final") return false
+    if (isAdmin) return true
+    if (!isPjProdi || !actorStudyProgramId) return false
+    const programIds = item.program_ids
+    if (Array.isArray(programIds) && programIds.length > 0) {
+      return programIds.includes(actorStudyProgramId)
+    }
+    return item.study_program_id === actorStudyProgramId
+  }
 
   const runGenerate = async (mode: "fill_empty" | "full_reset") => {
     if (!canGenerate || busyAction) return
@@ -274,6 +321,7 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
       )
       await loadBoard()
       refreshSchedulingStatus()
+      window.dispatchEvent(new CustomEvent("scheduling-status-changed"))
     } catch (cause) {
       setActionError(apiErrorMessage(cause, "Finalisasi jadwal gagal."))
     } finally {
@@ -291,6 +339,7 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
       setActionNotice("Kunci jadwal telah dibuka. Jadwal kembali dapat diubah.")
       await loadBoard()
       refreshSchedulingStatus()
+      window.dispatchEvent(new CustomEvent("scheduling-status-changed"))
     } catch (cause) {
       setActionError(apiErrorMessage(cause, "Kunci jadwal gagal dibuka."))
     } finally {
@@ -631,8 +680,10 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
                       )}
                       {overrideOptions.map((option) => (
                         <option key={option.key} value={option.key}>
-                          {option.course_code} · {option.course_name} (
-                          {option.study_program_code})
+                          {option.course_code} · {option.course_name}
+                          {option.study_program_code
+                            ? ` (${option.study_program_code})`
+                            : ""}
                         </option>
                       ))}
                     </select>
@@ -943,12 +994,7 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
                   classes={allClasses}
                   conflicts={conflicts}
                   selectedProgramId={selectedProgramId || null}
-                  canEditClass={(item) => {
-                    if (isFinal || item.state === "final") return false
-                    if (isAdmin) return true
-                    if (!isPjProdi || !actorStudyProgramId) return false
-                    return item.study_program_id === actorStudyProgramId
-                  }}
+                  canEditClass={canEditClass}
                   onEditClass={openEdit}
                 />
               )}

@@ -7,6 +7,8 @@ import type {
 
 const IN_PROGRESS_LABEL = "Jadwal masih dalam proses"
 const FINAL_LABEL = "Jadwal final"
+const STATUS_CHANGED_EVENT = "scheduling-status-changed"
+const STATUS_POLL_INTERVAL_MS = 5_000
 
 function statusFromPrograms(
   programs: BoardProgramStatus[],
@@ -59,6 +61,15 @@ export function useSchedulingStatus() {
       controller.abort()
     }
   }, [attempt])
+
+  useEffect(() => {
+    window.addEventListener(STATUS_CHANGED_EVENT, retry)
+    const interval = window.setInterval(retry, STATUS_POLL_INTERVAL_MS)
+    return () => {
+      window.removeEventListener(STATUS_CHANGED_EVENT, retry)
+      window.clearInterval(interval)
+    }
+  }, [retry])
 
   return { status, isFinal, isLoading, retry }
 }
