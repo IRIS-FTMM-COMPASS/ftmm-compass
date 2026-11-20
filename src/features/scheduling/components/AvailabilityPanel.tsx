@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react"
 import { AlertCircle, Plus } from "lucide-react"
 import { useSession } from "@/features/auth/session"
+import { cn } from "@/shared/utils"
 import { apiErrorMessage } from "@/shared/api/client"
 import {
   schedulingService,
+  type AvailabilityLecturerResponse,
   type AvailabilityResponse,
   type AvailabilitySlotRequest,
 } from "../schedulingService"
@@ -65,7 +67,7 @@ function formatHour(hour: number): string {
   return `${String(hour).padStart(2, "0")}:00`
 }
 
-export default function AvailabilityPanel() {
+function AvailabilitySelfEditor() {
   const { user } = useSession()
   const isLecturer = user?.role === "lecturer"
 
@@ -396,4 +398,273 @@ export default function AvailabilityPanel() {
       </p>
     </section>
   )
+}
+
+function lecturerOptionLabel(lecturer: AvailabilityLecturerResponse): string {
+  const name = lecturer.full_name?.trim() || lecturer.user_id
+  const program = lecturer.study_program_code?.trim()
+  return program ? `${name} · ${program}` : name
+}
+
+function AvailabilityInspector() {
+  const [lecturers, setLecturers] = useState<AvailabilityLecturerResponse[]>([])
+  const [selectedUserId, setSelectedUserId] = useState("")
+  const [slots, setSlots] = useState<AvailabilityResponse[]>([])
+  const [isLoadingLecturers, setIsLoadingLecturers] = useState(true)
+  const [lecturersError, setLecturersError] = useState<string | null>(null)
+  const [isLoadingSlots, setIsLoadingSlots] = useState(false)
+  const [slotsError, setSlotsError] = useState<string | null>(null)
+  const [lecturerReloadKey, setLecturerReloadKey] = useState(0)
+  const [slotReloadKey, setSlotReloadKey] = useState(0)
+
+  useEffect(() => {
+    let active = true
+    setIsLoadingLecturers(true)
+    setLecturersError(null)
+    schedulingService
+      .listAvailabilityLecturers()
+      .then((items) => {
+        if (!active) return
+        setLecturers(items)
+        setSelectedUserId((current) =>
+          items.some((item) => item.user_id === current)
+            ? current
+            : (items[0]?.user_id ?? ""),
+        )
+      })
+      .catch((cause) => {
+        if (!active) return
+        setLecturers([])
+        setSelectedUserId("")
+        setLecturersError(
+          apiErrorMessage(cause, "Daftar dosen tidak dapat dimuat."),
+        )
+      })
+      .finally(() => {
+        if (active) setIsLoadingLecturers(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [lecturerReloadKey])
+
+  useEffect(() => {
+    if (!selectedUserId) {
+      setSlots([])
+      setSlotsError(null)
+      setIsLoadingSlots(false)
+      return
+    }
+    let active = true
+    setIsLoadingSlots(true)
+    setSlotsError(null)
+    schedulingService
+      .getLecturerAvailability(selectedUserId)
+      .then((items) => {
+        if (active) setSlots(items)
+      })
+      .catch((cause) => {
+        if (!active) return
+        setSlots([])
+        setSlotsError(
+          apiErrorMessage(cause, "Ketersediaan dosen tidak dapat dimuat."),
+        )
+      })
+      .finally(() => {
+        if (active) setIsLoadingSlots(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [selectedUserId, slotReloadKey])
+
+  const slotsByDay = DAYS.map((day) => ({
+    ...day,
+    slots: slots
+      .filter((slot) => slot.day_of_week === day.day)
+      .sort((a, b) => a.start_hour - b.start_hour),
+  }))
+  const selectedLecturer = lecturers.find(
+    (item) => item.user_id === selectedUserId,
+  )
+
+  return (
+    <section aria-labelledby="availability-title" className="space-y-3">
+      <div className="space-y-1">
+        <h3
+          id="availability-title"
+          className="font-heading text-base font-bold text-navy"
+        >
+          Ketersediaan Dosen
+        </h3>
+        <p className="text-xs text-muted">
+          Lihat ketersediaan mengajar dosen. Tampilan ini hanya untuk membaca;
+          perubahan dilakukan melalui akun dosen yang bersangkutan.
+        </p>
+      </div>
+
+      {isLoadingLecturers && (
+        <p role="status" className="text-xs text-muted">
+          Memuat daftar dosen...
+        </p>
+      )}
+
+      {!isLoadingLecturers && lecturersError && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-orange/30 bg-orange/10 px-4 py-3 text-xs text-navy"
+        >
+          <span className="flex items-center gap-2">
+            <AlertCircle
+              className="h-4 w-4 shrink-0 text-orange"
+              aria-hidden="true"
+            />
+            {lecturersError}
+          </span>
+          <button
+            type="button"
+            onClick={() => setLecturerReloadKey((key) => key + 1)}
+            className="min-h-11 rounded-lg border border-orange/40 px-3 font-semibold text-orange transition-colors hover:bg-orange/20 cursor-pointer"
+          >
+            Muat ulang
+          </button>
+        </div>
+      )}
+
+      {!isLoadingLecturers && !lecturersError && lecturers.length === 0 && (
+        <p
+          role="status"
+          className="rounded-xl border border-border bg-background px-4 py-3 text-xs text-muted"
+        >
+          Belum ada dosen yang dapat ditampilkan.
+        </p>
+      )}
+
+      {!isLoadingLecturers && !lecturersError && lecturers.length > 0 && (
+        <div className="space-y-1.5">
+          <label
+            htmlFor="availability-lecturer"
+            className="block text-xs font-semibold text-navy"
+          >
+            Dosen
+          </label>
+          <select
+            id="availability-lecturer"
+            value={selectedUserId}
+            onChange={(event) => setSelectedUserId(event.target.value)}
+            aria-describedby="availability-lecturer-help"
+            className="min-h-11 w-full rounded-lg border border-input bg-surface px-2 text-xs font-normal sm:w-96"
+          >
+            {lecturers.map((lecturer) => (
+              <option key={lecturer.user_id} value={lecturer.user_id}>
+                {lecturerOptionLabel(lecturer)}
+              </option>
+            ))}
+          </select>
+          <p id="availability-lecturer-help" className="text-[11px] text-muted">
+            {selectedLecturer
+              ? `Kode program studi: ${selectedLecturer.study_program_code || "-"}.`
+              : "Pilih dosen untuk melihat ketersediaannya."}
+          </p>
+        </div>
+      )}
+
+      {selectedUserId && (
+        <div className="space-y-2">
+          <h4 className="font-heading text-sm font-bold text-navy">
+            Ketersediaan mingguan
+          </h4>
+
+          {isLoadingSlots && (
+            <p role="status" className="text-xs text-muted">
+              Memuat ketersediaan dosen...
+            </p>
+          )}
+
+          {!isLoadingSlots && slotsError && (
+            <div
+              role="alert"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-orange/30 bg-orange/10 px-4 py-3 text-xs text-navy"
+            >
+              <span className="flex items-center gap-2">
+                <AlertCircle
+                  className="h-4 w-4 shrink-0 text-orange"
+                  aria-hidden="true"
+                />
+                {slotsError}
+              </span>
+              <button
+                type="button"
+                onClick={() => setSlotReloadKey((key) => key + 1)}
+                className="min-h-11 rounded-lg border border-orange/40 px-3 font-semibold text-orange transition-colors hover:bg-orange/20 cursor-pointer"
+              >
+                Muat ulang
+              </button>
+            </div>
+          )}
+
+          {!isLoadingSlots && !slotsError && slots.length === 0 && (
+            <p
+              role="status"
+              className="rounded-xl border border-border bg-background px-4 py-3 text-xs text-muted"
+            >
+              Dosen ini belum memiliki slot ketersediaan.
+            </p>
+          )}
+
+          {!isLoadingSlots && !slotsError && slots.length > 0 && (
+            <div
+              role="list"
+              aria-label={`Ketersediaan mingguan ${
+                selectedLecturer?.full_name ?? "dosen terpilih"
+              }`}
+              className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3"
+            >
+              {slotsByDay.map((day) => (
+                <div
+                  key={day.day}
+                  role="listitem"
+                  className={cn(
+                    "rounded-xl border bg-background px-3 py-2",
+                    day.slots.length > 0 ? "border-navy/20" : "border-border",
+                  )}
+                >
+                  <p className="font-heading text-xs font-semibold text-navy">
+                    {day.label}
+                  </p>
+                  {day.slots.length === 0 ? (
+                    <p className="mt-1 text-[11px] text-muted">
+                      Tidak ada slot.
+                    </p>
+                  ) : (
+                    <ul className="mt-1 space-y-1">
+                      {day.slots.map((slot) => (
+                        <li
+                          key={slot.availability_id}
+                          className="font-mono text-[11px] text-foreground"
+                        >
+                          {formatHour(slot.start_hour)} -{" "}
+                          {formatHour(slot.end_hour)}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
+export default function AvailabilityPanel() {
+  const { user } = useSession()
+  const isAdmin = user?.role === "admin"
+  const isPjProdi =
+    user?.role === "lecturer" && user.is_program_coordinator === true
+
+  if (isPjProdi || isAdmin) return <AvailabilityInspector />
+  return <AvailabilitySelfEditor />
 }

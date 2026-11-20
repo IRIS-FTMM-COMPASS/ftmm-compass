@@ -91,6 +91,17 @@ export interface AvailabilityListResponse {
   meta: Record<string, unknown>
 }
 
+export interface AvailabilityLecturerResponse {
+  user_id: string
+  full_name: string
+  study_program_code: string
+}
+
+export interface AvailabilityLecturerListResponse {
+  data: AvailabilityLecturerResponse[]
+  meta: Record<string, unknown>
+}
+
 export interface UnassignedItem {
   class_section_id: string
   course_code: string
@@ -352,6 +363,26 @@ export const schedulingService = {
     const payload =
       await apiFetch<AvailabilityListResponse | AvailabilityResponse[]>(
         `${SCHEDULING_BASE}/availability/me`,
+        { auth: true },
+      )
+    return unwrap(payload)
+  },
+
+  async listAvailabilityLecturers(): Promise<AvailabilityLecturerResponse[]> {
+    const payload =
+      await apiFetch<AvailabilityLecturerListResponse | AvailabilityLecturerResponse[]>(
+        `${SCHEDULING_BASE}/availability/lecturers`,
+        { auth: true },
+      )
+    return unwrap(payload)
+  },
+
+  async getLecturerAvailability(
+    userId: string,
+  ): Promise<AvailabilityResponse[]> {
+    const payload =
+      await apiFetch<AvailabilityListResponse | AvailabilityResponse[]>(
+        `${SCHEDULING_BASE}/availability/${encodeURIComponent(userId)}`,
         { auth: true },
       )
     return unwrap(payload)

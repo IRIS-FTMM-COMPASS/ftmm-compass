@@ -5,6 +5,7 @@ from datetime import time
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+from pytest import mark
 
 from auth import get_password_hash
 from models import (
@@ -19,7 +20,7 @@ from models import (
     User,
 )
 from scheduling_common import all_study_program_ids, current_period_id, status_label
-from tests.conftest import SEEDED_LECTURER, SEEDED_STUDENT
+from tests.conftest import SEEDED_LECTURER, SEEDED_PJ, SEEDED_STUDENT
 
 V1 = "/api/v1"
 PASSWORD = "JadwalUji2026!"
@@ -32,6 +33,13 @@ SLOTS = [
 def test_availability_requires_authentication(client):
     assert client.put(f"{V1}/scheduling/availability/me", json=SLOTS).status_code == 401
     assert client.get(f"{V1}/scheduling/availability/me").status_code == 401
+    assert client.get(f"{V1}/scheduling/availability/lecturers").status_code == 401
+    assert (
+        client.put(
+            f"{V1}/scheduling/availability/{uuid.uuid4()}", json=SLOTS
+        ).status_code
+        == 401
+    )
     assert client.get(f"{V1}/scheduling/board").status_code == 401
     assert client.get(f"{V1}/scheduling/conflicts").status_code == 401
 
@@ -120,6 +128,97 @@ def test_availability_read_is_scoped_to_admin_or_owning_pj(
         f"{V1}/scheduling/availability/{target_id}", headers=student_headers
     )
     assert as_student.status_code == 403
+
+    missing = client.get(
+        f"{V1}/scheduling/availability/{uuid.uuid4()}", headers=admin_headers
+    )
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "not_found"
+
+
+@mark.parametrize("prefix", (V1, "/api"))
+def test_availability_explicit_put_writes_only_caller(
+    client, db_session, lecturer_headers, prefix
+):
+    lecturer_id = client.portal.call(_user_id, db_session, SEEDED_LECTURER[0])
+    response = client.put(
+        f"{prefix}/scheduling/availability/{lecturer_id}",
+        json=[SLOTS[0]],
+        headers=lecturer_headers,
+    )
+    assert response.status_code == 200, response.text
+    assert [slot["user_id"] for slot in response.json()["data"]] == [str(lecturer_id)]
+
+    current = client.get(
+        f"{prefix}/scheduling/availability/me", headers=lecturer_headers
+    )
+    assert [slot["start_hour"] for slot in current.json()["data"]] == [8]
+
+
+@mark.parametrize("prefix", (V1, "/api"))
+def test_availability_explicit_put_forbids_writing_others(
+    client, db_session, admin_headers, lecturer_headers, prefix
+):
+    other_id = client.portal.call(_user_id, db_session, SEEDED_STUDENT[0])
+    rejected = client.put(
+        f"{prefix}/scheduling/availability/{other_id}",
+        json=[SLOTS[0]],
+        headers=lecturer_headers,
+    )
+    assert rejected.status_code == 403
+    assert rejected.json()["error"]["code"] == "forbidden"
+
+    lecturer_id = client.portal.call(_user_id, db_session, SEEDED_LECTURER[0])
+    admin_attempt = client.put(
+        f"{prefix}/scheduling/availability/{lecturer_id}",
+        json=[SLOTS[0]],
+        headers=admin_headers,
+    )
+    assert admin_attempt.status_code == 403
+    assert admin_attempt.json()["error"]["code"] == "forbidden"
+
+
+def test_availability_lecturers_list_is_scoped(
+    client, db_session, admin_headers, pj_headers, student_headers
+):
+    target_id, outsider_id = client.portal.call(_create_availability_targets, db_session)
+    own_code = client.portal.call(_program_code, db_session, SEEDED_PJ[0])
+
+    as_admin = client.get(
+        f"{V1}/scheduling/availability/lecturers", headers=admin_headers
+    )
+    assert as_admin.status_code == 200, as_admin.text
+    admin_body = as_admin.json()
+    assert admin_body["meta"]["total"] == len(admin_body["data"])
+    assert all(
+        set(item) == {"user_id", "full_name", "study_program_code"}
+        for item in admin_body["data"]
+    )
+    admin_ids = {item["user_id"] for item in admin_body["data"]}
+    assert {target_id, outsider_id} <= admin_ids
+
+    as_pj = client.get(f"{V1}/scheduling/availability/lecturers", headers=pj_headers)
+    assert as_pj.status_code == 200, as_pj.text
+    pj_body = as_pj.json()
+    pj_ids = {item["user_id"] for item in pj_body["data"]}
+    assert target_id in pj_ids
+    assert outsider_id not in pj_ids
+    assert all(item["study_program_code"] == own_code for item in pj_body["data"])
+
+    as_student = client.get(
+        f"{V1}/scheduling/availability/lecturers", headers=student_headers
+    )
+    assert as_student.status_code == 403
+    assert as_student.json()["error"]["code"] == "forbidden"
+
+
+def test_availability_me_legacy_tier_matches_canonical(client, lecturer_headers):
+    canonical = client.get(
+        f"{V1}/scheduling/availability/me", headers=lecturer_headers
+    )
+    legacy = client.get("/api/scheduling/availability/me", headers=lecturer_headers)
+    assert canonical.status_code == legacy.status_code == 200
+    assert canonical.json() == legacy.json()
 
 
 def test_board_contains_classes_programs_unassigned_and_conflicts(
@@ -217,6 +316,19 @@ def test_dashboard_exposes_schedule_status(
 async def _user_id(db_session, email):
     return (
         await db_session.execute(select(User.user_id).where(User.email == email))
+    ).scalar_one()
+
+async def _program_code(db_session, email):
+    return (
+        await db_session.execute(
+            select(StudyProgram.program_code)
+            .join(
+                LecturerProfile,
+                LecturerProfile.study_program_id == StudyProgram.study_program_id,
+            )
+            .join(User, User.user_id == LecturerProfile.user_id)
+            .where(User.email == email)
+        )
     ).scalar_one()
 
 

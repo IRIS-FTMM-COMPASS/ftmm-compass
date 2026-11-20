@@ -13,7 +13,7 @@ from sqlalchemy.orm import selectinload
 from api.errors import error_response
 from auth import get_current_user
 from database import get_db
-from models import LecturerAvailability, User
+from models import LecturerAvailability, LecturerProfile, StudyProgram, User
 from schemas import (
     AvailabilityListResponse,
     AvailabilityResponse,
@@ -105,13 +105,12 @@ def _deny(
     )
 
 
-@router.put("/scheduling/availability/me", response_model=AvailabilityListResponse)
-async def replace_my_availability(
-    payload: list[AvailabilitySlotRequest] | AvailabilityReplaceRequest = Body(...),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Timpa seluruh slot milik sendiri; user_id tidak pernah diambil dari request."""
+async def _replace_availability(
+    db: AsyncSession,
+    user_id: UUID,
+    payload: list[AvailabilitySlotRequest] | AvailabilityReplaceRequest,
+) -> AvailabilityListResponse | JSONResponse:
+    """Timpa seluruh slot untuk user_id yang diberikan, tanpa otorisasi."""
     slots = _slots_from_payload(payload)
     overlap = _overlap_detail(slots)
     if overlap is not None:
@@ -123,13 +122,11 @@ async def replace_my_availability(
         )
 
     await db.execute(
-        delete(LecturerAvailability).where(
-            LecturerAvailability.user_id == current_user.user_id
-        )
+        delete(LecturerAvailability).where(LecturerAvailability.user_id == user_id)
     )
     new_rows = [
         LecturerAvailability(
-            user_id=current_user.user_id,
+            user_id=user_id,
             day_of_week=slot.day_of_week,
             start_hour=slot.start_hour,
             end_hour=slot.end_hour,
@@ -141,12 +138,91 @@ async def replace_my_availability(
     return _response(new_rows)
 
 
+@router.put("/scheduling/availability/me", response_model=AvailabilityListResponse)
+async def replace_my_availability(
+    payload: list[AvailabilitySlotRequest] | AvailabilityReplaceRequest = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Timpa seluruh slot milik sendiri; user_id tidak pernah diambil dari request."""
+    return await _replace_availability(db, current_user.user_id, payload)
+
+
 @router.get("/scheduling/availability/me", response_model=AvailabilityListResponse)
 async def get_my_availability(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     return _response(await _slots_for(db, current_user.user_id))
+
+
+@router.get("/scheduling/availability/lecturers")
+async def list_availability_lecturers(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Daftar dosen untuk pemilih ketersediaan, dibatasi prodi bagi PJ."""
+    is_admin = current_user.role == "admin"
+    own_profile = current_user.lecturer_profile
+    is_pj = bool(
+        not is_admin
+        and current_user.role == "lecturer"
+        and own_profile is not None
+        and own_profile.is_program_coordinator
+    )
+    if not is_admin and not is_pj:
+        return _deny(
+            "forbidden",
+            "Hanya admin atau PJ prodi yang dapat melihat daftar dosen.",
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    query = (
+        select(User.user_id, User.full_name, StudyProgram.program_code)
+        .join(LecturerProfile, LecturerProfile.user_id == User.user_id)
+        .join(
+            StudyProgram,
+            StudyProgram.study_program_id == LecturerProfile.study_program_id,
+        )
+        .where(User.role == "lecturer")
+    )
+    if is_pj:
+        query = query.where(
+            LecturerProfile.study_program_id == own_profile.study_program_id
+        )
+    rows = (
+        await db.execute(query.order_by(User.full_name, User.user_id))
+    ).all()
+    return {
+        "data": [
+            {
+                "user_id": str(row.user_id),
+                "full_name": row.full_name,
+                "study_program_code": row.program_code,
+            }
+            for row in rows
+        ],
+        "meta": {"total": len(rows)},
+    }
+
+
+@router.put(
+    "/scheduling/availability/{user_id}", response_model=AvailabilityListResponse
+)
+async def replace_lecturer_availability(
+    user_id: UUID,
+    payload: list[AvailabilitySlotRequest] | AvailabilityReplaceRequest = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Path eksplisit tetap hanya menulis slot milik caller, termasuk untuk admin."""
+    if user_id != current_user.user_id:
+        return _deny(
+            "forbidden",
+            "Dosen hanya dapat memperbarui ketersediaannya sendiri.",
+            status.HTTP_403_FORBIDDEN,
+        )
+    return await _replace_availability(db, user_id, payload)
 
 
 @router.get(
@@ -158,25 +234,33 @@ async def get_lecturer_availability(
     db: AsyncSession = Depends(get_db),
 ):
     """Admin atau PJ prodi pemilik dosen yang boleh membaca slot dosen lain."""
-    allowed = current_user.role == "admin"
-    if not allowed and current_user.role == "lecturer":
-        own_profile = current_user.lecturer_profile
-        target = (
-            await db.execute(
-                select(User)
-                .options(selectinload(User.lecturer_profile))
-                .where(User.user_id == user_id)
-            )
-        ).scalars().first()
-        target_profile = target.lecturer_profile if target else None
-        allowed = bool(
-            own_profile
-            and own_profile.is_program_coordinator
-            and target_profile
-            and own_profile.study_program_id == target_profile.study_program_id
+    is_admin = current_user.role == "admin"
+    own_profile = current_user.lecturer_profile
+    if not is_admin and not (
+        current_user.role == "lecturer"
+        and own_profile is not None
+        and own_profile.is_program_coordinator
+    ):
+        return _deny(
+            "forbidden",
+            "Hanya admin atau PJ prodi pemilik dosen yang dapat melihat ketersediaan ini.",
+            status.HTTP_403_FORBIDDEN,
         )
 
-    if not allowed:
+    target = (
+        await db.execute(
+            select(User)
+            .options(selectinload(User.lecturer_profile))
+            .where(User.user_id == user_id)
+        )
+    ).scalars().first()
+    if target is None or target.lecturer_profile is None:
+        return _deny(
+            "not_found", "Dosen tidak ditemukan.", status.HTTP_404_NOT_FOUND
+        )
+    if not is_admin and (
+        own_profile.study_program_id != target.lecturer_profile.study_program_id
+    ):
         return _deny(
             "forbidden",
             "Hanya admin atau PJ prodi pemilik dosen yang dapat melihat ketersediaan ini.",
