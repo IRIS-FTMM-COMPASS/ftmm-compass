@@ -28,6 +28,7 @@ import {
 
 const IN_PROGRESS_LABEL = "Jadwal masih dalam proses"
 const FINAL_LABEL = "Jadwal final"
+const BOARD_POLL_INTERVAL_MS = 5_000
 
 const DAYS = [
   { day: 1, label: "Senin" },
@@ -85,23 +86,41 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
+  const boardLoadCount = useRef(0)
 
-  const loadBoard = useCallback(async () => {
-    setIsLoading(true)
-    setLoadError(null)
+  const loadBoard = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent === true
+    if (!silent) setIsLoading(true)
+    boardLoadCount.current += 1
     try {
       const response = await schedulingService.getBoard()
       setBoard(response)
+      setLoadError(null)
     } catch (cause) {
-      setLoadError(apiErrorMessage(cause, "Papan jadwal tidak dapat dimuat."))
+      if (!silent) {
+        setLoadError(apiErrorMessage(cause, "Papan jadwal tidak dapat dimuat."))
+      }
     } finally {
-      setIsLoading(false)
+      boardLoadCount.current -= 1
+      if (!silent) setIsLoading(false)
     }
   }, [])
 
   useEffect(() => {
     void loadBoard()
   }, [loadBoard, reloadKey])
+
+  useEffect(() => {
+    let active = true
+    const intervalId = window.setInterval(() => {
+      if (!active || boardLoadCount.current > 0) return
+      void loadBoard({ silent: true })
+    }, BOARD_POLL_INTERVAL_MS)
+    return () => {
+      active = false
+      window.clearInterval(intervalId)
+    }
+  }, [loadBoard])
 
   useEffect(() => {
     let active = true

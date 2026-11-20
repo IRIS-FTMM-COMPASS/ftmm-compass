@@ -449,10 +449,10 @@ async def move_class(
     if room.owner_study_program_id is not None and (
         room.owner_study_program_id not in block.program_ids
     ):
-        return _field_error(
-            "room_id",
-            "Ruang kuliah tidak dimiliki oleh program studi ini.",
+        return _deny(
+            status.HTTP_403_FORBIDDEN,
             "invalid_room_owner",
+            "Ruang kuliah tidak dimiliki oleh program studi ini.",
         )
     capacity = section.capacity or DEFAULT_SECTION_CAPACITY
     if room.capacity < capacity:
@@ -560,7 +560,7 @@ async def finalize_period(
     ]
     if conflicts:
         return error_response(
-            status.HTTP_409_CONFLICT,
+            _UNPROCESSABLE,
             "conflicts_exist",
             "Jadwal prodi masih memiliki bentrok dan belum dapat difinalisasi.",
             conflicts=[conflict.model_dump() for conflict in conflicts],

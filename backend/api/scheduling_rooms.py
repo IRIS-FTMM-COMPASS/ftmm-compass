@@ -82,13 +82,14 @@ def _room_response(room: Room) -> RoomResponse:
 
 
 async def _resolve_program(
-    db: AsyncSession, raw: str, field: str
-) -> uuid.UUID | None | JSONResponse:
-    """Terjemahkan ID prodi opsional; string kosong atau null menghapus pemilik."""
-    if raw == "":
-        return None
+    db: AsyncSession, raw: str | None, field: str
+) -> uuid.UUID | JSONResponse:
+    """Terjemahkan ID prodi pemilik yang wajib; null/kosong ditolak."""
+    value = raw.strip() if isinstance(raw, str) else ""
+    if not value:
+        return _field_error(field, "Program studi pemilik wajib diisi.", "owner_required")
     try:
-        program_id = uuid.UUID(str(raw))
+        program_id = uuid.UUID(value)
     except (ValueError, TypeError, AttributeError):
         return _field_error(field, "Program studi tidak valid.", "invalid_uuid")
     exists = await db.execute(
@@ -151,13 +152,11 @@ async def create_room(
             "Kode ruang sudah digunakan.",
         )
 
-    owner_id = None
-    if payload.owner_study_program_id is not None:
-        owner_id = await _resolve_program(
-            db, payload.owner_study_program_id, "owner_study_program_id"
-        )
-        if isinstance(owner_id, JSONResponse):
-            return owner_id
+    owner_id = await _resolve_program(
+        db, payload.owner_study_program_id, "owner_study_program_id"
+    )
+    if isinstance(owner_id, JSONResponse):
+        return owner_id
 
     room = Room(
         room_code=code,
@@ -215,9 +214,9 @@ async def update_room(
     if payload.is_active is not None:
         room.is_active = payload.is_active
 
-    if payload.owner_study_program_id is not None or await _owner_key_present(request):
+    if await _owner_key_present(request):
         owner_id = await _resolve_program(
-            db, payload.owner_study_program_id or "", "owner_study_program_id"
+            db, payload.owner_study_program_id, "owner_study_program_id"
         )
         if isinstance(owner_id, JSONResponse):
             return owner_id

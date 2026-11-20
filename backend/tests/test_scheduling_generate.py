@@ -1,7 +1,7 @@
 """Uji HTTP untuk pembangkit jadwal, batas kelas, dan diagnosis."""
 
 import uuid
-from datetime import time
+from datetime import datetime, time, timezone
 
 from sqlalchemy import select, text
 
@@ -15,6 +15,8 @@ from models import (
     CourseOfferingEligibility,
     Curriculum,
     CurriculumCourse,
+    ElectiveCourseVote,
+    ElectivePollingPeriod,
     LecturerAvailability,
     OfferingComponent,
     Room,
@@ -32,6 +34,9 @@ def _make_case(
     db_session,
     *,
     course_term=None,
+    course_type="wajib",
+    course_active=True,
+    demand_votes=0,
     capacity=50,
     room_capacity=80,
     room_owner=True,
@@ -99,9 +104,9 @@ def _make_case(
             credits_total=3,
             recommended_semester=2 if effective_term == "genap" else 1,
             term=effective_term,
-            course_type="wajib",
+            course_type=course_type,
             course_scope="program_studi",
-            is_active=True,
+            is_active=course_active,
         )
         db_session.add(curriculum_course)
         await db_session.flush()
@@ -115,16 +120,17 @@ def _make_case(
                     user_id=lecturer.user_id,
                 )
             )
-            if availability is not None:
-                day, start, end = availability
-                db_session.add(
-                    LecturerAvailability(
-                        user_id=lecturer.user_id,
-                        day_of_week=day,
-                        start_hour=start,
-                        end_hour=end,
-                    )
+
+        if availability is not None and lecturer is not None:
+            day, start, end = availability
+            db_session.add(
+                LecturerAvailability(
+                    user_id=lecturer.user_id,
+                    day_of_week=day,
+                    start_hour=start,
+                    end_hour=end,
                 )
+            )
 
         offering = CourseOffering(
             academic_period_id=period.academic_period_id,
@@ -239,13 +245,56 @@ def _make_case(
             await db_session.flush()
             extra_section_id = str(second_section.class_section_id)
 
+        if demand_votes:
+            polling_period = (
+                await db_session.execute(
+                    select(ElectivePollingPeriod)
+                    .where(ElectivePollingPeriod.status == "open")
+                    .order_by(ElectivePollingPeriod.created_at.desc())
+                    .limit(1)
+                )
+            ).scalars().first()
+            if polling_period is None:
+                polling_period = ElectivePollingPeriod(
+                    title=f"Polling Uji {suffix}",
+                    academic_year=str(period.academic_year_start),
+                    target_term=period.term,
+                    target_semester=1,
+                    start_date=period.start_date or datetime.now(timezone.utc),
+                    end_date=period.end_date or datetime.now(timezone.utc),
+                    status="open",
+                )
+                db_session.add(polling_period)
+                await db_session.flush()
+            for index in range(demand_votes):
+                voter = User(
+                    email=f"vote-{suffix}-{index}@ftmm.unair.ac.id",
+                    full_name=f"Pemilih Uji {index}",
+                    role="student",
+                    is_active=True,
+                )
+                db_session.add(voter)
+                await db_session.flush()
+                db_session.add(
+                    ElectiveCourseVote(
+                        polling_period_id=polling_period.polling_period_id,
+                        user_id=voter.user_id,
+                        course_id=str(course.course_id),
+                        course_code=code,
+                        course_name=course.course_name,
+                        credits=3,
+                        priority=index % 3 + 1,
+                    )
+                )
+
         schedule_id = None
+
         if with_schedule:
             schedule = ClassSchedule(
                 class_section_id=section.class_section_id,
                 day_of_week=2,
                 start_time=time(hour=9),
-                end_time=time(hour=12),
+                end_time=time(hour=11, minute=30),
                 room_name="Ruang Lama",
             )
             db_session.add(schedule)
@@ -283,6 +332,7 @@ def _schedules(client, db_session, section_ids):
                 "day": row.day_of_week,
                 "start": row.start_time.hour,
                 "end": row.end_time.hour,
+                "end_minute": row.end_time.minute,
                 "room_id": str(row.room_id) if row.room_id else None,
                 "room_name": row.room_name,
             }
@@ -303,6 +353,33 @@ def _unassigned(body, section_id):
     )
 
 
+def _section_codes(client, db_session, course_id):
+    async def read():
+        component_ids = (
+            await db_session.execute(
+                select(OfferingComponent.offering_component_id)
+                .join(
+                    CourseOffering,
+                    CourseOffering.course_offering_id
+                    == OfferingComponent.course_offering_id,
+                )
+                .where(CourseOffering.course_id == uuid.UUID(course_id))
+            )
+        ).scalars().all()
+        return list(
+            (
+                await db_session.execute(
+                    select(ClassSection.section_code, ClassSection.class_section_id).where(
+                        ClassSection.offering_component_id.in_(component_ids)
+                    )
+                )
+            ).all()
+        )
+
+    return client.portal.call(read)
+
+
+
 def test_generate_assigns_full_hour_block_in_owned_room(client, db_session, admin_headers):
     case = _make_case(client, db_session)
 
@@ -321,6 +398,7 @@ def test_generate_assigns_full_hour_block_in_owned_room(client, db_session, admi
     assert 1 <= schedule["day"] <= 5
     assert 7 <= schedule["start"] <= 16
     assert schedule["end"] == schedule["start"] + 3
+    assert schedule["end_minute"] == 0
     assert schedule["room_id"] in case["room_ids"]
 
 
@@ -351,11 +429,103 @@ def test_generate_reports_capacity_owner_parity_and_availability(
         assert _schedules(client, db_session, [case["section_id"]]) == []
 
 
+def test_demand_sets_one_two_and_three_class_sections(
+    client, db_session, admin_headers
+):
+    for votes, expected_codes in (
+        (0, {"A"}),
+        (41, {"A", "B"}),
+        (81, {"A", "B", "C"}),
+    ):
+        case = _make_case(
+            client, db_session, course_type="pilihan", demand_votes=votes
+        )
+        response = _generate(
+            client,
+            admin_headers,
+            mode="fill_empty",
+            academic_period_id=case["period_id"],
+        )
+        assert response.status_code == 200, response.text
+        rows = _section_codes(client, db_session, case["course_id"])
+        assert {code for code, _ in rows} == expected_codes, rows
+        schedules = _schedules(
+            client, db_session, [str(section_id) for _, section_id in rows]
+        )
+        assert len(schedules) == len(expected_codes), schedules
+
+
+def test_class_count_override_wins_over_demand(client, db_session, admin_headers):
+    case = _make_case(client, db_session, course_type="pilihan", demand_votes=81)
+    payload = {
+        "academic_period_id": case["period_id"],
+        "course_id": case["course_id"],
+        "study_program_id": case["program_id"],
+        "class_count": 1,
+    }
+    override = client.post(
+        PATH + "/class-count-overrides", json=payload, headers=admin_headers
+    )
+    assert override.status_code == 200, override.text
+
+    generated = _generate(
+        client,
+        admin_headers,
+        mode="fill_empty",
+        academic_period_id=case["period_id"],
+    )
+    assert generated.status_code == 200, generated.text
+    rows = _section_codes(client, db_session, case["course_id"])
+    assert {code for code, _ in rows} == {"A"}, rows
+
+
+def test_inactive_curriculum_course_is_never_scheduled(
+    client, db_session, admin_headers
+):
+    case = _make_case(client, db_session, course_active=False)
+    response = _generate(
+        client,
+        admin_headers,
+        mode="fill_empty",
+        academic_period_id=case["period_id"],
+    )
+    assert response.status_code == 200, response.text
+    assert _schedules(client, db_session, [case["section_id"]]) == []
+    item = _unassigned(response.json(), case["section_id"])
+    assert item is not None
+    assert item["reason"] == "mk terkunci"
+    rows = _section_codes(client, db_session, case["course_id"])
+    assert {code for code, _ in rows} == {"A"}, rows
+
+
+def test_mapped_lecturer_without_availability_blocks_section(
+    client, db_session, admin_headers
+):
+    case = _make_case(client, db_session, instructor=True)
+
+    response = _generate(
+        client,
+        admin_headers,
+        mode="fill_empty",
+        academic_period_id=case["period_id"],
+    )
+    assert response.status_code == 200, response.text
+    assert _schedules(client, db_session, [case["section_id"]]) == []
+    item = _unassigned(response.json(), case["section_id"])
+    assert item is not None
+    assert item["reason"] == "tidak ada availabilitas dosen"
+
+
 def test_generate_prevents_lecturer_and_room_double_booking(
     client, db_session, admin_headers
 ):
     lecturer_case = _make_case(
-        client, db_session, instructor=True, extra_section=True, shared_lecturer=True,
+        client,
+        db_session,
+        instructor=True,
+        extra_section=True,
+        shared_lecturer=True,
+        availability=(1, 7, 17),
         room_count=2,
     )
     response = _generate(client, admin_headers, mode="fill_empty")
@@ -432,7 +602,8 @@ def test_full_reset_requires_confirmation_and_admin(client, db_session, admin_he
     schedules = _schedules(client, db_session, [case["section_id"]])
     assert len(schedules) == 1, schedules
     assert schedules[0]["id"] != case["schedule_id"]
-    assert schedules[0]["room_id"] is not None
+    assert schedules[0]["end"] == schedules[0]["start"] + 3
+    assert schedules[0]["end_minute"] == 0
 
 
 def test_fill_empty_keeps_existing_schedule(client, db_session, admin_headers):
@@ -444,7 +615,10 @@ def test_fill_empty_keeps_existing_schedule(client, db_session, admin_headers):
     schedules = _schedules(client, db_session, [case["section_id"]])
     assert len(schedules) == 1
     assert schedules[0]["id"] == case["schedule_id"]
-    assert schedules[0]["room_id"] is None
+    assert schedules[0]["end"] == schedules[0]["start"] + 3
+    assert schedules[0]["end_minute"] == 0
+    assert schedules[0]["day"] == 2
+    assert schedules[0]["start"] == 9
 
 
 def test_class_count_override_bounds_idempotency_and_generation(

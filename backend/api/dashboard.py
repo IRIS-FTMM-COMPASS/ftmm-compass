@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from academics import TOTAL_SKS_FOR_GRADUATION, grade_points
+from api.scheduling_board import _program_statuses
 from auth import get_current_user
 from database import get_db
 from models import (
@@ -18,7 +19,6 @@ from models import (
     DegreePlan,
     DegreePlanItem,
     OfferingComponent,
-    ScheduleProgramStatus,
     StudentCourseRecord,
     StudentProfile as StudentProfileModel,
     StudyProgram,
@@ -106,31 +106,17 @@ async def _student_schedule(db: AsyncSession, user_id) -> list[DashboardSchedule
 
 
 
-async def _schedule_status(db: AsyncSession, current_user: User) -> str:
-    """Status jadwal prodi pengguna pada periode akademik berjalan."""
-    profile = (
-        current_user.student_profile
-        if current_user.role == "student"
-        else current_user.lecturer_profile
-        if current_user.role == "lecturer"
-        else None
-    )
-    if profile is None or profile.study_program_id is None:
-        return status_label("draft")
-
+async def _schedule_status(db: AsyncSession) -> str:
+    """Status global pada Papan Jadwal Bersama: final bila seluruh prodi aktif final."""
     period_id = await current_period_id(db)
     if period_id is None:
         return status_label("draft")
 
-    state = (
-        await db.execute(
-            select(ScheduleProgramStatus.state).where(
-                ScheduleProgramStatus.academic_period_id == period_id,
-                ScheduleProgramStatus.study_program_id == profile.study_program_id,
-            )
-        )
-    ).scalar_one_or_none()
-    return status_label(state or "draft")
+    _, state_by_program = await _program_statuses(db, period_id)
+    all_final = bool(state_by_program) and all(
+        state == "final" for state in state_by_program.values()
+    )
+    return status_label("final") if all_final else status_label("draft")
 
 @router.get("/dashboard/me", response_model=DashboardMeResponse)
 async def get_dashboard_me(
@@ -239,7 +225,7 @@ async def get_dashboard_me(
             ),
             stats=stats,
             schedule=await _student_schedule(db, current_user.user_id),
-            schedule_status=await _schedule_status(db, current_user),
+            schedule_status=await _schedule_status(db),
         )
 
     if current_user.role == "lecturer":
@@ -258,7 +244,7 @@ async def get_dashboard_me(
             email=current_user.email,
             stats=stats,
             schedule=[],
-            schedule_status=await _schedule_status(db, current_user),
+            schedule_status=await _schedule_status(db),
         )
 
     total_students = (

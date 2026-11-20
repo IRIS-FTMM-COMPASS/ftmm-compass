@@ -18,7 +18,7 @@ from models import (
     StudyProgram,
     User,
 )
-from scheduling_common import current_period_id, status_label
+from scheduling_common import all_study_program_ids, current_period_id, status_label
 from tests.conftest import SEEDED_LECTURER, SEEDED_STUDENT
 
 V1 = "/api/v1"
@@ -204,6 +204,11 @@ def test_dashboard_exposes_schedule_status(
         assert status == status_label("draft")
 
     client.portal.call(_finalize_student_program, db_session)
+    partial = client.get(f"{V1}/dashboard/me", headers=student_headers)
+    assert partial.status_code == 200
+    assert partial.json()["schedule_status"] == status_label("draft")
+
+    client.portal.call(_finalize_all_programs, db_session)
     finalized = client.get(f"{V1}/dashboard/me", headers=student_headers)
     assert finalized.status_code == 200
     assert finalized.json()["schedule_status"] == status_label("final")
@@ -363,4 +368,28 @@ async def _finalize_student_program(db_session):
         )
     else:
         row.state = "final"
+    await db_session.commit()
+
+
+async def _finalize_all_programs(db_session):
+    period_id = await current_period_id(db_session)
+    for program_id in await all_study_program_ids(db_session):
+        row = (
+            await db_session.execute(
+                select(ScheduleProgramStatus).where(
+                    ScheduleProgramStatus.academic_period_id == period_id,
+                    ScheduleProgramStatus.study_program_id == program_id,
+                )
+            )
+        ).scalars().first()
+        if row is None:
+            db_session.add(
+                ScheduleProgramStatus(
+                    academic_period_id=period_id,
+                    study_program_id=program_id,
+                    state="final",
+                )
+            )
+        else:
+            row.state = "final"
     await db_session.commit()

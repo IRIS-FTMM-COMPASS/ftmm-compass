@@ -11,9 +11,10 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, time, timezone
+from math import ceil
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import (
@@ -27,12 +28,17 @@ from models import (
     CourseOfferingEligibility,
     Curriculum,
     CurriculumCourse,
+    ElectiveCourseVote,
+    ElectivePollingPeriod,
     LecturerAvailability,
     OfferingComponent,
     Room,
     ScheduleRun,
+    StudentCourseRecord,
+    StudentProfile,
     StudyProgram,
     UnassignedClass,
+    User,
 )
 from schemas import BoardConflictItem, GenerateResponse, UnassignedItem
 from scheduling_common import (
@@ -44,10 +50,11 @@ from scheduling_common import (
 )
 
 REASON_CAPACITY = "kapasitas ruang"
+REASON_LOCKED = "mk terkunci"
+REASON_NO_AVAILABILITY = "tidak ada availabilitas dosen"
 REASON_LECTURER = "dosen tidak tersedia"
 REASON_NO_ROOM = "tidak ada ruang milik prodi"
 REASON_PARITY = "paritas tidak sesuai"
-
 DEFAULT_SECTION_CAPACITY = 40
 SECTION_LETTERS = ("A", "B", "C")
 MAX_SEARCH_NODES = 30_000
@@ -119,7 +126,7 @@ def _lecturer_is_free(
 ) -> bool:
     for user_id in lecturers:
         windows = availability.get(user_id, ())
-        if windows and not any(
+        if not windows or not any(
             window.day == day and window.start <= start and end <= window.end
             for window in windows
         ):
@@ -134,6 +141,9 @@ def _candidates(
 ) -> tuple[list[Placement], str | None]:
     """Kandidat blok untuk satu kelas, atau alasan mengapa tidak ada."""
     rooms = rooms_by_program.get(task.study_program_id, ())
+    if any(not availability.get(user_id) for user_id in task.lecturers):
+        return [], REASON_NO_AVAILABILITY
+
     if not rooms:
         return [], REASON_NO_ROOM
 
@@ -343,37 +353,161 @@ async def _period_section_ids(db: AsyncSession, period_id: UUID) -> list[UUID]:
     return list(result.scalars().all())
 
 
+async def _demand_class_counts(
+    db: AsyncSession,
+    period: AcademicPeriod,
+    eligible_by_offering: dict[UUID, list[_Eligibility]],
+    course_by_offering: dict[UUID, Course],
+) -> dict[tuple[UUID, UUID], int]:
+    """Hitung Kelas MK yang dibutuhkan dari peminat; kuota 40 per kelas."""
+    codes_by_target: dict[tuple[UUID, UUID], set[str]] = defaultdict(set)
+    failed_ids_by_target: dict[tuple[UUID, UUID], set[UUID]] = defaultdict(set)
+    program_ids: set[UUID] = set()
+    for offering_id, rows in eligible_by_offering.items():
+        course = course_by_offering.get(offering_id)
+        if course is None:
+            continue
+        for row in rows:
+            if not row.course.is_active or not _parity_matches(row.course.term, period.term):
+                continue
+            course_type = (row.course.course_type or "").strip().lower()
+            target = (course.course_id, row.program.study_program_id)
+            if course_type in {"pilihan", "pilihan_terbatas"}:
+                codes_by_target[target].add(course.course_code)
+            elif course_type == "wajib":
+                failed_ids_by_target[target].add(row.course.curriculum_course_id)
+            else:
+                continue
+            program_ids.add(row.program.study_program_id)
+
+    codes = {code for values in codes_by_target.values() for code in values}
+    votes_by_code: dict[str, int] = {}
+    if codes:
+        polling_period = (
+            await db.execute(
+                select(ElectivePollingPeriod)
+                .where(ElectivePollingPeriod.status == "open")
+                .order_by(ElectivePollingPeriod.created_at.desc())
+                .limit(1)
+            )
+        ).scalars().first()
+        if polling_period is None:
+            polling_period = (
+                await db.execute(
+                    select(ElectivePollingPeriod)
+                    .order_by(ElectivePollingPeriod.created_at.desc())
+                    .limit(1)
+                )
+            ).scalars().first()
+        if polling_period is not None:
+            vote_rows = (
+                await db.execute(
+                    select(
+                        ElectiveCourseVote.course_code,
+                        func.count(ElectiveCourseVote.vote_id),
+                    )
+                    .where(
+                        ElectiveCourseVote.polling_period_id
+                        == polling_period.polling_period_id,
+                        ElectiveCourseVote.course_code.in_(codes),
+                    )
+                    .group_by(ElectiveCourseVote.course_code)
+                )
+            ).all()
+            votes_by_code = {code: count for code, count in vote_rows}
+
+    failed_ids = {
+        course_id for values in failed_ids_by_target.values() for course_id in values
+    }
+    failed_by_course: dict[UUID, int] = {}
+    if failed_ids:
+        failed_rows = (
+            await db.execute(
+                select(
+                    StudentCourseRecord.curriculum_course_id,
+                    func.count(StudentCourseRecord.student_course_record_id),
+                )
+                .where(
+                    StudentCourseRecord.curriculum_course_id.in_(failed_ids),
+                    StudentCourseRecord.record_status == "failed",
+                )
+                .group_by(StudentCourseRecord.curriculum_course_id)
+            )
+        ).all()
+        failed_by_course = {course_id: count for course_id, count in failed_rows}
+
+    students_by_program: dict[UUID, int] = {}
+    if program_ids:
+        student_rows = (
+            await db.execute(
+                select(
+                    StudentProfile.study_program_id,
+                    func.count(StudentProfile.user_id),
+                )
+                .join(User, User.user_id == StudentProfile.user_id)
+                .where(
+                    StudentProfile.study_program_id.in_(program_ids),
+                    User.is_active.is_(True),
+                )
+                .group_by(StudentProfile.study_program_id)
+            )
+        ).all()
+        students_by_program = {program_id: count for program_id, count in student_rows}
+
+    counts: dict[tuple[UUID, UUID], int] = {}
+    for target in set(codes_by_target) | set(failed_ids_by_target):
+        expected = sum(votes_by_code.get(code, 0) for code in codes_by_target[target])
+        expected += sum(
+            failed_by_course.get(course_id, 0)
+            for course_id in failed_ids_by_target[target]
+        )
+        expected += students_by_program.get(target[1], 0)
+        counts[target] = min(max(ceil(expected / DEFAULT_SECTION_CAPACITY), 1), 3)
+    return counts
+
+
 async def _create_override_sections(
     db: AsyncSession,
-    period_id: UUID,
+    period: AcademicPeriod,
     eligible_by_offering: dict[UUID, list[_Eligibility]],
     components: dict[UUID, list[OfferingComponent]],
+    demand_counts: dict[tuple[UUID, UUID], int] | None = None,
 ) -> int:
+    """Buat Kelas MK tambahan sesuai override atau kebutuhan peminat."""
+    class_counts: dict[tuple[UUID, UUID], int] = dict(demand_counts or {})
     overrides = (
         await db.execute(
             select(ClassCountOverride).where(
-                ClassCountOverride.academic_period_id == period_id
+                ClassCountOverride.academic_period_id == period.academic_period_id
             )
         )
     ).scalars().all()
-    if not overrides:
+    for override in overrides:
+        class_counts[(override.course_id, override.study_program_id)] = min(
+            max(override.class_count, 1), 3
+        )
+    if not class_counts:
         return 0
 
     created = 0
-    for override in overrides:
-        matching_offering = next(
-            (
-                offering_id
-                for offering_id, rows in eligible_by_offering.items()
-                if any(
-                    row.course.course_id == override.course_id
-                    and row.program.study_program_id == override.study_program_id
-                    for row in rows
-                )
-            ),
-            None,
-        )
-        if matching_offering is None:
+    for (course_id, program_id), target_count in class_counts.items():
+        matching_offering: UUID | None = None
+        has_active_eligibility = False
+        for offering_id, rows in eligible_by_offering.items():
+            matched = [
+                row
+                for row in rows
+                if row.course.course_id == course_id
+                and row.program.study_program_id == program_id
+            ]
+            if not matched:
+                continue
+            if matching_offering is None:
+                matching_offering = offering_id
+            if any(row.course.is_active for row in matched):
+                has_active_eligibility = True
+                break
+        if matching_offering is None or not has_active_eligibility:
             continue
         component = next(iter(components.get(matching_offering, ())), None)
         if component is None:
@@ -389,8 +523,8 @@ async def _create_override_sections(
                 )
             ).scalars().all()
         )
-        needed = min(max(override.class_count, 1), 3) - len(existing_codes)
-        for index in range(max(needed, 0)):
+        needed = target_count - len(existing_codes)
+        for _ in range(max(needed, 0)):
             letter = next(
                 (code for code in SECTION_LETTERS if code not in existing_codes),
                 None,
@@ -533,8 +667,15 @@ async def generate_schedule(
                 component.course_offering_id
             )
 
+    demand_counts = await _demand_class_counts(
+        db, period, eligible_by_offering, course_by_offering
+    )
     created_sections = await _create_override_sections(
-        db, period.academic_period_id, eligible_by_offering, components_by_offering
+        db,
+        period,
+        eligible_by_offering,
+        components_by_offering,
+        demand_counts,
     )
 
     sections: list[ClassSection] = []
@@ -614,9 +755,16 @@ async def generate_schedule(
         )
         blocked_reason: str | None = None
         if not matching:
-            blocked_reason = REASON_NO_ROOM if not eligibilities else REASON_PARITY
+            if eligibilities and all(not row.course.is_active for row in eligibilities):
+                blocked_reason = REASON_LOCKED
+            else:
+                blocked_reason = REASON_NO_ROOM if not eligibilities else REASON_PARITY
         elif not is_valid_block(START_HOUR_MIN, credits):
             blocked_reason = REASON_PARITY
+        elif lecturers and any(
+            not availability_by_user.get(user_id) for user_id in lecturers
+        ):
+            blocked_reason = REASON_NO_AVAILABILITY
 
         task = ClassTask(
             section_id=section.class_section_id,
@@ -635,6 +783,7 @@ async def generate_schedule(
 
     occupied: list[Block] = []
     filled: set[UUID] = set()
+    normalized = False
     if sections:
         existing_schedules = (
             await db.execute(
@@ -650,7 +799,17 @@ async def generate_schedule(
         for schedule in existing_schedules:
             filled.add(schedule.class_section_id)
             task = task_by_section.get(schedule.class_section_id)
-            end = schedule.end_time.hour + (1 if schedule.end_time.minute else 0)
+            # ADR 0004: blok lama 100/150 menit dipersistenkan ke jam penuh.
+            credits = task.credits if task is not None else 0
+            if is_valid_block(schedule.start_time.hour, credits):
+                end = hour_end(schedule.start_time.hour, credits)
+            else:
+                end = schedule.end_time.hour + (1 if schedule.end_time.minute else 0)
+                end = max(schedule.start_time.hour + 1, min(end, 23))
+            normalized_end = time(hour=end)
+            if schedule.end_time != normalized_end:
+                schedule.end_time = normalized_end
+                normalized = True
             occupied.append(
                 Block(
                     day=schedule.day_of_week,
@@ -661,6 +820,8 @@ async def generate_schedule(
                     section_id=schedule.class_section_id,
                 )
             )
+    if normalized:
+        await db.flush()
 
     result = solve(
         [task for task in tasks if task.section_id not in filled],

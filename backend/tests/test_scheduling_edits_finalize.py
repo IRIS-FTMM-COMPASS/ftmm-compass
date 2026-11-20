@@ -337,21 +337,31 @@ def test_conflicting_move_is_saved_reported_and_audited(
     client.portal.call(inspect)
 
 
+def test_move_denied_for_room_of_other_prodi(client, pj_headers, scheduling_data):
+    data = scheduling_data
+    response = client.patch(
+        f"{BASE}/classes/{data['section_a']}",
+        json=_move_payload(data, room_id=data["room_trkb"]),
+        headers=pj_headers,
+    )
+    assert response.status_code == 403, response.text
+    assert response.json()["error"]["code"] == "invalid_room_owner"
+
+
 @pytest.mark.parametrize(
     ("field", "override", "expected_detail"),
     [
-        ("room_id", {"room_id": "TRKB"}, "invalid_room_owner"),
         ("room_id", {"room_id": "SMALL"}, "insufficient_capacity"),
         ("start_hour", {"start": 16}, "invalid_time_block"),
         ("reason", {"reason": "   "}, "required"),
     ],
 )
-def test_move_validates_owner_capacity_block_and_reason(
+def test_move_validates_capacity_block_and_reason(
     client, pj_headers, scheduling_data, field, override, expected_detail
 ):
     data = scheduling_data
     payload = _move_payload(data, **override)
-    if override.get("room_id") in {"TRKB", "SMALL"}:
+    if override.get("room_id") == "SMALL":
         payload["room_id"] = data[f"room_{override['room_id'].lower()}"]
     response = client.patch(
         f"{BASE}/classes/{data['section_a']}",
@@ -389,7 +399,7 @@ def test_finalize_blocked_by_conflict_and_scoped_to_own_prodi(
     blocked = client.post(
         f"{BASE}/periods/{data['period_id']}/finalize", headers=pj_headers
     )
-    assert blocked.status_code == 409, blocked.text
+    assert blocked.status_code == 422, blocked.text
     assert blocked.json()["error"]["code"] == "conflicts_exist"
 
     allowed = client.post(
