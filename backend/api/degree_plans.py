@@ -8,8 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import get_current_user
 from database import get_db
-from models import User
-from catalog import get_courses_for_curriculum
+from models import Curriculum, StudyProgram, User
+from catalog import get_courses_for_curriculum, normalize_prodi
+from prodi_access import resolve_catalog_prodi
 from plan_storage import (
     PLAN_LIMIT,
     AssignmentNotCurrent,
@@ -153,9 +154,32 @@ async def get_degree_plan_catalog(
         assignment = await ensure_assignment(db, current_user)
     except NoCurriculumAssignment:
         return _item_error(NoCurriculumAssignment())
-    return DegreePlanCatalogResponse(
-        data=await get_courses_for_curriculum(db, assignment.curriculum_id)
-    )
+
+    scoped = resolve_catalog_prodi(current_user)
+    if isinstance(scoped, JSONResponse):
+        return scoped
+
+    scoped_prodi = normalize_prodi(scoped) if scoped is not None else None
+    if scoped is not None:
+        curriculum = await db.get(Curriculum, assignment.curriculum_id)
+        program = (
+            await db.get(StudyProgram, curriculum.study_program_id)
+            if curriculum is not None
+            else None
+        )
+        if program is None or normalize_prodi(program.program_name) != scoped_prodi:
+            return _fail(
+                status.HTTP_403_FORBIDDEN,
+                "akses_prodi_ditolak",
+                "Katalog yang diminta tidak sesuai dengan prodi akun Anda.",
+            )
+
+    courses = await get_courses_for_curriculum(db, assignment.curriculum_id)
+    if scoped is not None:
+        courses = [
+            course for course in courses if normalize_prodi(course.program) == scoped_prodi
+        ]
+    return DegreePlanCatalogResponse(data=courses)
 
 
 @router.get("/degree-plans/{plan_id}", response_model=DegreePlanResponse)

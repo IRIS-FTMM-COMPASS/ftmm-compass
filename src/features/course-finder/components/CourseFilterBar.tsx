@@ -49,6 +49,15 @@ export default function CourseFilterBar({
     courses,
   } = filters
 
+  const isProdiScoped =
+    currentUser?.role === "student" ||
+    (currentUser?.role === "lecturer" &&
+      currentUser?.is_program_coordinator === true)
+  const scopedProdi =
+    currentUser?.student_profile?.study_program ??
+    currentUser?.unit_name ??
+    "Program Studi"
+
   return (
     <div className="bg-surface rounded-xl border border-border shadow-sm p-4 mb-4 space-y-3.5 flex-shrink-0">
       <div className="flex items-center gap-3">
@@ -74,44 +83,52 @@ export default function CourseFilterBar({
         )}
       </div>
 
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-        <button
-          type="button"
-          onClick={() => setActiveProgram("all")}
-          className={cn(
-            "min-h-11 min-w-11 px-3 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 flex-shrink-0",
-            activeProgram === "all"
-              ? "bg-gold text-white shadow-xs font-semibold"
-              : "bg-surface border border-border text-muted hover:text-navy hover:bg-navy/5",
-          )}
-        >
-          <Layers className="w-3.5 h-3.5" />
-          <span>Semua Program</span>
-        </button>
-        {availablePrograms.map((p) => {
-          const abbr = getProdiAbbreviation(p)
-          const isActive = activeProgram === p
-          return (
-            <button
-              key={p}
-              type="button"
-              onClick={() => setActiveProgram(p)}
-              title={p}
-              className={cn(
-                "min-h-11 min-w-11 px-3 rounded-lg text-xs whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 flex-shrink-0",
-                isActive
-                  ? "bg-navy text-white shadow-xs font-bold"
-                  : "bg-surface border border-border text-muted hover:text-navy hover:bg-navy/5",
-              )}
-            >
-              <span className="font-mono font-bold">{abbr}</span>
-              <span className="hidden sm:inline font-normal text-[11px] opacity-80">
-                &bull; {p}
-              </span>
-            </button>
-          )
-        })}
-      </div>
+      {isProdiScoped && (
+        <div className="inline-flex min-h-11 w-fit items-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-medium text-navy">
+          <Layers className="w-3.5 h-3.5 text-muted" />
+          <span>{scopedProdi}</span>
+        </div>
+      )}
+      {!isProdiScoped && (
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+          <button
+            type="button"
+            onClick={() => setActiveProgram("all")}
+            className={cn(
+              "min-h-11 min-w-11 px-3 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 flex-shrink-0",
+              activeProgram === "all"
+                ? "bg-gold text-white shadow-xs font-semibold"
+                : "bg-surface border border-border text-muted hover:text-navy hover:bg-navy/5",
+            )}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>Semua Program</span>
+          </button>
+          {availablePrograms.map((p) => {
+            const abbr = getProdiAbbreviation(p)
+            const isActive = activeProgram === p
+            return (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setActiveProgram(p)}
+                title={p}
+                className={cn(
+                  "min-h-11 min-w-11 px-3 rounded-lg text-xs whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 flex-shrink-0",
+                  isActive
+                    ? "bg-navy text-white shadow-xs font-bold"
+                    : "bg-surface border border-border text-muted hover:text-navy hover:bg-navy/5",
+                )}
+              >
+                <span className="font-mono font-bold">{abbr}</span>
+                <span className="hidden sm:inline font-normal text-[11px] opacity-80">
+                  &bull; {p}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-border/50 text-xs">
         <div className="flex flex-wrap items-center gap-2">

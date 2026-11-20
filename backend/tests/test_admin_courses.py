@@ -45,8 +45,8 @@ def temp_course(client, admin_headers):
     client.delete(f"/api/v1/admin/courses/{code}", headers=admin_headers)
 
 
-def test_admin_create_appears_in_catalog(client, temp_course):
-    body = client.get("/api/v1/courses", params={"q": "Mata Kuliah Uji"}).json()
+def test_admin_create_appears_in_catalog(client, admin_headers, temp_course):
+    body = client.get("/api/v1/courses", params={"q": "Mata Kuliah Uji"}, headers=admin_headers).json()
     assert any(course["code"] == temp_course for course in body["courses"])
 
 
@@ -86,7 +86,7 @@ def test_admin_write_requires_admin_role(client, student_headers):
 def test_admin_create_persists_prerequisites_read_via_detail(client, admin_headers):
     code = _create_course(client, admin_headers, prerequisites=["SID206"])
     try:
-        response = client.get(f"/api/v1/courses/{code}")
+        response = client.get(f"/api/v1/courses/{code}", headers=admin_headers)
         assert response.status_code == 200
         assert response.json()["prerequisites"] == ["Pengantar Basis Data"]
     finally:
@@ -110,7 +110,7 @@ def test_admin_update_persists_prerequisites_and_refreshes_catalog(
         assert response.status_code == 200
         assert response.json()["name"] == "Mata Kuliah Uji Revisi"
 
-        detail = client.get(f"/api/v1/courses/{code}").json()
+        detail = client.get(f"/api/v1/courses/{code}", headers=admin_headers).json()
         assert detail["credits"] == 4
         assert set(detail["prerequisites"]) == {
             "Eksplorasi dan Visualisasi Data",
@@ -118,7 +118,7 @@ def test_admin_update_persists_prerequisites_and_refreshes_catalog(
         }
 
         listing = client.get(
-            "/api/v1/courses", params={"q": "Mata Kuliah Uji Revisi"}
+            "/api/v1/courses", params={"q": "Mata Kuliah Uji Revisi"}, headers=admin_headers
         ).json()
         assert any(
             course["code"] == code and course["credits"] == 4

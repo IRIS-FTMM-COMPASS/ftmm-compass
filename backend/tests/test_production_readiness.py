@@ -203,12 +203,16 @@ def test_root_and_version_info_match_across_route_tiers(client):
     assert payloads[0]["api_version"] == "v1"
 
 
-def test_course_search_matches_across_route_tiers(client):
+def test_course_search_matches_across_route_tiers(client, admin_headers):
     original = settings.CHATBOT_SERVICE_URL
     settings.CHATBOT_SERVICE_URL = "http://127.0.0.1:59999"
     try:
-        canonical = client.get("/api/v1/courses/search", params={"q": "AGI101"})
-        legacy = client.get("/api/courses/search", params={"q": "AGI101"})
+        canonical = client.get(
+            "/api/v1/courses/search", params={"q": "AGI101"}, headers=admin_headers
+        )
+        legacy = client.get(
+            "/api/courses/search", params={"q": "AGI101"}, headers=admin_headers
+        )
     finally:
         settings.CHATBOT_SERVICE_URL = original
 

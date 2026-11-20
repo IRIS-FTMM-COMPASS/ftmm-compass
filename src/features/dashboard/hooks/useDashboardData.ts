@@ -67,12 +67,18 @@ export function useDashboardData(user: AuthUser | null) {
     }
   }, [user, attempt])
 
+  useEffect(() => {
+    window.addEventListener("timetable-updated", retry)
+    return () => window.removeEventListener("timetable-updated", retry)
+  }, [retry])
+
   const displayedSchedule = useMemo<ScheduleItem[]>(() => {
     if (user?.role === "admin") return []
-    if (schedule.length > 0) return schedule
-    return (dashboardData?.schedule ?? [])
+    const apiSchedule = (dashboardData?.schedule ?? [])
       .map(toScheduleItem)
       .filter((item): item is ScheduleItem => item !== null)
+    if (apiSchedule.length > 0) return apiSchedule
+    return schedule
   }, [user?.role, dashboardData, schedule])
 
   const hasConflict = displayedSchedule.some((item) => item.conflict)

@@ -114,7 +114,7 @@ def auth_rate_limit(rate: str):
 
 def _field_error(field: str, message: str, code: str) -> JSONResponse:
     return error_response(
-        getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", status.HTTP_422_UNPROCESSABLE_ENTITY),
+        getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", 422),
         "validation_error",
         "Data yang dikirim tidak valid.",
         detail="Data yang dikirim tidak valid.",
@@ -595,7 +595,7 @@ async def update_account(
             getattr(
                 status,
                 "HTTP_422_UNPROCESSABLE_CONTENT",
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                422,
             ),
             "validation_error",
             reason_message,

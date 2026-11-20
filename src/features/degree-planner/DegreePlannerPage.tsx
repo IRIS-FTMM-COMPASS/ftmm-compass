@@ -3,11 +3,12 @@ import { BookOpen, Calendar } from "lucide-react"
 import { cn } from "@/shared/utils"
 import {
   Course,
-  TIMETABLE_DAYS,
+  type CourseOffering,
   type ClassSection,
   formatTime,
   getOfferingForCourse,
   ScheduleItem,
+  TIMETABLE_DAYS,
 } from "@/shared/domain/models"
 import { SEMESTERS } from "@/shared/domain/academics"
 import { courseReligion } from "@/shared/domain/course"
@@ -51,8 +52,35 @@ import {
   type PlanValidationResult,
 } from "@/features/degree-planner/services/planValidationService"
 import { useReloadableFetch } from "@/features/degree-planner/state/useReloadableFetch"
+import {
+  timetableService,
+  type TimetableSelectionInput,
+} from "@/features/degree-planner/services/timetableService"
 
 const EMPTY_SECTIONS: Record<string, ClassSection[]> = {}
+
+function buildTimetableSelections(
+  codes: string[],
+  offerings: CourseOffering[],
+  selectedSections: Record<string, string>,
+): TimetableSelectionInput[] {
+  return codes.flatMap((code) => {
+    const offering = offerings.find((item) => item.courseCode === code)
+    const sectionId = offering
+      ? (selectedSections[offering.courseId] ??
+        selectedSections[code] ??
+        offering.sections[0]?.sectionId)
+      : selectedSections[code]
+    return sectionId ? [{ course_code: code, section_id: sectionId }] : []
+  })
+}
+
+function selectionSignature(selections: TimetableSelectionInput[]): string {
+  return selections
+    .map((selection) => `${selection.course_code}:${selection.section_id}`)
+    .sort()
+    .join("|")
+}
 
 export type { PlacedCourse } from "@/features/degree-planner/types"
 
@@ -85,6 +113,7 @@ export default function DegreePlanner({
     courses: catalog,
     activeDraftId,
     plan,
+    isLoading,
     setPlan,
     switchDraft,
     createDraft,
@@ -128,6 +157,33 @@ export default function DegreePlanner({
   const [activeTimetableSem, setActiveTimetableSem] = useState<number>(() =>
     Math.min(8, Math.max(1, user?.student_profile?.current_semester ?? 1)),
   )
+  const [timetableSemesterResolved, setTimetableSemesterResolved] =
+    useState(false)
+  const timetableSemesterResolvedRef = useRef(false)
+
+  useEffect(() => {
+    if (timetableSemesterResolvedRef.current || isLoading) return
+    // The plan is only meaningful once drafts have been loaded from the
+    // server. While the session is still resolving the drafts are empty, so
+    // resolving here would be one-shot and skip the semester switch below.
+    if (drafts.length === 0 && !activeDraftId) return
+    timetableSemesterResolvedRef.current = true
+
+    // A saved plan can place courses outside the student's current semester.
+    const firstPopulated = SEMESTERS.find((sem) => (plan[sem]?.length ?? 0) > 0)
+    if (firstPopulated === undefined) {
+      // Every loaded draft is empty. Keep the current semester, but seed the
+      // saved signature so hydration cannot send a destructive empty PUT that
+      // would wipe a previously saved timetable.
+      timetableSavedSignatureRef.current = effectiveSignature
+    } else if ((plan[activeTimetableSem]?.length ?? 0) === 0) {
+      // Switch before hydration/autosave are enabled so saved sections are
+      // restored for the populated semester instead of an empty one.
+      setActiveTimetableSem(firstPopulated)
+    }
+    setTimetableSemesterResolved(true)
+  }, [isLoading, plan, activeTimetableSem, drafts.length, activeDraftId])
+
   const [selectedSections, setSelectedSections] =
     useState<Record<string, string>>({})
   const [planValidation, setPlanValidation] =
@@ -137,6 +193,13 @@ export default function DegreePlanner({
     null,
   )
   const planValidationController = useRef<AbortController | null>(null)
+  const [timetableSaveStatus, setTimetableSaveStatus] =
+    useState<"idle" | "saving" | "saved" | "error">("idle")
+  const timetableHydratedRef = useRef(false)
+  const [timetableHydrated, setTimetableHydrated] = useState(false)
+  const timetableSavedSignatureRef = useRef<string | null>(null)
+  const timetableTouchedRef = useRef(false)
+  const timetableMountedRef = useRef(true)
   const activeReligion = useMemo(() => {
     const completed = Object.values(completedBySemester).flat()
     for (const courses of [...Object.values(plan), completed]) {
@@ -443,6 +506,121 @@ export default function DegreePlanner({
       ),
     [currentTimetableCourses, sectionsByCourse],
   )
+  const effectiveSelections = useMemo(
+    () => buildTimetableSelections(timetableCodes, offerings, selectedSections),
+    [timetableCodes, offerings, selectedSections],
+  )
+  const effectiveSignature = useMemo(
+    () => selectionSignature(effectiveSelections),
+    [effectiveSelections],
+  )
+
+  useEffect(() => {
+    timetableMountedRef.current = true
+    return () => {
+      timetableMountedRef.current = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!timetableSemesterResolved || timetableHydratedRef.current) return
+    // The initial empty fetch leaves stale section data; wait for the
+    // resolved semester's sections before hydrating saved selections.
+    if (
+      sectionsState.status !== "ready" ||
+      !timetableCodes.every((code) => sectionsByCourse[code] !== undefined)
+    ) {
+      return
+    }
+
+    // Nothing to hydrate from the API. Mark hydration complete so an empty
+    // selection set can still be persisted to clear a stale timetable.
+    if (
+      timetableCodes.length === 0 ||
+      !offerings.some((offering) => offering.sections.length > 0)
+    ) {
+      timetableHydratedRef.current = true
+      setTimetableHydrated(true)
+      return
+    }
+
+    timetableHydratedRef.current = true
+    if (timetableTouchedRef.current) {
+      setTimetableHydrated(true)
+      return
+    }
+
+    timetableService
+      .get()
+      .then((response) => {
+        if (!timetableMountedRef.current || timetableTouchedRef.current) {
+          return
+        }
+        const savedByCode = new Map(
+          response.selections
+            .filter((item) => timetableCodes.includes(item.course_code))
+            .map((item) => [item.course_code, item.section_id] as const),
+        )
+        if (savedByCode.size > 0) {
+          const restoredEntries: Record<string, string> = {}
+          offerings.forEach((offering) => {
+            const sectionId = savedByCode.get(offering.courseCode)
+            if (sectionId) restoredEntries[offering.courseId] = sectionId
+          })
+          timetableSavedSignatureRef.current = selectionSignature(
+            buildTimetableSelections(timetableCodes, offerings, {
+              ...selectedSections,
+              ...restoredEntries,
+            }),
+          )
+          setSelectedSections((prev) => {
+            if (timetableTouchedRef.current) return prev
+            return { ...prev, ...restoredEntries }
+          })
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (timetableMountedRef.current) setTimetableHydrated(true)
+      })
+  }, [
+    timetableSemesterResolved,
+    sectionsState.status,
+    timetableCodes,
+    offerings,
+    selectedSections,
+    sectionsByCourse,
+  ])
+
+  useEffect(() => {
+    if (!timetableSemesterResolved || !timetableHydrated) return
+    if (effectiveSignature === timetableSavedSignatureRef.current) return
+
+    const controller = new AbortController()
+    setTimetableSaveStatus("saving")
+    const timer = window.setTimeout(() => {
+      timetableService
+        .replace(effectiveSelections, controller.signal)
+        .then(() => {
+          if (controller.signal.aborted) return
+          timetableSavedSignatureRef.current = effectiveSignature
+          setTimetableSaveStatus("saved")
+          window.dispatchEvent(new Event("timetable-updated"))
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) setTimetableSaveStatus("error")
+        })
+    }, 500)
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [
+    timetableSemesterResolved,
+    timetableHydrated,
+    effectiveSignature,
+    effectiveSelections,
+  ])
 
   const validationState = useReloadableFetch<ScheduleValidationResult>(
     (signal) => {
@@ -529,6 +707,7 @@ export default function DegreePlanner({
   }, [dynamicSchedule, setSchedule])
 
   const handleSelectSection = (courseId: string, sectionId: string) => {
+    timetableTouchedRef.current = true
     setSelectedSections((prev) => ({
       ...prev,
       [courseId]: sectionId,
@@ -541,6 +720,7 @@ export default function DegreePlanner({
     )
     if (!offering) return
 
+    timetableTouchedRef.current = true
     sectionsState.update((prev) => {
       const current = prev?.[alternative.courseCode] ?? []
       if (current.some((s) => s.sectionId === alternative.section.sectionId)) {
@@ -808,6 +988,24 @@ export default function DegreePlanner({
                 Konfigurasikan kelas perkuliahan mahasiswa untuk melihat jadwal
                 mingguan dan menyelesaikan bentrok waktu.
               </p>
+              {timetableSaveStatus !== "idle" && (
+                <p
+                  role="status"
+                  aria-live="polite"
+                  className={cn(
+                    "mt-1 text-xs font-medium",
+                    timetableSaveStatus === "saving" && "text-muted",
+                    timetableSaveStatus === "saved" && "text-navy",
+                    timetableSaveStatus === "error" && "text-orange",
+                  )}
+                >
+                  {timetableSaveStatus === "saving"
+                    ? "Menyimpan jadwal…"
+                    : timetableSaveStatus === "saved"
+                      ? "Jadwal tersimpan"
+                      : "Gagal menyimpan jadwal"}
+                </p>
+              )}
             </div>
             <SemesterSwitcher
               id="timetable-semester"

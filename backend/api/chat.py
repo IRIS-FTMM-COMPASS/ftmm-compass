@@ -23,9 +23,14 @@ from schemas import (
 from database import AsyncSessionLocal
 from models import (
     ChatLog,
+    LecturerProfile,
+    StudentProfile as StudentProfileModel,
     User,
 )
 from auth import SECRET_KEY, ALGORITHM, get_current_user
+from catalog import normalize_prodi
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from rate_limit import limiter
 from stream_control import stream_tracker
@@ -51,6 +56,37 @@ def _check_circular_url(service_url: str):
         )
 
 
+async def _chat_scope(user_id: uuid.UUID) -> tuple[str | None, bool]:
+    """Ambil (prodi kanonik, pembatasan scope) dari profil pengguna di database."""
+    stmt = (
+        select(User)
+        .options(
+            selectinload(User.student_profile).selectinload(StudentProfileModel.study_program),
+            selectinload(User.lecturer_profile).selectinload(LecturerProfile.study_program),
+        )
+        .where(User.user_id == user_id)
+    )
+    async with AsyncSessionLocal() as db_session:
+        result = await db_session.execute(stmt)
+        user = result.scalars().first()
+        if user is None:
+            return None, False
+        if user.role == "student":
+            profile = user.student_profile
+            if profile is None or profile.study_program is None:
+                return None, True
+            program = profile.study_program
+            return normalize_prodi(program.program_name) or program.program_code, True
+        if user.role == "lecturer":
+            profile = user.lecturer_profile
+            if (
+                profile is not None
+                and profile.is_program_coordinator
+                and profile.study_program is not None
+            ):
+                program = profile.study_program
+                return normalize_prodi(program.program_name) or program.program_code, True
+        return None, False
 
 
 def _resolve_user_id(request_data: ChatRequest, client_request: Request | None = None) -> uuid.UUID | None:
@@ -104,6 +140,11 @@ async def handle_chat(request: ChatRequest, client_request: Request | None = Non
     start_time = time.perf_counter()
     session_id = request.session_id or (client_request.headers.get("x-session-id") if client_request else None) or "default"
     user_id = _resolve_user_id(request, client_request)
+    scoped_prodi, is_scoped = await _chat_scope(user_id) if user_id else (None, False)
+    if is_scoped:
+        if request.student_profile is None:
+            request.student_profile = StudentProfile()
+        request.student_profile.program_studi = scoped_prodi
 
     try:
         async with httpx.AsyncClient(timeout=settings.CHATBOT_TIMEOUT_SECONDS) as client:
@@ -118,6 +159,11 @@ async def handle_chat(request: ChatRequest, client_request: Request | None = Non
                 updated_profile = StudentProfile(**(data.get("updated_profile") or {}))
                 action_type = data.get("action_type") or "GENERAL"
                 raw_plan = data.get("plan_payload")
+                if is_scoped:
+                    updated_profile.program_studi = scoped_prodi
+                    if raw_plan and isinstance(raw_plan, dict) and isinstance(raw_plan.get("summary"), dict):
+                        raw_plan["summary"]["program_studi"] = scoped_prodi
+
                 plan_payload: DegreePlanPayload | None = None
 
                 if raw_plan and isinstance(raw_plan, dict) and raw_plan.get("plan"):
@@ -206,6 +252,13 @@ async def handle_chat_stream(
         try:
             if await client_gone():
                 return
+
+            if user_id:
+                scoped_prodi, is_scoped = await _chat_scope(user_id)
+                if is_scoped:
+                    if request.student_profile is None:
+                        request.student_profile = StudentProfile()
+                    request.student_profile.program_studi = scoped_prodi
 
             payload = {
                 "message": request.message,

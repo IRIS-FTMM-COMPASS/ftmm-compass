@@ -39,7 +39,7 @@ def _count_builder(monkeypatch, counter: dict) -> None:
     monkeypatch.setattr(catalog, "build_catalog_from_db", counted)
 
 
-def test_identical_filtered_requests_hit_cache(client, monkeypatch):
+def test_identical_filtered_requests_hit_cache(client, admin_headers, monkeypatch):
     counter = {"calls": 0}
     _count_builder(monkeypatch, counter)
     params = {
@@ -49,8 +49,8 @@ def test_identical_filtered_requests_hit_cache(client, monkeypatch):
         "per_page": 5,
     }
 
-    first = client.get("/api/v1/courses", params=params)
-    second = client.get("/api/v1/courses", params=params)
+    first = client.get("/api/v1/courses", params=params, headers=admin_headers)
+    second = client.get("/api/v1/courses", params=params, headers=admin_headers)
 
     assert first.status_code == 200
     assert second.status_code == 200
@@ -59,12 +59,16 @@ def test_identical_filtered_requests_hit_cache(client, monkeypatch):
     assert counter["calls"] == 1
 
 
-def test_distinct_filter_uses_distinct_cache_entry(client, monkeypatch):
+def test_distinct_filter_uses_distinct_cache_entry(client, admin_headers, monkeypatch):
     counter = {"calls": 0}
     _count_builder(monkeypatch, counter)
 
-    first = client.get("/api/v1/courses", params={"page": 1, "per_page": 5})
-    second = client.get("/api/v1/courses", params={"page": 2, "per_page": 5})
+    first = client.get(
+        "/api/v1/courses", params={"page": 1, "per_page": 5}, headers=admin_headers
+    )
+    second = client.get(
+        "/api/v1/courses", params={"page": 2, "per_page": 5}, headers=admin_headers
+    )
 
     assert first.status_code == 200
     assert second.status_code == 200
@@ -77,7 +81,7 @@ def test_admin_create_invalidates_catalog_cache(client, admin_headers, monkeypat
     code = _unique_code()
     params = {"q": code}
 
-    before = client.get("/api/v1/courses", params=params)
+    before = client.get("/api/v1/courses", params=params, headers=admin_headers)
     assert before.status_code == 200
     assert before.json()["courses"] == []
     assert counter["calls"] == 1
@@ -94,7 +98,7 @@ def test_admin_create_invalidates_catalog_cache(client, admin_headers, monkeypat
     assert created.status_code == 201, created.text
 
     calls_before_request = counter["calls"]
-    after = client.get("/api/v1/courses", params=params)
+    after = client.get("/api/v1/courses", params=params, headers=admin_headers)
     assert after.status_code == 200
     assert counter["calls"] == calls_before_request + 1
     assert any(course["code"] == code for course in after.json()["courses"])
@@ -117,7 +121,7 @@ def test_admin_update_invalidates_catalog_cache(client, admin_headers, monkeypat
     assert created.status_code == 201, created.text
 
     params = {"q": code}
-    before = client.get("/api/v1/courses", params=params)
+    before = client.get("/api/v1/courses", params=params, headers=admin_headers)
     assert before.status_code == 200
     assert before.json()["courses"][0]["name"] == "Nama Awal Cache"
     calls_before_update = counter["calls"]
@@ -129,13 +133,13 @@ def test_admin_update_invalidates_catalog_cache(client, admin_headers, monkeypat
     )
     assert updated.status_code == 200, updated.text
 
-    after = client.get("/api/v1/courses", params=params)
+    after = client.get("/api/v1/courses", params=params, headers=admin_headers)
     assert after.status_code == 200
     assert counter["calls"] > calls_before_update
     assert after.json()["courses"][0]["name"] == "Nama Ubah Cache"
 
 
-def test_fallback_response_is_not_cached(client, monkeypatch):
+def test_fallback_response_is_not_cached(client, admin_headers, monkeypatch):
     counter = {"calls": 0}
 
     async def unavailable(db):
@@ -149,8 +153,8 @@ def test_fallback_response_is_not_cached(client, monkeypatch):
         "q": f"Fallback {random.randint(10000, 99999)}",
     }
 
-    first = client.get("/api/v1/courses", params=params)
-    second = client.get("/api/v1/courses", params=params)
+    first = client.get("/api/v1/courses", params=params, headers=admin_headers)
+    second = client.get("/api/v1/courses", params=params, headers=admin_headers)
 
     assert first.status_code == 200
     assert second.status_code == 200
@@ -159,9 +163,11 @@ def test_fallback_response_is_not_cached(client, monkeypatch):
     assert counter["calls"] == 2
 
 
-def test_cache_serialization_failure_does_not_fail_request(client, monkeypatch):
+def test_cache_serialization_failure_does_not_fail_request(
+    client, admin_headers, monkeypatch
+):
     params = {"q": f"Cache Gagal {random.randint(10000, 99999)}"}
-    first = client.get("/api/v1/courses", params=params)
+    first = client.get("/api/v1/courses", params=params, headers=admin_headers)
     assert first.status_code == 200
     assert first.json()["source"] == "database"
 
@@ -169,19 +175,21 @@ def test_cache_serialization_failure_does_not_fail_request(client, monkeypatch):
         raise TypeError("gagal menyalin payload cache")
 
     monkeypatch.setattr(catalog, "_clone_cached", broken_clone)
-    second = client.get("/api/v1/courses", params=params)
+    second = client.get("/api/v1/courses", params=params, headers=admin_headers)
 
     assert second.status_code == 200
     assert second.content == first.content
 
 
-def test_cached_database_response_falls_back_when_db_dies(client, monkeypatch):
+def test_cached_database_response_falls_back_when_db_dies(
+    client, admin_headers, monkeypatch
+):
     params = {
         "page": 1,
         "per_page": 5,
         "q": f"DB Mati {random.randint(10000, 99999)}",
     }
-    primed = client.get("/api/v1/courses", params=params)
+    primed = client.get("/api/v1/courses", params=params, headers=admin_headers)
     assert primed.status_code == 200
     assert primed.json()["source"] == "database"
 
@@ -197,7 +205,7 @@ def test_cached_database_response_falls_back_when_db_dies(client, monkeypatch):
     monkeypatch.setattr(catalog, "catalog_db_is_available", probe_fails)
     monkeypatch.setattr(catalog, "build_catalog_from_db", build_fails)
 
-    after = client.get("/api/v1/courses", params=params)
+    after = client.get("/api/v1/courses", params=params, headers=admin_headers)
 
     assert state["probes"] == 1
     assert after.status_code == 200

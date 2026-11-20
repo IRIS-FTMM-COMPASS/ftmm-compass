@@ -345,8 +345,15 @@ export default function TimetableGrid({
                   {displayedSchedule
                     .filter((s) => s.day === day)
                     .map((item) => {
-                      const top = (item.start - 7) * rowHeight
-                      const height = item.duration * rowHeight
+                      const minHeight = compact ? 44 : 56
+                      const height = Math.max(
+                        item.duration * rowHeight,
+                        minHeight,
+                      )
+                      const top = Math.min(
+                        (item.start - 7) * rowHeight,
+                        HOURS.length * rowHeight - minHeight,
+                      )
                       return (
                         <div
                           key={item.id}

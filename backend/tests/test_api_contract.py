@@ -210,11 +210,13 @@ def assert_sprint9_parity(canonical, legacy, expected_status):
     ids=[item[0] for item in SUCCESS_PAIRS],
 )
 def test_pasangan_kanonik_dan_lawas_setara(
-    client, student_headers, label, canonical_path, legacy_path, method, options
+    client, admin_headers, student_headers, label, canonical_path, legacy_path, method, options
 ):
     request_options = dict(options)
     if request_options.pop("authenticated", False):
         request_options["headers"] = student_headers
+    if label.startswith("courses"):
+        request_options["headers"] = admin_headers
 
     canonical = client.request(method, f"/api/v1{canonical_path}", **request_options)
     legacy = client.request(method, f"/api{legacy_path}", **request_options)
@@ -260,7 +262,7 @@ def test_amplop_error_konsisten(client, admin_headers, student_headers, status_c
             "/api/v1/admin/courses", headers=student_headers, json=ADMIN_COURSE_PAYLOAD
         )
     elif status_code == 404:
-        response = client.get("/api/v1/courses/ZZZ999")
+        response = client.get("/api/v1/courses/ZZZ999", headers=admin_headers)
     elif status_code == 409:
         response = client.post(
             "/api/v1/admin/courses",
@@ -268,16 +270,18 @@ def test_amplop_error_konsisten(client, admin_headers, student_headers, status_c
             json={**ADMIN_COURSE_PAYLOAD, "course_code": "AGI101"},
         )
     else:
-        response = client.get("/api/v1/courses", params={"per_page": 0})
+        response = client.get(
+            "/api/v1/courses", params={"per_page": 0}, headers=admin_headers
+        )
 
     assert_envelope(response, status_code)
     assert response.json()["error"]["code"] == EXPECTED_ERROR_CODES[status_code]
 
 
-def test_respons_error_tidak_pernah_teks_biasa(client):
+def test_respons_error_tidak_pernah_teks_biasa(client, admin_headers):
     responses = (
-        client.get("/api/v1/courses/ZZZ999"),
-        client.get("/api/v1/courses", params={"per_page": 0}),
+        client.get("/api/v1/courses/ZZZ999", headers=admin_headers),
+        client.get("/api/v1/courses", params={"per_page": 0}, headers=admin_headers),
         client.get("/api/v1/dashboard/me"),
     )
     for response in responses:

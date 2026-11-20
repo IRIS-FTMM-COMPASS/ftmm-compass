@@ -27,6 +27,7 @@ from models import (
     CurriculumCourse,
 )
 from auth import get_current_user
+from prodi_access import resolve_catalog_prodi
 from catalog import (
     authoritative_curriculum_id,
     catalog_cache_get_checked,
@@ -57,10 +58,14 @@ async def handle_list_courses(
     q: str | None = None,
     page: int | None = None,
     per_page: int | None = None,
+    current_user: User = Depends(get_current_user),
 ) -> Any:
-    target_prodi = prodi or program_studi
+    scoped = resolve_catalog_prodi(current_user)
+    if isinstance(scoped, JSONResponse):
+        return scoped
+    target_prodi = scoped if scoped is not None else (prodi or program_studi)
     norm_prodi = normalize_prodi(target_prodi) if target_prodi else None
-    cache_key = ("list", norm_prodi, semester, q, page, per_page)
+    cache_key = ("list", scoped, norm_prodi, semester, q, page, per_page)
     cached = await catalog_cache_get_checked(db, cache_key)
     if cached is not None:
         return cached
@@ -124,7 +129,7 @@ async def handle_list_courses(
         "source": source,
         "program_studi": active_prodi,
         "total_courses": len(courses),
-        "programs": get_available_programs(catalog),
+        "programs": [active_prodi] if scoped else get_available_programs(catalog),
         "courses": [c.model_dump() for c in courses],
     }
     if source == "database":
@@ -138,10 +143,14 @@ async def handle_search_courses(
     prodi: str | None = None,
     program_studi: str | None = None,
     top_k: int = 5,
+    current_user: User = Depends(get_current_user),
 ) -> CourseSearchResponse:
-    target_prodi = prodi or program_studi
+    scoped = resolve_catalog_prodi(current_user)
+    if isinstance(scoped, JSONResponse):
+        return scoped
+    target_prodi = scoped if scoped is not None else (prodi or program_studi)
     norm_prodi = normalize_prodi(target_prodi) if target_prodi else None
-    cache_key = ("search", q, norm_prodi, top_k)
+    cache_key = ("search", scoped, q, norm_prodi, top_k)
     cached = await catalog_cache_get_checked(db, cache_key)
     if cached is not None:
         return cached
@@ -169,7 +178,7 @@ async def handle_search_courses(
     result = CourseSearchResponse(
         source=source,
         query=q,
-        program_studi=norm_prodi,
+        program_studi=scoped if scoped is not None else norm_prodi,
         total_hits=len(selected),
         results=selected,
     )
@@ -192,6 +201,7 @@ async def v1_list_courses(
     page: int | None = Query(None, ge=1, description="Nomor halaman (1-based)."),
     per_page: int | None = Query(None, ge=1, le=100, description="Jumlah item per halaman."),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     return await handle_list_courses(
         db=db,
@@ -201,6 +211,7 @@ async def v1_list_courses(
         q=q,
         page=page,
         per_page=per_page,
+        current_user=current_user,
     )
 
 
@@ -211,6 +222,7 @@ async def v1_search_courses(
     program_studi: str | None = Query(None, description="Alias prodi."),
     top_k: int = Query(5, ge=1, le=20, description="Batas hasil pencarian."),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     return await handle_search_courses(
         db=db,
@@ -218,14 +230,28 @@ async def v1_search_courses(
         prodi=prodi,
         program_studi=program_studi,
         top_k=top_k,
+        current_user=current_user,
     )
 
 
 @router.get("/courses/{code}", response_model=CourseModel)
-async def v1_get_course(code: str, db: AsyncSession = Depends(get_db)):
+async def v1_get_course(
+    code: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    scoped = resolve_catalog_prodi(current_user)
+    if isinstance(scoped, JSONResponse):
+        return scoped
     catalog, _ = await get_catalog_from_source(db)
     course = get_course(code, catalog)
     if course is None:
+        return _catalog_error(
+            status.HTTP_404_NOT_FOUND,
+            "course_not_found",
+            f"Mata kuliah dengan kode '{code}' tidak ditemukan.",
+        )
+    if scoped is not None and normalize_prodi(course.program) != normalize_prodi(scoped):
         return _catalog_error(
             status.HTTP_404_NOT_FOUND,
             "course_not_found",

@@ -57,18 +57,19 @@ def _add_course_row(
     return client.portal.call(insert)
 
 
-def test_catalog_lists_all_programs(client):
-    response = client.get("/api/v1/courses")
+def test_catalog_lists_all_programs(client, admin_headers):
+    response = client.get("/api/v1/courses", headers=admin_headers)
     assert response.status_code == 200
     body = response.json()
     assert body["total_courses"] >= 50
     assert len({course["program"] for course in body["courses"]}) == 5
 
 
-def test_catalog_reports_database_source(client):
+def test_catalog_reports_database_source(client, admin_headers):
     response = client.get(
         "/api/v1/courses",
         params={"prodi": "Teknologi Sains Data", "page": 1, "per_page": 5},
+        headers=admin_headers,
     )
     assert response.status_code == 200
     body = response.json()
@@ -76,10 +77,14 @@ def test_catalog_reports_database_source(client):
     assert {"data", "meta", "links", "program_studi"} <= set(body)
 
 
-def test_catalog_falls_back_to_local_source(client):
+def test_catalog_falls_back_to_local_source(client, admin_headers):
     with patch("catalog.build_catalog_from_db", new_callable=AsyncMock) as builder:
         builder.side_effect = RuntimeError("database unavailable")
-        response = client.get("/api/v1/courses", params={"page": 1, "per_page": 5})
+        response = client.get(
+            "/api/v1/courses",
+            params={"page": 1, "per_page": 5},
+            headers=admin_headers,
+        )
     assert response.status_code == 200
     body = response.json()
     assert body["source"] == "local_fallback"
@@ -87,15 +92,15 @@ def test_catalog_falls_back_to_local_source(client):
     assert body["meta"]["total"] > 0
 
 
-def test_public_catalog_excludes_demo_only_codes(client):
-    response = client.get("/api/v1/courses")
+def test_public_catalog_excludes_demo_only_codes(client, admin_headers):
+    response = client.get("/api/v1/courses", headers=admin_headers)
     assert response.status_code == 200
     codes = {course["code"] for course in response.json()["courses"]}
     assert "KIK101" not in codes
 
 
-def test_course_detail_returns_canonical_course(client):
-    response = client.get("/api/v1/courses/AGI101")
+def test_course_detail_returns_canonical_course(client, admin_headers):
+    response = client.get("/api/v1/courses/AGI101", headers=admin_headers)
     assert response.status_code == 200
     body = response.json()
     assert body["code"] == "AGI101"
@@ -103,29 +108,35 @@ def test_course_detail_returns_canonical_course(client):
     assert isinstance(body["prerequisites"], list)
 
 
-def test_course_detail_legacy_alias_matches_canonical(client):
-    response = client.get("/api/courses/AGI101")
+def test_course_detail_legacy_alias_matches_canonical(client, admin_headers):
+    response = client.get("/api/courses/AGI101", headers=admin_headers)
     assert response.status_code == 200
     assert response.json()["code"] == "AGI101"
 
 
-def test_course_detail_unknown_code_returns_canonical_not_found(client):
-    response = client.get("/api/v1/courses/ZZZ999")
+def test_course_detail_unknown_code_returns_canonical_not_found(client, admin_headers):
+    response = client.get("/api/v1/courses/ZZZ999", headers=admin_headers)
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "course_not_found"
 
 
-def test_catalog_out_of_range_parameter_returns_canonical_validation_error(client):
-    response = client.get("/api/v1/courses", params={"per_page": 0})
+def test_catalog_out_of_range_parameter_returns_canonical_validation_error(
+    client, admin_headers
+):
+    response = client.get(
+        "/api/v1/courses", params={"per_page": 0}, headers=admin_headers
+    )
     assert response.status_code == 422
     body = response.json()
     assert body["error"]["code"] == "validation_error"
     assert any(item["field"] == "query.per_page" for item in body["error"]["details"])
 
 
-def test_catalog_filters_by_program(client):
+def test_catalog_filters_by_program(client, admin_headers):
     response = client.get(
-        "/api/v1/courses", params={"prodi": "Teknologi Sains Data"}
+        "/api/v1/courses",
+        params={"prodi": "Teknologi Sains Data"},
+        headers=admin_headers,
     )
     assert response.status_code == 200
     body = response.json()
@@ -135,9 +146,11 @@ def test_catalog_filters_by_program(client):
     }
 
 
-def test_catalog_pagination_meta(client):
+def test_catalog_pagination_meta(client, admin_headers):
     response = client.get(
-        "/api/v1/courses", params={"page": 2, "per_page": 5}
+        "/api/v1/courses",
+        params={"page": 2, "per_page": 5},
+        headers=admin_headers,
     )
     assert response.status_code == 200
     body = response.json()
@@ -146,26 +159,32 @@ def test_catalog_pagination_meta(client):
     assert body["meta"]["per_page"] == 5
 
 
-def test_course_search_matches_code(client):
-    response = client.get("/api/v1/courses/search", params={"q": "AGI101"})
+def test_course_search_matches_code(client, admin_headers):
+    response = client.get(
+        "/api/v1/courses/search", params={"q": "AGI101"}, headers=admin_headers
+    )
     assert response.status_code == 200
     body = response.json()
     assert body["total_hits"] >= 1
     assert any("AGI101" in (item.get("code") or "") for item in body["results"])
 
 
-def test_legacy_courses_alias(client):
-    assert client.get("/api/courses").status_code == 200
-    assert client.get("/api/courses/search", params={"q": "kalkulus"}).status_code == 200
+def test_legacy_courses_alias(client, admin_headers):
+    assert client.get("/api/courses", headers=admin_headers).status_code == 200
+    assert client.get(
+        "/api/courses/search", params={"q": "kalkulus"}, headers=admin_headers
+    ).status_code == 200
 
 
-def test_pj_deactivated_course_stays_visible_with_status_and_scope(client, db_session):
+def test_pj_deactivated_course_stays_visible_with_status_and_scope(
+    client, db_session, admin_headers
+):
     code = _add_course_row(
         client, db_session, course_is_active=True, cc_is_active=False,
         course_scope="fakultas",
     )
 
-    response = client.get("/api/v1/courses")
+    response = client.get("/api/v1/courses", headers=admin_headers)
     assert response.status_code == 200
     course = next(
         (item for item in response.json()["courses"] if item["code"] == code), None
@@ -174,27 +193,27 @@ def test_pj_deactivated_course_stays_visible_with_status_and_scope(client, db_se
     assert course["is_active"] is False
     assert course["course_scope"] == "fakultas"
 
-    detail = client.get(f"/api/v1/courses/{code}")
+    detail = client.get(f"/api/v1/courses/{code}", headers=admin_headers)
     assert detail.status_code == 200
     assert detail.json()["is_active"] is False
     assert detail.json()["course_scope"] == "fakultas"
 
 
-def test_globally_deactivated_course_is_hidden(client, db_session):
+def test_globally_deactivated_course_is_hidden(client, db_session, admin_headers):
     code = _add_course_row(
         client, db_session, course_is_active=False, cc_is_active=True,
         course_scope="fakultas",
     )
 
-    response = client.get("/api/v1/courses")
+    response = client.get("/api/v1/courses", headers=admin_headers)
     assert response.status_code == 200
     assert code not in {item["code"] for item in response.json()["courses"]}
 
 
-def test_catalog_rows_use_default_status_and_scope(client, db_session):
+def test_catalog_rows_use_default_status_and_scope(client, db_session, admin_headers):
     code = _add_course_row(client, db_session)
 
-    response = client.get("/api/v1/courses")
+    response = client.get("/api/v1/courses", headers=admin_headers)
     assert response.status_code == 200
     course = next(
         (item for item in response.json()["courses"] if item["code"] == code), None

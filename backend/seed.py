@@ -19,6 +19,8 @@ from models import (
     Curriculum,
     CurriculumCourse,
     StudentCurriculumAssignment,
+    DegreePlan,
+    DegreePlanItem,
     StudentCourseRecord,
     CourseOffering,
     CourseOfferingEligibility,
@@ -31,6 +33,7 @@ from models import (
     ElectiveCourseVote,
     UserNotification,
 )
+from plan_storage import NoCurriculumAssignment, ensure_assignment
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(line_buffering=True)
@@ -231,6 +234,58 @@ async def seed_data():
                 )
                 session.add(profile)
             print(f"  [EXISTS] Mahasiswa user: {mhs_email}")
+
+        demo_students = [
+            ("TSD", "164231062", "mahasiswa.tsd", "Mahasiswa TSD"),
+            ("TRKB", "163231062", "mahasiswa.trkb", "Mahasiswa TRKB"),
+            ("RN", "162231062", "mahasiswa.rn", "Mahasiswa RN"),
+            ("TI", "165231062", "mahasiswa.ti", "Mahasiswa TI"),
+            ("TE", "166231062", "mahasiswa.te", "Mahasiswa TE"),
+        ]
+        for code, nim, email_local, full_name in demo_students:
+            demo_email = f"{email_local}@ftmm.unair.ac.id"
+            stmt_demo = (
+                select(User)
+                .options(selectinload(User.student_profile))
+                .where(User.email == demo_email)
+            )
+            demo_user = (await session.execute(stmt_demo)).scalars().first()
+            if demo_user is None:
+                demo_user = User(
+                    email=demo_email,
+                    full_name=full_name,
+                    role="student",
+                    password_hash=get_password_hash("Mahasiswa2026!"),
+                    is_active=True,
+                )
+                session.add(demo_user)
+                await session.flush()
+                session.add(
+                    StudentProfile(
+                        user_id=demo_user.user_id,
+                        study_program_id=prodi_map[code].study_program_id,
+                        student_number=nim,
+                        admission_year=2023,
+                        current_semester=3,
+                    )
+                )
+                print(f"  [CREATED] Mahasiswa user: {demo_email} with NIM {nim}")
+            else:
+                demo_user.full_name = full_name
+                demo_user.password_hash = get_password_hash("Mahasiswa2026!")
+                demo_user.role = "student"
+                demo_user.is_active = True
+                if demo_user.student_profile is None:
+                    session.add(
+                        StudentProfile(
+                            user_id=demo_user.user_id,
+                            study_program_id=prodi_map[code].study_program_id,
+                            student_number=nim,
+                            admission_year=2023,
+                            current_semester=3,
+                        )
+                    )
+                print(f"  [EXISTS] Mahasiswa user: {demo_email}")
 
         # Akun dosen uji lama tidak dipakai lagi: nonaktifkan bila sudah ada,
         # dan jangan pernah dibuat ulang sebagai akun aktif.
@@ -639,6 +694,448 @@ async def seed_data():
         await session.flush()
         print("  [OK] Activated student timetable with scheduled class items")
         print("  [OK] Seeded course offerings, sections, schedules, and timetable items")
+
+        # Seluruh MK wajib pada periode aktif dari semua kurikulum aktif mendapat
+        # satu penawaran per course_id; eligibility dibuat per curriculum_course
+        # agar timetable lolos trg_timetable_items_validate.
+        # Jadwal seksi legacy tidak diubah. Jadwal seksi kanonik yang dibuat blok
+        # ini direkonsiliasi ke slot hasil komputasi ulang agar seed idempoten.
+        stmt_mandatory = (
+            select(CurriculumCourse, Course.course_code)
+            .join(Course, Course.course_id == CurriculumCourse.course_id)
+            .join(Curriculum, Curriculum.curriculum_id == CurriculumCourse.curriculum_id)
+            .where(
+                Curriculum.is_active.is_(True),
+                CurriculumCourse.is_active.is_(True),
+                CurriculumCourse.course_type == "wajib",
+                CurriculumCourse.term == active_period.term,
+                Course.is_active.is_(True),
+            )
+            .order_by(
+                Course.course_code,
+                Curriculum.curriculum_year,
+                Curriculum.curriculum_id,
+                CurriculumCourse.curriculum_course_id,
+            )
+        )
+        mandatory_rows = (await session.execute(stmt_mandatory)).all()
+
+        offerings_by_course: dict[object, CourseOffering] = {}
+        canonical_sections: list[tuple[object, ClassSection]] = []
+        for cc_obj, code in mandatory_rows:
+            course_id = cc_obj.course_id
+            offering = offerings_by_course.get(course_id)
+            first_for_course = offering is None
+            if first_for_course:
+                offering_code = f"{code}-2024-GANJIL-KURIKULUM"
+                stmt_off = select(CourseOffering).where(
+                    CourseOffering.academic_period_id == active_period.academic_period_id,
+                    CourseOffering.course_id == course_id,
+                    CourseOffering.offering_code == offering_code,
+                )
+                offering = (await session.execute(stmt_off)).scalars().first()
+                if not offering:
+                    offering = CourseOffering(
+                        academic_period_id=active_period.academic_period_id,
+                        course_id=course_id,
+                        offering_code=offering_code,
+                    )
+                    session.add(offering)
+                    await session.flush()
+                offerings_by_course[course_id] = offering
+
+            stmt_coe = select(CourseOfferingEligibility).where(
+                CourseOfferingEligibility.course_offering_id == offering.course_offering_id,
+                CourseOfferingEligibility.curriculum_course_id == cc_obj.curriculum_course_id,
+            )
+            coe = (await session.execute(stmt_coe)).scalars().first()
+            if not coe:
+                session.add(
+                    CourseOfferingEligibility(
+                        course_offering_id=offering.course_offering_id,
+                        curriculum_course_id=cc_obj.curriculum_course_id,
+                    )
+                )
+                await session.flush()
+
+            if not first_for_course:
+                continue
+
+            stmt_comp = select(OfferingComponent).where(
+                OfferingComponent.course_offering_id == offering.course_offering_id,
+                OfferingComponent.component_code == "KULIAH",
+            )
+            comp = (await session.execute(stmt_comp)).scalars().first()
+            if not comp:
+                comp = OfferingComponent(
+                    course_offering_id=offering.course_offering_id,
+                    component_code="KULIAH",
+                    component_type="lecture",
+                )
+                session.add(comp)
+                await session.flush()
+
+            # Kode khas kanonik: seksi legacy "A"/"B" pada penawaran lain tetap
+            # menjadi seksi yang dipakai timetable dan uji validasi.
+            canonical_section_code = "Z"
+            # Penawaran kanonik hanya dikelola blok ini: pakai seksi apa pun
+            # yang sudah ada (termasuk kode lama) lalu samakan kodenya.
+            stmt_sec = select(ClassSection).where(
+                ClassSection.offering_component_id == comp.offering_component_id,
+            )
+            sec = (await session.execute(stmt_sec)).scalars().first()
+            if not sec:
+                sec = ClassSection(
+                    offering_component_id=comp.offering_component_id,
+                    section_code=canonical_section_code,
+                    capacity=40,
+                    enrollment_status="open",
+                )
+                session.add(sec)
+                await session.flush()
+            elif sec.section_code != canonical_section_code:
+                sec.section_code = canonical_section_code
+                await session.flush()
+
+            canonical_sections.append((course_id, sec))
+
+        # Jadwal seksi kanonik dikecualikan dari slot terpakai: baris lamanya
+        # akan diperbarui ke slot hasil komputasi ulang. Jadwal legacy (dan
+        # seksi lain pada periode aktif) tetap dipertahankan sebagai penghalang.
+        canonical_section_ids = {sec.class_section_id for _, sec in canonical_sections}
+        active_schedule_rows = (
+            await session.execute(
+                select(ClassSchedule)
+                .join(
+                    ClassSection,
+                    ClassSection.class_section_id == ClassSchedule.class_section_id,
+                )
+                .join(
+                    OfferingComponent,
+                    OfferingComponent.offering_component_id
+                    == ClassSection.offering_component_id,
+                )
+                .join(
+                    CourseOffering,
+                    CourseOffering.course_offering_id
+                    == OfferingComponent.course_offering_id,
+                )
+                .where(
+                    CourseOffering.academic_period_id == active_period.academic_period_id
+                )
+            )
+        ).scalars().all()
+        existing_schedules: list[tuple[int, datetime.time, datetime.time]] = []
+        canonical_schedules_by_section: dict[object, ClassSchedule] = {}
+        for row in active_schedule_rows:
+            if row.class_section_id in canonical_section_ids:
+                canonical_schedules_by_section[row.class_section_id] = row
+            else:
+                existing_schedules.append(
+                    (row.day_of_week, row.start_time, row.end_time)
+                )
+
+        # Senin-Jumat, 40 slot 15 menit per hari antara 07:00-17:00 (200 slot).
+        slot_minutes = 15
+        waves_per_day = 40
+        days_per_week = 5
+        total_slots = waves_per_day * days_per_week
+
+        def slot_bounds(candidate: int) -> tuple[int, datetime.time, datetime.time]:
+            index = candidate % total_slots
+            day_of_week = (index % days_per_week) + 1
+            wave = index // days_per_week
+            start_dt = datetime.datetime.combine(
+                datetime.date.today(), datetime.time(7, 0)
+            ) + datetime.timedelta(minutes=slot_minutes * wave)
+            end_dt = start_dt + datetime.timedelta(minutes=slot_minutes)
+            return day_of_week, start_dt.time(), end_dt.time()
+
+        def slot_is_free(
+            day_of_week: int, start_time: datetime.time, end_time: datetime.time
+        ) -> bool:
+            return not any(
+                day == day_of_week and start_time < occupied_end and occupied_start < end_time
+                for day, occupied_start, occupied_end in existing_schedules
+            )
+
+        def next_free_slot(slot: int) -> tuple[int, int, datetime.time, datetime.time]:
+            for candidate in range(slot, slot + total_slots):
+                day_of_week, start_time, end_time = slot_bounds(candidate)
+                if slot_is_free(day_of_week, start_time, end_time):
+                    return candidate, day_of_week, start_time, end_time
+            raise RuntimeError(
+                "Tidak ada slot jadwal bebas tersisa untuk MK wajib pada "
+                f"periode aktif ({len(canonical_sections)} seksi, {total_slots} slot)."
+            )
+
+        section_slots: dict[object, int] = {}
+        for course_id, sec in canonical_sections:
+            slot = section_slots.setdefault(course_id, len(section_slots))
+            slot, day_of_week, start_time, end_time = next_free_slot(slot)
+            section_slots[course_id] = slot
+
+            cs = canonical_schedules_by_section.get(sec.class_section_id)
+            if cs is None:
+                cs = ClassSchedule(class_section_id=sec.class_section_id)
+                session.add(cs)
+            cs.day_of_week = day_of_week
+            cs.start_time = start_time
+            cs.end_time = end_time
+            cs.room_name = f"Ruang Kelas {sec.section_code}"
+            await session.flush()
+            existing_schedules.append((day_of_week, start_time, end_time))
+
+        print("  [OK] Seeded mandatory curriculum-eligible class sections for active curricula")
+
+        # Kelima mahasiswa demo harus punya rencana studi aktif yang bisa
+        # dipakai. Rencana yang sudah berisi item tidak pernah diubah.
+        demo_plan_emails = [
+            "mahasiswa.tsd@ftmm.unair.ac.id",
+            "mahasiswa.trkb@ftmm.unair.ac.id",
+            "mahasiswa.rn@ftmm.unair.ac.id",
+            "mahasiswa.ti@ftmm.unair.ac.id",
+            "mahasiswa.te@ftmm.unair.ac.id",
+        ]
+        stmt_demo_plan_users = (
+            select(User)
+            .options(selectinload(User.student_profile))
+            .where(User.email.in_(demo_plan_emails))
+        )
+        demo_plan_users = (await session.execute(stmt_demo_plan_users)).scalars().all()
+        plans_created = 0
+        items_created = 0
+        want_odd = active_period.term != "genap"
+        minimum_semester = 1 if want_odd else 2
+        for user in demo_plan_users:
+            if user.student_profile is None:
+                continue
+            try:
+                assignment = await ensure_assignment(session, user)
+            except NoCurriculumAssignment:
+                print(
+                    f"  [WARN] Skip demo plan {user.email}: "
+                    "kurikulum prodi belum tersedia"
+                )
+                continue
+            stmt_active_plan = (
+                select(DegreePlan)
+                .options(selectinload(DegreePlan.items))
+                .where(
+                    DegreePlan.user_id == user.user_id,
+                    DegreePlan.status == "active",
+                )
+                .order_by(DegreePlan.created_at)
+            )
+            plan = (await session.execute(stmt_active_plan)).scalars().first()
+            if plan is None:
+                plan = DegreePlan(
+                    user_id=user.user_id,
+                    student_curriculum_assignment_id=(
+                        assignment.student_curriculum_assignment_id
+                    ),
+                    plan_name="Draft 1",
+                    status="active",
+                )
+                session.add(plan)
+                await session.flush()
+                plans_created += 1
+            elif plan.items:
+                continue
+
+            stmt_plan_courses = (
+                select(CurriculumCourse)
+                .join(Course, Course.course_id == CurriculumCourse.course_id)
+                .join(
+                    Curriculum,
+                    Curriculum.curriculum_id == CurriculumCourse.curriculum_id,
+                )
+                .where(
+                    CurriculumCourse.curriculum_id == assignment.curriculum_id,
+                    CurriculumCourse.course_type == "wajib",
+                    CurriculumCourse.term == active_period.term,
+                    CurriculumCourse.is_active.is_(True),
+                    Curriculum.is_active.is_(True),
+                    Course.is_active.is_(True),
+                )
+                .order_by(
+                    CurriculumCourse.recommended_semester,
+                    Course.course_code,
+                )
+                .limit(6)
+            )
+            plan_courses = (await session.execute(stmt_plan_courses)).scalars().all()
+            for course in plan_courses:
+                recommended = course.recommended_semester
+                if recommended is None or recommended < minimum_semester:
+                    semester = minimum_semester
+                elif (recommended % 2 == 1) == want_odd:
+                    semester = recommended
+                else:
+                    semester = recommended - 1
+                    if semester < minimum_semester:
+                        semester = recommended + 1
+                session.add(
+                    DegreePlanItem(
+                        degree_plan_id=plan.degree_plan_id,
+                        curriculum_course_id=course.curriculum_course_id,
+                        planned_semester=semester,
+                        planning_status="planned",
+                    )
+                )
+                items_created += 1
+            await session.flush()
+        print(
+            f"  [OK] Active degree plans ready for {len(demo_plan_users)} demo students "
+            f"({plans_created} plans, {items_created} items created)"
+        )
+        # Jadwal demo mengikuti rencana studi aktif. Seksi dipilih hanya jika
+        # penawarannya memenuhi syarat kurikulum pada item rencana tersebut.
+        timetables_reconciled = 0
+        for user in demo_plan_users:
+            stmt_demo_plan = select(DegreePlan).where(
+                DegreePlan.user_id == user.user_id,
+                DegreePlan.status == "active",
+            ).order_by(DegreePlan.created_at)
+            plan = (await session.execute(stmt_demo_plan)).scalars().first()
+            if plan is None:
+                continue
+
+            stmt_plan_course_ids = select(DegreePlanItem.curriculum_course_id).where(
+                DegreePlanItem.degree_plan_id == plan.degree_plan_id
+            )
+            plan_course_ids = (
+                (await session.execute(stmt_plan_course_ids)).scalars().all()
+            )
+            desired_sections: list[tuple[str, object]] = []
+            seen_course_codes: set[str] = set()
+            if plan_course_ids:
+                stmt_eligible_sections = (
+                    select(
+                        CurriculumCourse,
+                        Course.course_code,
+                        ClassSection.class_section_id,
+                    )
+                    .join(Course, Course.course_id == CurriculumCourse.course_id)
+                    .join(
+                        CourseOfferingEligibility,
+                        CourseOfferingEligibility.curriculum_course_id
+                        == CurriculumCourse.curriculum_course_id,
+                    )
+                    .join(
+                        CourseOffering,
+                        CourseOffering.course_offering_id
+                        == CourseOfferingEligibility.course_offering_id,
+                    )
+                    .join(
+                        OfferingComponent,
+                        OfferingComponent.course_offering_id
+                        == CourseOffering.course_offering_id,
+                    )
+                    .join(
+                        ClassSection,
+                        ClassSection.offering_component_id
+                        == OfferingComponent.offering_component_id,
+                    )
+                    .where(
+                        CurriculumCourse.curriculum_course_id.in_(plan_course_ids),
+                        CourseOffering.academic_period_id
+                        == active_period.academic_period_id,
+                    )
+                    .order_by(
+                        Course.course_code,
+                        OfferingComponent.component_code,
+                        ClassSection.section_code,
+                        ClassSection.class_section_id,
+                    )
+                )
+                for _cc, course_code, section_id in (
+                    await session.execute(stmt_eligible_sections)
+                ).all():
+                    if course_code in seen_course_codes:
+                        continue
+                    seen_course_codes.add(course_code)
+                    desired_sections.append((course_code, section_id))
+
+            stmt_existing = (
+                select(Timetable)
+                .where(
+                    Timetable.user_id == user.user_id,
+                    Timetable.academic_period_id
+                    == active_period.academic_period_id,
+                )
+                .order_by(Timetable.is_active.desc())
+            )
+            existing = (await session.execute(stmt_existing)).scalars().all()
+            active_timetables = [t for t in existing if t.is_active]
+
+            if not desired_sections:
+                if active_timetables:
+                    for timetable in active_timetables:
+                        timetable.is_active = False
+                    await session.flush()
+                    timetables_reconciled += 1
+                continue
+
+            desired_ids = {section_id for _, section_id in desired_sections}
+            timetable = (
+                active_timetables[0]
+                if active_timetables
+                else (existing[0] if existing else None)
+            )
+            if timetable is not None and timetable.is_active:
+                stmt_current = select(TimetableItem.class_section_id).where(
+                    TimetableItem.timetable_id == timetable.timetable_id
+                )
+                current_ids = set((await session.execute(stmt_current)).scalars().all())
+                if current_ids == desired_ids:
+                    continue
+
+            if timetable is None:
+                timetable = Timetable(
+                    user_id=user.user_id,
+                    student_curriculum_assignment_id=(
+                        plan.student_curriculum_assignment_id
+                    ),
+                    academic_period_id=active_period.academic_period_id,
+                    timetable_name="Jadwal Utama",
+                    is_active=False,
+                )
+                session.add(timetable)
+            else:
+                for active in active_timetables:
+                    active.is_active = False
+                if (
+                    timetable.student_curriculum_assignment_id
+                    != plan.student_curriculum_assignment_id
+                ):
+                    timetable.student_curriculum_assignment_id = (
+                        plan.student_curriculum_assignment_id
+                    )
+            # Trigger menolak perubahan item pada timetable aktif.
+            await session.flush()
+
+            await session.execute(
+                delete(TimetableItem).where(
+                    TimetableItem.timetable_id == timetable.timetable_id
+                )
+            )
+            await session.flush()
+            for _course_code, section_id in desired_sections:
+                session.add(
+                    TimetableItem(
+                        timetable_id=timetable.timetable_id,
+                        class_section_id=section_id,
+                    )
+                )
+            await session.flush()
+            timetable.is_active = True
+            await session.flush()
+            timetables_reconciled += 1
+        print(
+            f"  [OK] Demo timetables reconciled from active degree plans "
+            f"({timetables_reconciled} updated)"
+        )
 
         print("\n[SEED 7/8] Checking and seeding Active Polling Period & Votes Peminatan...")
         stmt_poll = select(ElectivePollingPeriod).where(ElectivePollingPeriod.status == "open")
