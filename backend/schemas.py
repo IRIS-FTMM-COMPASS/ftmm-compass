@@ -609,8 +609,13 @@ class InstructorReferenceCreateRequest(BaseModel):
     user_id: Optional[str] = None
 
 
-class InstructorMappingRequest(BaseModel):
-    # None memutus pemetaan nama dosen ke akun.
+class InstructorReferenceUpdateRequest(BaseModel):
+    instructor_name: Optional[str] = Field(None, min_length=1, max_length=200)
+    instructor_role: Optional[
+        Literal["pjmk", "teaching_team", "lecturer", "other"]
+    ] = None
+    curriculum_course_id: Optional[str] = None
+    # Null eksplisit pada user_id memutus pemetaan; field lain diabaikan bila null.
     user_id: Optional[str] = None
 
 

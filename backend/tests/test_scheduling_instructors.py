@@ -3,7 +3,7 @@
 import uuid
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from auth import get_password_hash
 from models import (
@@ -18,21 +18,30 @@ from models import (
 
 V1 = "/api/v1"
 PATH = f"{V1}/scheduling/instructor-references"
+LEGACY_PATH = "/api/scheduling/instructor-references"
 PASSWORD = "PemetaanUji2026!"
 
 
-def _create_reference(client, db_session) -> dict:
+def _create_reference(client, db_session, *, program_code: str = "TSD") -> dict:
     async def run():
         label = uuid.uuid4().hex[:8]
         program = (
             await db_session.execute(
-                select(StudyProgram).where(StudyProgram.program_code == "TSD")
+                select(StudyProgram).where(StudyProgram.program_code == program_code)
             )
         ).scalars().one()
+        latest_year = (
+            await db_session.execute(
+                select(func.max(Curriculum.curriculum_year)).where(
+                    Curriculum.study_program_id == program.study_program_id
+                )
+            )
+        ).scalar()
+        curriculum_year = (latest_year or 2025) + 1
         curriculum = Curriculum(
             study_program_id=program.study_program_id,
             curriculum_name=f"Kurikulum Uji {label}",
-            curriculum_year=2026,
+            curriculum_year=curriculum_year,
         )
         db_session.add(curriculum)
         await db_session.flush()
@@ -63,6 +72,7 @@ def _create_reference(client, db_session) -> dict:
             "instructor_role": reference.instructor_role,
             "course_code": course.course_code,
             "course_name": course.course_name,
+            "curriculum_course_id": str(offering.curriculum_course_id),
         }
 
     return client.portal.call(run)
@@ -259,3 +269,128 @@ def test_admin_and_pj_can_create_and_delete_references(
 
     missing = client.delete(f"{PATH}/{reference_id}", headers=admin_headers)
     assert missing.status_code == 404, missing.text
+
+
+def test_partial_update_preserves_mapping(client, admin_headers, db_session):
+    reference = _create_reference(client, db_session)
+    other = _create_reference(client, db_session)
+    lecturer = _create_account(client, db_session, role="lecturer", with_profile=True)
+    url = f"{PATH}/{reference['reference_id']}"
+
+    mapped = client.patch(
+        url, headers=admin_headers, json={"user_id": lecturer["user_id"]}
+    )
+    assert mapped.status_code == 200, mapped.text
+    assert mapped.json()["user_id"] == lecturer["user_id"]
+
+    renamed = client.patch(
+        url,
+        headers=admin_headers,
+        json={"instructor_name": "Nama Baru Uji", "instructor_role": "teaching_team"},
+    )
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json() == {
+        **mapped.json(),
+        "instructor_name": "Nama Baru Uji",
+        "instructor_role": "teaching_team",
+    }
+
+    recoursed = client.patch(
+        url,
+        headers=admin_headers,
+        json={"curriculum_course_id": other["curriculum_course_id"]},
+    )
+    assert recoursed.status_code == 200, recoursed.text
+    assert recoursed.json()["user_id"] == lecturer["user_id"]
+    assert recoursed.json()["course_code"] == other["course_code"]
+    assert recoursed.json()["course_name"] == other["course_name"]
+
+    legacy = client.patch(
+        f"{LEGACY_PATH}/{reference['reference_id']}",
+        headers=admin_headers,
+        json={"instructor_name": "Nama Legacy Uji"},
+    )
+    assert legacy.status_code == 200, legacy.text
+    assert legacy.json()["user_id"] == lecturer["user_id"]
+    assert legacy.json()["instructor_name"] == "Nama Legacy Uji"
+
+
+def test_update_validates_fields(client, admin_headers, db_session):
+    reference = _create_reference(client, db_session)
+    url = f"{PATH}/{reference['reference_id']}"
+
+    invalid = client.patch(
+        url, headers=admin_headers, json={"curriculum_course_id": "bukan-uuid"}
+    )
+    assert invalid.status_code == 422, invalid.text
+    assert invalid.json()["error"]["code"] == "invalid_uuid"
+
+    missing = client.patch(
+        url, headers=admin_headers, json={"curriculum_course_id": str(uuid.uuid4())}
+    )
+    assert missing.status_code == 404, missing.text
+    assert missing.json()["error"]["code"] == "curriculum_course_not_found"
+
+    long_name = client.patch(
+        url, headers=admin_headers, json={"instructor_name": "x" * 201}
+    )
+    assert long_name.status_code == 422, long_name.text
+
+    rejected = client.patch(
+        url,
+        headers=admin_headers,
+        json={
+            "instructor_name": "Nama Yang Tidak Jadi",
+            "curriculum_course_id": str(uuid.uuid4()),
+        },
+    )
+    assert rejected.status_code == 404, rejected.text
+
+    listed = client.get(PATH, headers=admin_headers).json()
+    item = _find(listed["data"], reference["reference_id"])
+    assert item["instructor_name"] == reference["instructor_name"]
+    assert item["course_code"] == reference["course_code"]
+
+
+def test_pj_cannot_edit_or_delete_foreign_reference(
+    client, pj_headers, admin_headers, db_session
+):
+    foreign = _create_reference(client, db_session, program_code="TI")
+    url = f"{PATH}/{foreign['reference_id']}"
+
+    patch = client.patch(url, headers=pj_headers, json={"instructor_name": "Dosen Asing"})
+    assert patch.status_code == 403, patch.text
+    assert patch.json()["error"]["code"] == "forbidden"
+
+    delete = client.delete(url, headers=pj_headers)
+    assert delete.status_code == 403, delete.text
+    assert delete.json()["error"]["code"] == "forbidden"
+
+    legacy = client.patch(
+        f"{LEGACY_PATH}/{foreign['reference_id']}",
+        headers=pj_headers,
+        json={"user_id": None},
+    )
+    assert legacy.status_code == 403, legacy.text
+    assert legacy.json()["error"]["code"] == "forbidden"
+
+    allowed = client.patch(
+        url, headers=admin_headers, json={"instructor_name": "Dosen Admin"}
+    )
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["instructor_name"] == "Dosen Admin"
+
+
+def test_pj_cannot_create_reference_for_foreign_course(client, pj_headers, db_session):
+    foreign = _create_reference(client, db_session, program_code="TI")
+
+    response = client.post(
+        PATH,
+        headers=pj_headers,
+        json={
+            "curriculum_course_id": foreign["curriculum_course_id"],
+            "instructor_name": "Dosen Uji Lintas Prodi",
+        },
+    )
+    assert response.status_code == 403, response.text
+    assert response.json()["error"]["code"] == "forbidden"

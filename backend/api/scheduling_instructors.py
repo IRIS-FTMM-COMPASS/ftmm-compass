@@ -7,7 +7,7 @@ menegakkan aturan ketersediaan dan beban dosen tanpa tabrakan identitas.
 
 import uuid
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,10 +25,10 @@ from models import (
 )
 from schemas import (
     CurriculumCourseListResponse,
-    InstructorMappingRequest,
     InstructorReferenceCreateRequest,
     InstructorReferenceListResponse,
     InstructorReferenceResponse,
+    InstructorReferenceUpdateRequest,
 )
 
 router = APIRouter()
@@ -41,6 +41,7 @@ _REFERENCE_SELECT = (
         Course.course_code.label("course_code"),
         Course.course_name.label("course_name"),
         User.full_name.label("lecturer_name"),
+        Curriculum.study_program_id.label("program_id"),
     )
     .outerjoin(
         CurriculumCourse,
@@ -65,6 +66,14 @@ def _field_error(field: str, message: str, code: str) -> JSONResponse:
         detail=message,
         details=[{"field": field, "message": message, "code": code}],
     )
+
+
+async def _present_keys(request: Request) -> set[str]:
+    try:
+        raw = await request.json()
+    except Exception:
+        return set()
+    return set(raw) if isinstance(raw, dict) else set()
 
 
 def _read_scope(current_user: User) -> uuid.UUID | None | JSONResponse:
@@ -123,15 +132,60 @@ async def _resolve_lecturer(
     return target.user_id
 
 
+async def _resolve_curriculum_course(
+    db: AsyncSession, raw: str, scope: uuid.UUID | None
+) -> uuid.UUID | JSONResponse:
+    try:
+        curriculum_course_id = uuid.UUID(str(raw))
+    except (ValueError, TypeError, AttributeError):
+        return _field_error(
+            "curriculum_course_id", "Mata kuliah tidak valid.", "invalid_uuid"
+        )
+
+    curriculum_course = (
+        await db.execute(
+            select(CurriculumCourse, Curriculum.study_program_id.label("program_id"))
+            .join(
+                Curriculum, Curriculum.curriculum_id == CurriculumCourse.curriculum_id
+            )
+            .where(
+                CurriculumCourse.curriculum_course_id == curriculum_course_id,
+                CurriculumCourse.is_active.is_(True),
+            )
+        )
+    ).first()
+    if curriculum_course is None:
+        return _deny(
+            status.HTTP_404_NOT_FOUND,
+            "curriculum_course_not_found",
+            "Mata kuliah tidak ditemukan.",
+        )
+    if scope is not None and curriculum_course.program_id != scope:
+        return _deny(
+            status.HTTP_403_FORBIDDEN,
+            "forbidden",
+            "Mata kuliah di luar program studi Anda.",
+        )
+    return curriculum_course_id
+
+
 async def _find_reference(
     db: AsyncSession, reference_id: uuid.UUID, scope: uuid.UUID | None
 ):
-    stmt = _REFERENCE_SELECT.where(
-        CourseInstructorReference.instructor_reference_id == reference_id
-    )
-    if scope is not None:
-        stmt = stmt.where(Curriculum.study_program_id == scope)
-    return (await db.execute(stmt)).first()
+    row = (
+        await db.execute(
+            _REFERENCE_SELECT.where(
+                CourseInstructorReference.instructor_reference_id == reference_id
+            )
+        )
+    ).first()
+    if row is not None and scope is not None and row.program_id != scope:
+        return _deny(
+            status.HTTP_403_FORBIDDEN,
+            "forbidden",
+            "Referensi dosen di luar program studi Anda.",
+        )
+    return row
 
 
 @router.get(
@@ -183,35 +237,11 @@ async def create_instructor_reference(
     if isinstance(scope, JSONResponse):
         return scope
 
-    try:
-        curriculum_course_id = uuid.UUID(payload.curriculum_course_id)
-    except (ValueError, TypeError, AttributeError):
-        return _field_error(
-            "curriculum_course_id", "Mata kuliah tidak valid.", "invalid_uuid"
-        )
-
-    curriculum_course = (
-        await db.execute(
-            select(CurriculumCourse, Curriculum.study_program_id.label("program_id"))
-            .join(Curriculum, Curriculum.curriculum_id == CurriculumCourse.curriculum_id)
-            .where(
-                CurriculumCourse.curriculum_course_id == curriculum_course_id,
-                CurriculumCourse.is_active.is_(True),
-            )
-        )
-    ).first()
-    if curriculum_course is None:
-        return _deny(
-            status.HTTP_404_NOT_FOUND,
-            "curriculum_course_not_found",
-            "Mata kuliah tidak ditemukan.",
-        )
-    if scope is not None and curriculum_course.program_id != scope:
-        return _deny(
-            status.HTTP_403_FORBIDDEN,
-            "forbidden",
-            "Mata kuliah di luar program studi Anda.",
-        )
+    curriculum_course_id = await _resolve_curriculum_course(
+        db, payload.curriculum_course_id, scope
+    )
+    if isinstance(curriculum_course_id, JSONResponse):
+        return curriculum_course_id
 
     user_id = await _resolve_lecturer(db, payload.user_id)
     if isinstance(user_id, JSONResponse):
@@ -235,7 +265,8 @@ async def create_instructor_reference(
 )
 async def map_instructor_reference(
     reference_id: uuid.UUID,
-    payload: InstructorMappingRequest,
+    payload: InstructorReferenceUpdateRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -244,6 +275,8 @@ async def map_instructor_reference(
         return scope
 
     row = await _find_reference(db, reference_id, scope)
+    if isinstance(row, JSONResponse):
+        return row
     if row is None:
         return _deny(
             status.HTTP_404_NOT_FOUND,
@@ -251,10 +284,35 @@ async def map_instructor_reference(
             "Referensi dosen tidak ditemukan.",
         )
 
-    user_id = await _resolve_lecturer(db, payload.user_id)
-    if isinstance(user_id, JSONResponse):
-        return user_id
-    row[0].user_id = user_id
+    keys = await _present_keys(request)
+    instructor_name = None
+    instructor_role = None
+    curriculum_course_id = None
+    user_id = None
+    if "instructor_name" in keys and payload.instructor_name is not None:
+        instructor_name = payload.instructor_name.strip()
+    if "instructor_role" in keys and payload.instructor_role is not None:
+        instructor_role = payload.instructor_role
+    if "curriculum_course_id" in keys and payload.curriculum_course_id is not None:
+        curriculum_course_id = await _resolve_curriculum_course(
+            db, payload.curriculum_course_id, scope
+        )
+        if isinstance(curriculum_course_id, JSONResponse):
+            return curriculum_course_id
+    if "user_id" in keys:
+        user_id = await _resolve_lecturer(db, payload.user_id)
+        if isinstance(user_id, JSONResponse):
+            return user_id
+
+    reference = row[0]
+    if instructor_name is not None:
+        reference.instructor_name = instructor_name
+    if instructor_role is not None:
+        reference.instructor_role = instructor_role
+    if curriculum_course_id is not None:
+        reference.curriculum_course_id = curriculum_course_id
+    if "user_id" in keys:
+        reference.user_id = user_id
 
     await db.commit()
     updated = await _find_reference(db, reference_id, scope)
@@ -275,6 +333,8 @@ async def delete_instructor_reference(
         return scope
 
     row = await _find_reference(db, reference_id, scope)
+    if isinstance(row, JSONResponse):
+        return row
     if row is None:
         return _deny(
             status.HTTP_404_NOT_FOUND,

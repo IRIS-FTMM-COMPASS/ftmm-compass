@@ -26,8 +26,8 @@
     {"room_code": "8.02", "building": "NANO", "floor": "8"},
     {"room_code": "8.03", "building": "NANO", "floor": "8"},
     {"room_code": "L1", "building": "NANO", "floor": "1"},
-    {"room_code": "LAB-TRKB", "building": "NANO", "floor": null},
-    {"room_code": "LAB-TI", "building": "NANO", "floor": null},
+    {"room_code": "LAB-TRKB", "building": "NANO", "floor": "1"},
+    {"room_code": "LAB-TI", "building": "NANO", "floor": "1"},
     {"room_code": "10.RN", "building": "NANI", "floor": "10"}
   ]
 }

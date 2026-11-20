@@ -93,6 +93,9 @@ function RoleNotice() {
 export default function RoomAdminPanel() {
   const { user } = useSession()
   const isAdmin = user?.role === "admin"
+  const isPjProdi =
+    user?.role === "lecturer" && user.is_program_coordinator === true
+  const canView = isAdmin || isPjProdi
 
   const [rooms, setRooms] = useState<RoomResponse[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -112,7 +115,7 @@ export default function RoomAdminPanel() {
   const codeRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    if (!isAdmin) return
+    if (!canView) return
     let active = true
     setIsLoading(true)
     setLoadError(null)
@@ -138,7 +141,7 @@ export default function RoomAdminPanel() {
     return () => {
       active = false
     }
-  }, [isAdmin, reloadKey])
+  }, [canView, reloadKey])
 
   useEffect(() => {
     if (!isAdmin) return
@@ -264,7 +267,7 @@ export default function RoomAdminPanel() {
     }
   }
 
-  if (!isAdmin) return <RoleNotice />
+  if (!canView) return <RoleNotice />
 
   return (
     <section aria-labelledby="room-admin-title" className="space-y-4">
@@ -277,24 +280,27 @@ export default function RoomAdminPanel() {
             Kelola Ruangan
           </h2>
           <p className="text-xs text-muted">
-            Tambah ruangan dan atur gedung, lantai, kapasitas, prodi pemilik,
-            serta status penggunaannya pada penjadwalan.
+            {isAdmin
+              ? "Tambah ruangan dan atur gedung, lantai, kapasitas, prodi pemilik, serta status penggunaannya pada penjadwalan."
+              : "Lihat gedung, lantai, kapasitas, prodi pemilik, dan status penggunaan ruangan pada penjadwalan."}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={openCreate}
-          className={cn(
-            buttonClass,
-            "border border-navy bg-navy text-white hover:bg-navy-light",
-          )}
-        >
-          <Plus className="h-4 w-4" aria-hidden="true" />
-          Tambah ruangan
-        </button>
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={openCreate}
+            className={cn(
+              buttonClass,
+              "border border-navy bg-navy text-white hover:bg-navy-light",
+            )}
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            Tambah ruangan
+          </button>
+        )}
       </div>
 
-      {success && (
+      {isAdmin && success && (
         <p
           role="status"
           className="rounded-lg border border-border bg-accent px-4 py-2.5 text-xs text-navy"
@@ -303,7 +309,7 @@ export default function RoomAdminPanel() {
         </p>
       )}
 
-      {formOpen && (
+      {isAdmin && formOpen && (
         <form
           noValidate
           onSubmit={handleSubmit}
@@ -594,8 +600,9 @@ export default function RoomAdminPanel() {
 
       {!isLoading && !loadError && rooms.length === 0 && (
         <div className="rounded-xl border border-border bg-surface px-4 py-10 text-center text-sm text-muted">
-          Belum ada ruangan terdaftar. Gunakan tombol Tambah ruangan untuk
-          membuat ruangan pertama.
+          {isAdmin
+            ? "Belum ada ruangan terdaftar. Gunakan tombol Tambah ruangan untuk membuat ruangan pertama."
+            : "Belum ada ruangan yang tersedia untuk program studi Anda."}
         </div>
       )}
 
@@ -619,9 +626,11 @@ export default function RoomAdminPanel() {
                 <th scope="col" className="px-4 py-3 font-semibold">
                   Status
                 </th>
-                <th scope="col" className="px-4 py-3 font-semibold">
-                  Aksi
-                </th>
+                {isAdmin && (
+                  <th scope="col" className="px-4 py-3 font-semibold">
+                    Aksi
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -652,20 +661,22 @@ export default function RoomAdminPanel() {
                         {room.is_active ? "Aktif" : "Nonaktif"}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
-                      <button
-                        type="button"
-                        onClick={() => openEdit(room)}
-                        aria-label={`Ubah ruangan ${room.room_code}`}
-                        className={cn(
-                          buttonClass,
-                          "min-w-11 border border-border bg-surface px-2.5 text-navy hover:bg-accent",
-                        )}
-                      >
-                        <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-                        Ubah
-                      </button>
-                    </td>
+                    {isAdmin && (
+                      <td className="px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={() => openEdit(room)}
+                          aria-label={`Ubah ruangan ${room.room_code}`}
+                          className={cn(
+                            buttonClass,
+                            "min-w-11 border border-border bg-surface px-2.5 text-navy hover:bg-accent",
+                          )}
+                        >
+                          <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                          Ubah
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 )
               })}
