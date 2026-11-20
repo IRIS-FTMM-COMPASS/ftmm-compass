@@ -21,10 +21,11 @@ from models import (
     OfferingComponent,
     Room,
     SchedulePeriodLock,
+    ScheduleProgramStatus,
     StudyProgram,
     User,
 )
-from scheduling_common import blocks_overlap
+from scheduling_common import all_study_program_ids, blocks_overlap
 
 PATH = "/api/v1/scheduling"
 
@@ -45,6 +46,7 @@ def _make_case(
     with_schedule=False,
     extra_section=False,
     shared_lecturer=False,
+    credits=3,
     room_count=1,
 ):
     async def setup():
@@ -101,7 +103,7 @@ def _make_case(
         curriculum_course = CurriculumCourse(
             curriculum_id=curriculum.curriculum_id,
             course_id=course.course_id,
-            credits_total=3,
+            credits_total=credits,
             recommended_semester=2 if effective_term == "genap" else 1,
             term=effective_term,
             course_type=course_type,
@@ -707,6 +709,205 @@ def test_class_count_override_bounds_idempotency_and_generation(
     assert {code for code, _ in rows} == {"A", "B", "C"}, rows
     schedules = _schedules(client, db_session, [str(section_id) for _, section_id in rows])
     assert len(schedules) == 3, schedules
+
+
+def test_class_count_override_blocked_after_krs_open(
+    client, db_session, admin_headers
+):
+    case = _make_case(client, db_session)
+    period_id = uuid.UUID(case["period_id"])
+
+    async def open_krs():
+        lock = await db_session.get(SchedulePeriodLock, period_id)
+        if lock is None:
+            lock = SchedulePeriodLock(academic_period_id=period_id)
+            db_session.add(lock)
+        lock.krs_open = True
+        await db_session.flush()
+
+    client.portal.call(open_krs)
+
+    response = client.post(
+        PATH + "/class-count-overrides",
+        json={
+            "academic_period_id": case["period_id"],
+            "course_id": case["course_id"],
+            "study_program_id": case["program_id"],
+            "class_count": 2,
+        },
+        headers=admin_headers,
+    )
+    assert response.status_code == 409, response.text
+    body = response.json()
+    assert body["error"]["code"] == "scheduling_locked"
+    assert "KRS" in body["error"]["message"]
+
+
+def test_class_count_override_blocked_after_all_programs_final(
+    client, db_session, admin_headers
+):
+    case = _make_case(client, db_session)
+    period_id = uuid.UUID(case["period_id"])
+
+    async def finalize_all_programs():
+        for program_id in await all_study_program_ids(db_session):
+            row = await db_session.get(
+                ScheduleProgramStatus, (period_id, program_id)
+            )
+            if row is None:
+                db_session.add(
+                    ScheduleProgramStatus(
+                        academic_period_id=period_id,
+                        study_program_id=program_id,
+                        state="final",
+                    )
+                )
+            else:
+                row.state = "final"
+        await db_session.flush()
+
+    client.portal.call(finalize_all_programs)
+
+    response = client.post(
+        PATH + "/class-count-overrides",
+        json={
+            "academic_period_id": case["period_id"],
+            "course_id": case["course_id"],
+            "study_program_id": case["program_id"],
+            "class_count": 2,
+        },
+        headers=admin_headers,
+    )
+    assert response.status_code == 409, response.text
+    body = response.json()
+    assert body["error"]["code"] == "schedule_final"
+    assert "final" in body["error"]["message"].lower()
+
+
+def test_class_count_override_rejects_out_of_range_counts(
+    client, db_session, admin_headers
+):
+    case = _make_case(client, db_session)
+    payload = {
+        "academic_period_id": case["period_id"],
+        "course_id": case["course_id"],
+        "study_program_id": case["program_id"],
+    }
+    for invalid_count in (0, 4):
+        response = client.post(
+            PATH + "/class-count-overrides",
+            json={**payload, "class_count": invalid_count},
+            headers=admin_headers,
+        )
+        assert response.status_code == 422, response.text
+        assert response.json()["error"]["code"] == "validation_error"
+
+
+def test_two_sks_class_occupies_eight_to_ten(client, db_session, admin_headers):
+    case = _make_case(
+        client,
+        db_session,
+        credits=2,
+        instructor=True,
+        availability=(1, 8, 10),
+    )
+    generated = _generate(
+        client,
+        admin_headers,
+        mode="fill_empty",
+        academic_period_id=case["period_id"],
+    )
+    assert generated.status_code == 200, generated.text
+    body = generated.json()
+    assert _unassigned(body, case["section_id"]) is None
+    assert not any(
+        case["section_id"]
+        in (item["class_section_a_id"], item["class_section_b_id"])
+        for item in body["conflicts"]
+    )
+
+    schedules = _schedules(client, db_session, [case["section_id"]])
+    assert len(schedules) == 1, schedules
+    schedule = schedules[0]
+    assert (schedule["day"], schedule["start"], schedule["end"]) == (1, 8, 10)
+    assert schedule["end_minute"] == 0
+
+
+def test_two_prodi_reuse_shared_room_at_different_hours(
+    client, db_session, admin_headers
+):
+    first = _make_case(
+        client,
+        db_session,
+        credits=2,
+        room_count=0,
+        instructor=True,
+        availability=(1, 8, 10),
+    )
+    second = _make_case(
+        client,
+        db_session,
+        credits=2,
+        room_count=0,
+        instructor=True,
+        availability=(1, 13, 15),
+    )
+    assert first["period_id"] == second["period_id"]
+    assert first["program_id"] != second["program_id"]
+
+    async def leave_one_shared_room():
+        shared = (
+            await db_session.execute(
+                select(Room).where(
+                    Room.owner_study_program_id.is_(None),
+                    Room.is_active.is_(True),
+                )
+            )
+        ).scalars().all()
+        for room in shared:
+            room.capacity = 1
+        db_session.add(
+            Room(
+                room_code=f"UJI-BERSAMA-{uuid.uuid4().hex[:8]}",
+                capacity=80,
+                owner_study_program_id=None,
+                is_active=True,
+            )
+        )
+        await db_session.flush()
+
+    client.portal.call(leave_one_shared_room)
+
+    generated = _generate(
+        client,
+        admin_headers,
+        mode="fill_empty",
+        academic_period_id=first["period_id"],
+    )
+    assert generated.status_code == 200, generated.text
+    body = generated.json()
+    involved = {first["section_id"], second["section_id"]}
+    assert _unassigned(body, first["section_id"]) is None
+    assert _unassigned(body, second["section_id"]) is None
+    assert not any(
+        {item["class_section_a_id"], item["class_section_b_id"]} & involved
+        for item in body["conflicts"]
+    )
+
+    first_rows = _schedules(client, db_session, [first["section_id"]])
+    second_rows = _schedules(client, db_session, [second["section_id"]])
+    assert len(first_rows) == 1 and len(second_rows) == 1
+    left, right = first_rows[0], second_rows[0]
+    assert left["room_id"] is not None
+    assert left["room_id"] == right["room_id"]
+    assert left["day"] == right["day"] == 1
+    assert {(left["start"], left["end"]), (right["start"], right["end"])} == {
+        (8, 10),
+        (13, 15),
+    }
+    assert not blocks_overlap(
+        left["start"], left["end"], right["start"], right["end"]
+    )
 
 
 def test_unassigned_endpoint_returns_diagnostics(client, db_session, admin_headers):

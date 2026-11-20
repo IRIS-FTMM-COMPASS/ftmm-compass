@@ -11,6 +11,7 @@ from auth import get_password_hash
 from models import (
     ClassSchedule,
     ClassSection,
+    Course,
     CourseOffering,
     LecturerAvailability,
     LecturerProfile,
@@ -274,6 +275,25 @@ def test_board_contains_classes_programs_unassigned_and_conflicts(
     assert all(state == "draft" for state in statuses.values())
 
 
+def test_board_separates_two_sks_block_and_face_to_face_minutes(
+    client, db_session, admin_headers
+):
+    course_id = client.portal.call(_course_uuid, db_session, "TSD206")
+
+    response = client.get(f"{V1}/scheduling/board", headers=admin_headers)
+    assert response.status_code == 200, response.text
+    items = [
+        item
+        for item in response.json()["data"]["classes"]
+        if item["course_code"] == "TSD206" and item["credits"] == 2
+    ]
+    assert items
+    item = items[0]
+    assert (item["end_hour"] - item["start_hour"]) * 60 == 120
+    assert item["face_to_face_minutes"] == 100
+    assert item["course_id"] == str(course_id)
+
+
 def test_board_rejects_unknown_period(client, admin_headers):
     response = client.get(
         f"{V1}/scheduling/board",
@@ -317,6 +337,15 @@ async def _user_id(db_session, email):
     return (
         await db_session.execute(select(User.user_id).where(User.email == email))
     ).scalar_one()
+
+
+async def _course_uuid(db_session, course_code):
+    return (
+        await db_session.execute(
+            select(Course.course_id).where(Course.course_code == course_code)
+        )
+    ).scalar_one()
+
 
 async def _program_code(db_session, email):
     return (

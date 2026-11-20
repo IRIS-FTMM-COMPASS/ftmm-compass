@@ -156,12 +156,14 @@ export default function BoardGrid({
                       const canEdit =
                         Boolean(onEditClass) && canEditClass?.(item) === true
                       const endHour = Math.min(item.end_hour, END_HOUR)
+                      const scheduledMinutes = (endHour - item.start_hour) * 60
                       const blockHeight =
                         Math.max(1, endHour - item.start_hour) * HOUR_HEIGHT_PX
                       const lecturers =
                         item.lecturers.length > 0
                           ? item.lecturers.join(", ")
                           : "Dosen belum ditentukan"
+                      const loadMinutes = item.face_to_face_minutes
 
                       return (
                         <div
@@ -190,8 +192,12 @@ export default function BoardGrid({
                           <p className="truncate text-[10px] leading-tight">
                             {item.section_code} · {lecturers}
                           </p>
-                          <p className="truncate text-[10px] leading-tight">
-                            {item.room_code ?? "Ruangan belum ditentukan"}
+                          <p
+                            title={`Blok ${scheduledMinutes} menit · Tatap muka ${loadMinutes} menit (${item.credits} SKS)`}
+                            className="truncate text-[10px] leading-tight"
+                          >
+                            {item.room_code ?? "Ruangan belum ditentukan"} ·
+                            Tatap muka {loadMinutes} menit
                           </p>
                           <div className="mt-auto flex items-center justify-between gap-1">
                             {isConflict && (

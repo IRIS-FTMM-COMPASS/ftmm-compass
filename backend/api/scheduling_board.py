@@ -61,6 +61,7 @@ class _Block:
     section_code: str
     course_code: str
     course_name: str
+    course_id: UUID
     credits: int
     study_program_id: UUID | None
     study_program_code: str
@@ -199,6 +200,7 @@ async def _blocks(
             select(
                 ClassSection.class_section_id.label("class_section_id"),
                 ClassSection.section_code.label("section_code"),
+                Course.course_id.label("course_id"),
                 Course.course_code.label("course_code"),
                 Course.course_name.label("course_name"),
                 CurriculumCourse.credits_total.label("credits"),
@@ -269,6 +271,7 @@ async def _blocks(
                 section_code=row.section_code,
                 course_code=row.course_code,
                 course_name=row.course_name,
+                course_id=row.course_id,
                 credits=row.credits or 0,
                 study_program_id=row.study_program_id,
                 study_program_code=row.study_program_code or "",
@@ -443,7 +446,9 @@ async def _board_context(
             section_code=block.section_code,
             course_code=block.course_code,
             course_name=block.course_name,
+            course_id=str(block.course_id),
             credits=block.credits,
+            face_to_face_minutes=block.credits * 50,
             study_program_id=(
                 str(block.study_program_id) if block.study_program_id else ""
             ),

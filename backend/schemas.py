@@ -673,6 +673,8 @@ class BoardClassItem(BaseModel):
     course_code: str = ""
     course_name: str = ""
     credits: int = 0
+    face_to_face_minutes: int = 0
+    course_id: str = ""
     study_program_id: str = ""
     study_program_code: str = ""
     day_of_week: int = 0
@@ -683,6 +685,12 @@ class BoardClassItem(BaseModel):
     lecturers: List[str] = Field(default_factory=list)
     is_manually_edited: bool = False
     state: str = "draft"
+
+    @model_validator(mode="after")
+    def derive_face_to_face_minutes(self) -> "BoardClassItem":
+        if self.face_to_face_minutes == 0 and self.credits > 0:
+            self.face_to_face_minutes = self.credits * 50
+        return self
 
 
 class BoardConflictItem(BaseModel):

@@ -114,6 +114,8 @@ export interface BoardClassItem {
   course_code: string
   course_name: string
   credits: number
+  face_to_face_minutes: number
+  course_id: string
   study_program_id: string
   study_program_code: string
   day_of_week: number

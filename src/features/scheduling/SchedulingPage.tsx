@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -17,6 +18,7 @@ import BoardGrid from "./components/BoardGrid"
 import RoomAdminPanel from "./components/RoomAdminPanel"
 import InstructorMappingPanel from "./components/InstructorMappingPanel"
 import AvailabilityPanel from "./components/AvailabilityPanel"
+import { useSchedulingStatus } from "./hooks/useSchedulingStatus"
 import {
   schedulingService,
   type BoardClassItem,
@@ -48,7 +50,7 @@ const TABS = [
 ] as const
 
 type TabId = typeof TABS[number]["id"]
-type BusyAction = "fill_empty" | "full_reset" | "finalize" | "unlock" | "edit"
+type BusyAction = "fill_empty" | "full_reset" | "finalize" | "unlock" | "edit" | "class_count"
 type ConfirmAction = "reset" | "unlock" | null
 
 interface SchedulingPageProps {
@@ -63,6 +65,16 @@ interface EditDraft {
   reason: string
 }
 
+interface ClassCountOption {
+  key: string
+  course_id: string
+  study_program_id: string
+  course_code: string
+  course_name: string
+  study_program_code: string
+  currentCount: number
+}
+
 function formatHour(hour: number): string {
   return `${String(hour).padStart(2, "0")}:00`
 }
@@ -72,6 +84,7 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
   const isAdmin = user?.role === "admin"
   const isPjProdi =
     user?.role === "lecturer" && user.is_program_coordinator === true
+  const { isFinal, retry: refreshSchedulingStatus } = useSchedulingStatus()
 
   const [board, setBoard] = useState<BoardResponse | null>(null)
   const [rooms, setRooms] = useState<RoomResponse[]>([])
@@ -84,6 +97,8 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
   const [busyAction, setBusyAction] = useState<BusyAction | null>(null)
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null)
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null)
+  const [overrideCourseKey, setOverrideCourseKey] = useState("")
+  const [overrideClassCount, setOverrideClassCount] = useState(1)
   const [reloadKey, setReloadKey] = useState(0)
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
   const boardLoadCount = useRef(0)
@@ -142,22 +157,46 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
   const selectedProgram = programs.find(
     (program) => program.study_program_id === selectedProgramId,
   )
-  const allFinal =
-    programs.length > 0 &&
-    programs.every((program) => program.state === "final")
-  const statusLabel = selectedProgram
-    ? selectedProgram.state === "final"
+  const statusLabel =
+    selectedProgram?.state === "final" || isFinal
       ? FINAL_LABEL
       : IN_PROGRESS_LABEL
-    : allFinal
-      ? FINAL_LABEL
-      : IN_PROGRESS_LABEL
-  const isFinal = allFinal
   const periodId = data?.academic_period_id ?? ""
   const allClasses = data?.classes ?? []
   const unassigned: UnassignedItem[] = data?.unassigned ?? []
   const conflicts = data?.conflicts ?? []
   const canGenerate = isAdmin || isPjProdi
+  const overrideOptions = useMemo(() => {
+    const grouped = new Map<string, ClassCountOption>()
+    allClasses.forEach((item) => {
+      if (!item.course_id) return
+      const key = `${item.course_id}:${item.study_program_id}`
+      const option = grouped.get(key)
+      if (option) {
+        option.currentCount += 1
+        return
+      }
+      grouped.set(key, {
+        key,
+        course_id: item.course_id,
+        study_program_id: item.study_program_id,
+        course_code: item.course_code,
+        course_name: item.course_name,
+        study_program_code: item.study_program_code,
+        currentCount: 1,
+      })
+    })
+    return Array.from(grouped.values()).sort((left, right) =>
+      `${left.course_code} ${left.study_program_code}`.localeCompare(
+        `${right.course_code} ${right.study_program_code}`,
+      ),
+    )
+  }, [allClasses])
+  const selectedOverrideOption =
+    overrideOptions.find((option) => option.key === overrideCourseKey) ??
+    overrideOptions[0] ??
+    null
+  const canOverrideClassCount = canGenerate && !isFinal
 
   const runGenerate = async (mode: "fill_empty" | "full_reset") => {
     if (!canGenerate || busyAction) return
@@ -199,6 +238,7 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
           : "Jadwal program studi telah difinalisasi.",
       )
       await loadBoard()
+      refreshSchedulingStatus()
     } catch (cause) {
       setActionError(apiErrorMessage(cause, "Finalisasi jadwal gagal."))
     } finally {
@@ -215,6 +255,7 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
       setConfirmAction(null)
       setActionNotice("Kunci jadwal telah dibuka. Jadwal kembali dapat diubah.")
       await loadBoard()
+      refreshSchedulingStatus()
     } catch (cause) {
       setActionError(apiErrorMessage(cause, "Kunci jadwal gagal dibuka."))
     } finally {
@@ -261,6 +302,41 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
       await loadBoard()
     } catch (cause) {
       setActionError(apiErrorMessage(cause, "Perubahan jadwal gagal disimpan."))
+    } finally {
+      setBusyAction(null)
+    }
+  }
+  const submitClassCountOverride = async (
+    event: FormEvent<HTMLFormElement>,
+  ) => {
+    event.preventDefault()
+    const option = selectedOverrideOption
+    if (
+      !option ||
+      !canOverrideClassCount ||
+      !periodId ||
+      busyAction !== null ||
+      overrideClassCount < 1 ||
+      overrideClassCount > 3
+    ) {
+      return
+    }
+    setBusyAction("class_count")
+    setActionError(null)
+    setActionNotice(null)
+    try {
+      const result = await schedulingService.setClassCountOverride({
+        academic_period_id: periodId,
+        course_id: option.course_id,
+        study_program_id: option.study_program_id,
+        class_count: overrideClassCount,
+      })
+      setActionNotice(
+        `Jumlah kelas ${option.course_code} (${option.study_program_code}) disimpan menjadi ${result.class_count}. Jalankan generate ulang untuk menerapkannya.`,
+      )
+      await loadBoard()
+    } catch (cause) {
+      setActionError(apiErrorMessage(cause, "Jumlah kelas gagal disimpan."))
     } finally {
       setBusyAction(null)
     }
@@ -477,6 +553,100 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
                 </p>
               )}
             </div>
+            {canGenerate && (
+              <form
+                onSubmit={(event) => void submitClassCountOverride(event)}
+                aria-labelledby="class-count-override-title"
+                className="flex flex-col gap-2 rounded-lg border border-border bg-background p-3 sm:flex-row sm:items-end"
+              >
+                <div className="min-w-0 flex-1 space-y-1">
+                  <h3
+                    id="class-count-override-title"
+                    className="font-heading text-xs font-bold text-navy"
+                  >
+                    Jumlah kelas per mata kuliah
+                  </h3>
+                  <label className="flex flex-col gap-1 text-[11px] font-semibold text-navy">
+                    Mata kuliah
+                    <select
+                      value={selectedOverrideOption?.key ?? ""}
+                      onChange={(event) => {
+                        setOverrideCourseKey(event.target.value)
+                        const option = overrideOptions.find(
+                          (item) => item.key === event.target.value,
+                        )
+                        if (option) {
+                          setOverrideClassCount(
+                            Math.min(3, Math.max(1, option.currentCount)),
+                          )
+                        }
+                      }}
+                      disabled={
+                        !canOverrideClassCount ||
+                        selectedOverrideOption === null
+                      }
+                      className={cn(
+                        "min-h-10 rounded-lg border border-input bg-surface px-2 text-xs font-normal text-navy",
+                        !canOverrideClassCount &&
+                          "cursor-not-allowed opacity-60",
+                      )}
+                    >
+                      {overrideOptions.length === 0 && (
+                        <option value="">Belum ada mata kuliah</option>
+                      )}
+                      {overrideOptions.map((option) => (
+                        <option key={option.key} value={option.key}>
+                          {option.course_code} · {option.course_name} (
+                          {option.study_program_code})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <label className="flex w-full flex-col gap-1 text-[11px] font-semibold text-navy sm:w-24">
+                  Jumlah kelas
+                  <select
+                    value={overrideClassCount}
+                    onChange={(event) =>
+                      setOverrideClassCount(Number(event.target.value))
+                    }
+                    disabled={
+                      !canOverrideClassCount || selectedOverrideOption === null
+                    }
+                    className={cn(
+                      "min-h-10 rounded-lg border border-input bg-surface px-2 text-xs font-normal text-navy",
+                      !canOverrideClassCount && "cursor-not-allowed opacity-60",
+                    )}
+                  >
+                    {[1, 2, 3].map((count) => (
+                      <option key={count} value={count}>
+                        {count} kelas
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="submit"
+                  disabled={
+                    !canOverrideClassCount ||
+                    !periodId ||
+                    selectedOverrideOption === null ||
+                    busyAction !== null
+                  }
+                  className="inline-flex min-h-10 items-center rounded-lg bg-navy px-3 text-xs font-semibold text-white transition-colors hover:bg-navy-light disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold cursor-pointer disabled:cursor-not-allowed"
+                >
+                  {busyAction === "class_count"
+                    ? "Menyimpan..."
+                    : "Simpan jumlah kelas"}
+                </button>
+                {!canOverrideClassCount && (
+                  <p className="self-center text-[11px] text-muted">
+                    Jadwal sudah final dan KRS dibuka. Hubungi admin untuk
+                    membuka kunci.
+                  </p>
+                )}
+              </form>
+            )}
           </section>
 
           {editDraft && (

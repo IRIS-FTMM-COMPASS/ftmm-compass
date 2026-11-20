@@ -20,14 +20,14 @@ from models import (
     CurriculumCourse,
     OfferingComponent,
     SchedulePeriodLock,
+    ScheduleProgramStatus,
     ScheduleRun,
     StudyProgram,
     UnassignedClass,
-    User,
 )
 from scheduler import generate_schedule
 from schemas import GenerateRequest, GenerateResponse, UnassignedItem
-from scheduling_common import current_period_id
+from scheduling_common import all_study_program_ids, current_period_id
 
 router = APIRouter()
 
@@ -202,6 +202,39 @@ async def put_class_count_override(
             "period_not_found",
             "Periode akademik tidak ditemukan.",
             detail="Periode akademik tidak ditemukan.",
+        )
+    lock = await db.get(SchedulePeriodLock, period.academic_period_id)
+    if lock is not None and lock.krs_open:
+        message = "KRS sudah dibuka; jumlah kelas tidak dapat diubah."
+        return error_response(
+            status.HTTP_409_CONFLICT,
+            "scheduling_locked",
+            message,
+            detail=message,
+        )
+
+    program_ids = await all_study_program_ids(db)
+    final_program_ids: set[UUID] = set()
+    if program_ids:
+        final_program_ids = set(
+            (
+                await db.execute(
+                    select(ScheduleProgramStatus.study_program_id).where(
+                        ScheduleProgramStatus.academic_period_id
+                        == period.academic_period_id,
+                        ScheduleProgramStatus.study_program_id.in_(program_ids),
+                        ScheduleProgramStatus.state == "final",
+                    )
+                )
+            ).scalars().all()
+        )
+    if program_ids and final_program_ids.issuperset(program_ids):
+        message = "Jadwal sudah final; jumlah kelas tidak dapat diubah."
+        return error_response(
+            status.HTTP_409_CONFLICT,
+            "schedule_final",
+            message,
+            detail=message,
         )
     if course is None:
         return error_response(
