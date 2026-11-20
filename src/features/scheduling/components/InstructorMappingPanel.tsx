@@ -29,7 +29,12 @@ const inputClass =
 const buttonClass =
   "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 cursor-pointer"
 
-const ROLE_OPTIONS: { value: InstructorReferenceRole; label: string }[] = [
+interface RoleOption {
+  value: InstructorReferenceRole
+  label: string
+}
+
+const ROLE_OPTIONS: RoleOption[] = [
   { value: "pjmk", label: "PJ MK" },
   { value: "teaching_team", label: "Tim Pengajar" },
   { value: "lecturer", label: "Dosen" },
