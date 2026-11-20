@@ -143,19 +143,20 @@ def test_demo_student_schedule_matches_active_plan_sections(client, db_session, 
     assert timetable_codes == expected, (email, timetable_codes, expected)
 
 
-def test_tsd_timetable_excludes_genap_course(client, db_session):
-    email = DEMO_EMAILS["TSD"]
+@pytest.mark.parametrize("code", DEMO_CODES)
+def test_demo_timetable_follows_active_period_term(client, db_session, code):
+    email = DEMO_EMAILS[code]
     period = _active_period(client, db_session)
     plan_terms = _plan_terms_by_email(client, db_session)[email]
-    expected = _schedulable_codes_by_email(client, db_session, period["id"])[email]
+    selected_codes = _timetable_codes(client, _login_headers(client, email))
 
-    assert "MAT108" in plan_terms, plan_terms
-    assert plan_terms["MAT108"] == "genap", plan_terms
-    assert "MAT108" not in expected, expected
-
-    headers = _login_headers(client, email)
-    assert "MAT108" not in _dashboard_codes(client, headers)
-    assert "MAT108" not in _timetable_codes(client, headers)
+    assert selected_codes, email
+    assert selected_codes <= set(plan_terms), (email, selected_codes, plan_terms)
+    assert all(plan_terms[course] == period["term"] for course in selected_codes), (
+        email,
+        selected_codes,
+        period["term"],
+    )
 
 
 def test_rn_timetable_includes_all_plan_courses(client, db_session):

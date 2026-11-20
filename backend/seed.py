@@ -33,7 +33,7 @@ from models import (
     ElectiveCourseVote,
     UserNotification,
 )
-from plan_storage import ensure_assignment
+from plan_storage import NoCurriculumAssignment, ensure_assignment
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(line_buffering=True)
@@ -910,7 +910,14 @@ async def seed_data():
         for user in demo_plan_users:
             if user.student_profile is None:
                 continue
-            assignment = await ensure_assignment(session, user)
+            try:
+                assignment = await ensure_assignment(session, user)
+            except NoCurriculumAssignment:
+                print(
+                    f"  [WARN] Skip demo plan {user.email}: "
+                    "kurikulum prodi belum tersedia"
+                )
+                continue
             stmt_active_plan = (
                 select(DegreePlan)
                 .options(selectinload(DegreePlan.items))

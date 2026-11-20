@@ -13,6 +13,8 @@ from models import (
     CourseOfferingEligibility,
     Curriculum,
     CurriculumCourse,
+    DegreePlan,
+    DegreePlanItem,
     OfferingComponent,
     StudentCurriculumAssignment,
     Timetable,
@@ -129,6 +131,60 @@ def _discover_sections(
     return found
 
 
+def _seeded_plan_codes(client, db_session) -> set[str]:
+    """Kode MK aktif yang punya seksi eligible untuk mahasiswa demo TSD."""
+
+    async def read() -> set[str]:
+        stmt = (
+            select(Course.course_code)
+            .select_from(DegreePlan)
+            .join(User, DegreePlan.user_id == User.user_id)
+            .join(
+                DegreePlanItem,
+                DegreePlanItem.degree_plan_id == DegreePlan.degree_plan_id,
+            )
+            .join(
+                CurriculumCourse,
+                CurriculumCourse.curriculum_course_id
+                == DegreePlanItem.curriculum_course_id,
+            )
+            .join(Course, Course.course_id == CurriculumCourse.course_id)
+            .join(
+                CourseOfferingEligibility,
+                CourseOfferingEligibility.curriculum_course_id
+                == CurriculumCourse.curriculum_course_id,
+            )
+            .join(
+                CourseOffering,
+                CourseOffering.course_offering_id
+                == CourseOfferingEligibility.course_offering_id,
+            )
+            .join(
+                OfferingComponent,
+                OfferingComponent.course_offering_id
+                == CourseOffering.course_offering_id,
+            )
+            .join(
+                ClassSection,
+                ClassSection.offering_component_id
+                == OfferingComponent.offering_component_id,
+            )
+            .join(
+                AcademicPeriod,
+                AcademicPeriod.academic_period_id
+                == CourseOffering.academic_period_id,
+            )
+            .where(CourseOffering.course_id == Course.course_id)
+            .where(DegreePlan.status == "active")
+            .where(User.email == TSD_DEMO_STUDENT[0])
+            .where(AcademicPeriod.is_active.is_(True))
+            .distinct()
+        )
+        return set((await db_session.execute(stmt)).scalars().all())
+
+    return client.portal.call(read)
+
+
 def _selection_input(item: dict[str, str]) -> dict[str, str]:
     return {"course_code": item["course_code"], "section_id": item["section_id"]}
 
@@ -183,10 +239,9 @@ def test_demo_student_starts_with_seeded_timetable(client, db_session):
 
     body = _get_timetable(client, headers)
 
-    assert {item["course_code"] for item in body["selections"]} == {
-        "SIA104",
-        "SIP107",
-    }
+    assert {item["course_code"] for item in body["selections"]} == (
+        _seeded_plan_codes(client, db_session)
+    )
     assert "academic_period_id" in body
     assert "updated_at" in body
 
