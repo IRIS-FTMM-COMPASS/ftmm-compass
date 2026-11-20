@@ -68,6 +68,7 @@ def _non_coordinator_headers(client, db_session) -> dict[str, str]:
 def _create_room(client, admin_headers, db_session, **overrides) -> dict:
     payload = {
         "room_code": _code(),
+        "building": "NANO",
         "capacity": 40,
         "is_active": True,
         "owner_study_program_id": _program_id(client, db_session, "TSD"),
@@ -137,7 +138,7 @@ def test_duplicate_code_conflicts_on_create_and_update(
     second = client.post(
         PATH,
         headers=admin_headers,
-        json={"room_code": code, "capacity": 20},
+        json={"room_code": code, "capacity": 20, "building": "NANO"},
     )
     assert second.status_code == 409, second.text
     assert second.json()["error"]["code"] == "room_code_exists"
@@ -162,6 +163,7 @@ def test_capacity_below_one_is_rejected(client, admin_headers, db_session):
             json={
                 "room_code": _code(),
                 "capacity": capacity,
+                "building": "NANO",
                 "owner_study_program_id": tsd,
             },
         )
@@ -178,6 +180,7 @@ def test_pj_prodi_sees_only_own_rooms_and_writes_require_admin(
     foreign = _create_room(
         client, admin_headers, db_session, owner_study_program_id=other
     )
+    shared = _create_room(client, admin_headers, db_session, owner_study_program_id=None)
 
     admin_body = client.get(PATH, headers=admin_headers).json()
     assert _by_id(admin_body, own["room_id"])["room_code"] == own["room_code"]
@@ -189,7 +192,8 @@ def test_pj_prodi_sees_only_own_rooms_and_writes_require_admin(
     pj_ids = {item["room_id"] for item in pj_body["data"]}
     assert own["room_id"] in pj_ids
     assert foreign["room_id"] not in pj_ids
-    assert all(item["owner_study_program_id"] == tsd for item in pj_body["data"])
+    assert shared["room_id"] in pj_ids
+    assert all(item["owner_study_program_id"] in (tsd, None) for item in pj_body["data"])
 
     student = client.get(PATH, headers=student_headers)
     assert student.status_code == 403, student.text
@@ -203,6 +207,7 @@ def test_pj_prodi_sees_only_own_rooms_and_writes_require_admin(
         json={
             "room_code": _code(),
             "capacity": 20,
+            "building": "NANO",
             "owner_study_program_id": tsd,
         },
     )
@@ -231,6 +236,7 @@ def test_unknown_room_and_unknown_owner_are_rejected(
         PATH,
         headers=admin_headers,
         json={
+            "building": "NANO",
             "room_code": _code(),
             "capacity": 10,
             "owner_study_program_id": str(uuid.uuid4()),
@@ -249,30 +255,28 @@ def test_unknown_room_and_unknown_owner_are_rejected(
     assert unknown_owner_patch.json()["error"]["code"] == "validation_error"
 
 
-def test_owner_is_required_and_cannot_be_cleared(client, admin_headers, db_session):
+def test_owner_can_be_omitted_or_cleared_for_shared_rooms(client, admin_headers, db_session):
     tsd = _program_id(client, db_session, "TSD")
     room = _create_room(client, admin_headers, db_session, owner_study_program_id=tsd)
 
-    for payload in (
-        {"room_code": _code(), "capacity": 20},
-        {"room_code": _code(), "capacity": 20, "owner_study_program_id": None},
-        {"room_code": _code(), "capacity": 20, "owner_study_program_id": ""},
-        {"room_code": _code(), "capacity": 20, "owner_study_program_id": "  "},
-    ):
-        response = client.post(PATH, headers=admin_headers, json=payload)
-        assert response.status_code == 422, response.text
-        assert response.json()["error"]["code"] == "validation_error"
-        assert response.json()["error"]["details"][0]["code"] == "owner_required"
-
     for owner in (None, "", "  "):
-        response = client.patch(
-            f"{PATH}/{room['room_id']}",
+        response = client.post(
+            PATH,
             headers=admin_headers,
-            json={"owner_study_program_id": owner},
+            json={
+                "room_code": _code(),
+                "building": "NANO",
+                "capacity": 20,
+                "owner_study_program_id": owner,
+            },
         )
-        assert response.status_code == 422, response.text
-        assert response.json()["error"]["code"] == "validation_error"
-        assert response.json()["error"]["details"][0]["code"] == "owner_required"
+        assert response.status_code == 201, response.text
+        assert response.json()["owner_study_program_id"] is None
 
-    unchanged = client.get(PATH, headers=admin_headers)
-    assert _by_id(unchanged.json(), room["room_id"])["owner_study_program_id"] == tsd
+    cleared = client.patch(
+        f"{PATH}/{room['room_id']}",
+        headers=admin_headers,
+        json={"owner_study_program_id": None},
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["owner_study_program_id"] is None

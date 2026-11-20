@@ -14,6 +14,13 @@ EXPECTED_PJ = {
     "TI": "pj.ti@ftmm.unair.ac.id",
     "TE": "pj.te@ftmm.unair.ac.id",
 }
+EXPECTED_PJ_NAMES = {
+    "TSD": "Dr. Dwi Rantini, S.Si.",
+    "TRKB": "Asif Ali Zamzami",
+    "RN": "Mirza Ardella Saputra, S.Si., M.Sc., Ph.D",
+    "TI": "Chandrawati Putri Wulandari, S.T., M.T., MBA., Ph.D.",
+    "TE": "Dr. Agus Mukhlisin, S.T., M.T.",
+}
 PJ_PASSWORD = "PjProdi2026!"
 LEGACY_LECTURER_EMAIL = "dosen.testing@ftmm.unair.ac.id"
 MHS_EMAIL = "mahasiswa.testing@ftmm.unair.ac.id"
@@ -123,7 +130,7 @@ def test_seed_creates_exactly_five_active_pj_accounts(client, admin_headers, db_
     assert len(pjs) == 5
     for pj in pjs:
         code = next(code for code, email in EXPECTED_PJ.items() if email == pj["email"])
-        assert pj["full_name"] == f"PJ Prodi {code}"
+        assert pj["full_name"] == EXPECTED_PJ_NAMES[code]
         assert pj["role"] == "lecturer"
 
     response = client.get(
@@ -150,7 +157,7 @@ def test_seed_has_one_active_coordinator_per_prodi(client, db_session):
     )
     assert len(coordinators) == 5
     assert {row["program_code"]: row["email"] for row in coordinators} == EXPECTED_PJ
-    assert all(row["employee_number"] is None for row in coordinators)
+    assert all(row["employee_number"] is not None for row in coordinators)
 
 def test_legacy_testing_lecturer_is_not_active(client, admin_headers, db_session):
     active = _one(

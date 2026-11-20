@@ -9,7 +9,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.errors import error_response
@@ -71,6 +71,8 @@ def _room_response(room: Room) -> RoomResponse:
     return RoomResponse(
         room_id=str(room.room_id),
         room_code=room.room_code,
+        building=room.building,
+        floor=room.floor,
         capacity=room.capacity,
         owner_study_program_id=(
             str(room.owner_study_program_id)
@@ -83,11 +85,11 @@ def _room_response(room: Room) -> RoomResponse:
 
 async def _resolve_program(
     db: AsyncSession, raw: str | None, field: str
-) -> uuid.UUID | JSONResponse:
-    """Terjemahkan ID prodi pemilik yang wajib; null/kosong ditolak."""
+) -> uuid.UUID | None | JSONResponse:
+    """Terjemahkan ID prodi pemilik; kosong berarti ruang bersama."""
     value = raw.strip() if isinstance(raw, str) else ""
     if not value:
-        return _field_error(field, "Program studi pemilik wajib diisi.", "owner_required")
+        return None
     try:
         program_id = uuid.UUID(value)
     except (ValueError, TypeError, AttributeError):
@@ -121,7 +123,12 @@ async def list_rooms(
 
     stmt = select(Room).order_by(Room.room_code, Room.room_id)
     if scope is not None:
-        stmt = stmt.where(Room.owner_study_program_id == scope)
+        stmt = stmt.where(
+            or_(
+                Room.owner_study_program_id == scope,
+                Room.owner_study_program_id.is_(None),
+            )
+        )
     rooms = (await db.execute(stmt)).scalars().all()
     items = [_room_response(room) for room in rooms]
     return RoomListResponse(data=items, meta={"total": len(items)})
@@ -161,6 +168,8 @@ async def create_room(
     room = Room(
         room_code=code,
         capacity=payload.capacity,
+        building=payload.building,
+        floor=payload.floor,
         owner_study_program_id=owner_id,
         is_active=payload.is_active,
     )
@@ -210,6 +219,11 @@ async def update_room(
 
     if payload.capacity is not None:
         room.capacity = payload.capacity
+    if payload.building is not None:
+        room.building = payload.building
+
+    if payload.floor is not None:
+        room.floor = payload.floor
 
     if payload.is_active is not None:
         room.is_active = payload.is_active

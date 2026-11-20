@@ -1,0 +1,33 @@
+{
+  "source": "inventaris lokal FTMM (NANO lantai 6/7/8, NANI lantai 10)",
+  "capacity": 60,
+  "rooms": [
+    {"room_code": "6.01", "building": "NANO", "floor": "6"},
+    {"room_code": "6.02", "building": "NANO", "floor": "6"},
+    {"room_code": "6.03", "building": "NANO", "floor": "6"},
+    {"room_code": "6.04", "building": "NANO", "floor": "6"},
+    {"room_code": "6.05", "building": "NANO", "floor": "6"},
+    {"room_code": "6.06", "building": "NANO", "floor": "6"},
+    {"room_code": "6.07", "building": "NANO", "floor": "6"},
+    {"room_code": "6.08", "building": "NANO", "floor": "6"},
+    {"room_code": "6.09", "building": "NANO", "floor": "6"},
+    {"room_code": "6.10", "building": "NANO", "floor": "6"},
+    {"room_code": "6.11", "building": "NANO", "floor": "6"},
+    {"room_code": "6.12", "building": "NANO", "floor": "6"},
+    {"room_code": "6.13", "building": "NANO", "floor": "6"},
+    {"room_code": "6.14", "building": "NANO", "floor": "6"},
+    {"room_code": "6.15", "building": "NANO", "floor": "6"},
+    {"room_code": "7.10", "building": "NANO", "floor": "7"},
+    {"room_code": "7.11a", "building": "NANO", "floor": "7"},
+    {"room_code": "7.11b", "building": "NANO", "floor": "7"},
+    {"room_code": "7.12", "building": "NANO", "floor": "7"},
+    {"room_code": "7.13", "building": "NANO", "floor": "7"},
+    {"room_code": "8.01", "building": "NANO", "floor": "8"},
+    {"room_code": "8.02", "building": "NANO", "floor": "8"},
+    {"room_code": "8.03", "building": "NANO", "floor": "8"},
+    {"room_code": "L1", "building": "NANO", "floor": "1"},
+    {"room_code": "LAB-TRKB", "building": "NANO", "floor": null},
+    {"room_code": "LAB-TI", "building": "NANO", "floor": null},
+    {"room_code": "10.RN", "building": "NANI", "floor": "10"}
+  ]
+}

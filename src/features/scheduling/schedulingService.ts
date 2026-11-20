@@ -5,6 +5,8 @@ const SCHEDULING_BASE = "/api/v1/scheduling"
 export interface RoomResponse {
   room_id: string
   room_code: string
+  building: string
+  floor: string | null
   capacity: number
   owner_study_program_id: string | null
   is_active: boolean
@@ -12,6 +14,8 @@ export interface RoomResponse {
 
 export interface RoomCreateRequest {
   room_code: string
+  building: string
+  floor?: string | null
   capacity: number
   owner_study_program_id?: string | null
   is_active?: boolean
@@ -19,6 +23,8 @@ export interface RoomCreateRequest {
 
 export interface RoomUpdateRequest {
   room_code?: string | null
+  building?: string | null
+  floor?: string | null
   capacity?: number | null
   owner_study_program_id?: string | null
   is_active?: boolean | null
@@ -42,6 +48,21 @@ export interface InstructorReferenceResponse {
 
 export interface InstructorMappingRequest {
   user_id: string | null
+}
+
+export type InstructorReferenceRole = "pjmk" | "teaching_team" | "lecturer" | "other"
+
+export interface InstructorReferenceCreateRequest {
+  curriculum_course_id: string
+  instructor_name: string
+  instructor_role: InstructorReferenceRole
+  user_id?: string | null
+}
+
+export interface CurriculumCourseOption {
+  curriculum_course_id: string
+  course_code: string
+  course_name: string
 }
 
 export interface InstructorReferenceListResponse {
@@ -300,6 +321,31 @@ export const schedulingService = {
       `${SCHEDULING_BASE}/instructor-references/${encodeURIComponent(referenceId)}`,
       { method: "PATCH", body, auth: true },
     )
+  },
+
+  createInstructorReference(
+    request: InstructorReferenceCreateRequest,
+  ): Promise<InstructorReferenceResponse> {
+    return apiFetch<InstructorReferenceResponse>(
+      `${SCHEDULING_BASE}/instructor-references`,
+      { method: "POST", body: request, auth: true },
+    )
+  },
+
+  deleteInstructorReference(referenceId: string): Promise<void> {
+    return apiFetch<void>(
+      `${SCHEDULING_BASE}/instructor-references/${encodeURIComponent(referenceId)}`,
+      { method: "DELETE", auth: true },
+    )
+  },
+
+  async listCurriculumCourses(): Promise<CurriculumCourseOption[]> {
+    const payload = await apiFetch<{
+      data: CurriculumCourseOption[]
+    } | CurriculumCourseOption[]>(`${SCHEDULING_BASE}/curriculum-courses`, {
+      auth: true,
+    })
+    return unwrap(payload)
   },
 
   async getMyAvailability(): Promise<AvailabilityResponse[]> {

@@ -56,6 +56,26 @@ _Avoid_: waktu kosong, break
 Tampilan satu periode akademik yang memuat seluruh Kelas MK dari lima prodi; PJ Prodi mengedit kelas prodinya saja dan konflik dihitung di tampilan itu.
 _Avoid_: jadwal per prodi, draft terpisah
 
+**Gedung**:
+Bangunan fisik FTMM yang menjadi lokasi ruangan; yang dikenal saat ini adalah NANO dan NANI.
+_Avoid_: lokasi, kampus, blok gedung
+
+**Lantai**:
+Tingkat di dalam satu gedung tempat sebuah ruangan berada, dinyatakan dengan nomor.
+_Avoid_: tingkat, lantai bangunan
+
+**Ruangan**:
+Tempat fisik di dalam gedung dan lantai tertentu yang dapat dipesan untuk satu Blok Jadwal; memiliki kode, kapasitas, dan status aktif.
+_Avoid_: ruang kelas, ruang, room
+
+**Ruang Terikat Prodi**:
+Ruangan yang alokasinya ditetapkan untuk satu prodi; penjadwal hanya menempatkan Kelas MK prodi itu di ruangan tersebut.
+_Avoid_: ruang milik prodi, ruang booked, ruang eksklusif
+
+**Ruang Bersama**:
+Ruangan tanpa alokasi prodi tertentu yang dapat dipakai prodi mana pun pada Blok Jadwal yang berbeda.
+_Avoid_: ruang fakultas, ruang umum, ruang kosong
+
 ## Manajemen Akun
 
 **Akun nonaktif**:

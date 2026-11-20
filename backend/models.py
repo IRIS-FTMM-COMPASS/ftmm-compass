@@ -692,6 +692,8 @@ class Room(Base):
     )
     room_code: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     capacity: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    building: Mapped[str] = mapped_column(String(50), nullable=False, default="NANO")
+    floor: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     owner_study_program_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("study_programs.study_program_id", ondelete="SET NULL"),

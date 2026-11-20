@@ -402,12 +402,11 @@ def test_generate_assigns_full_hour_block_in_owned_room(client, db_session, admi
     assert schedule["room_id"] in case["room_ids"]
 
 
-def test_generate_reports_capacity_owner_parity_and_availability(
+def test_generate_reports_capacity_parity_and_availability(
     client, db_session, admin_headers
 ):
     scenarios = (
-        ({"room_capacity": 20}, "kapasitas ruang"),
-        ({"room_owner": False}, "tidak ada ruang milik prodi"),
+        ({"capacity": 100, "room_capacity": 20}, "kapasitas ruang"),
         ({"course_term": "opposite"}, "paritas tidak sesuai"),
         (
             {"instructor": True, "availability": (1, 7, 9)},
@@ -428,6 +427,20 @@ def test_generate_reports_capacity_owner_parity_and_availability(
         assert item["reason"] == expected_reason
         assert _schedules(client, db_session, [case["section_id"]]) == []
 
+
+
+def test_generate_uses_shared_room_when_no_owned_room(client, db_session, admin_headers):
+    case = _make_case(client, db_session, room_count=0)
+    response = _generate(
+        client,
+        admin_headers,
+        mode="fill_empty",
+        academic_period_id=case["period_id"],
+    )
+    assert response.status_code == 200, response.text
+    assert _unassigned(response.json(), case["section_id"]) is None
+    schedules = _schedules(client, db_session, [case["section_id"]])
+    assert len(schedules) == 1
 
 def test_demand_sets_one_two_and_three_class_sections(
     client, db_session, admin_headers
@@ -549,9 +562,9 @@ def test_generate_prevents_lecturer_and_room_double_booking(
     )
     assert len(schedules) == 2
     first, second = schedules
-    assert first["room_id"] == second["room_id"]
     assert not (
-        first["day"] == second["day"]
+        first["room_id"] == second["room_id"]
+        and first["day"] == second["day"]
         and blocks_overlap(first["start"], first["end"], second["start"], second["end"])
     )
 
@@ -697,7 +710,7 @@ def test_class_count_override_bounds_idempotency_and_generation(
 
 
 def test_unassigned_endpoint_returns_diagnostics(client, db_session, admin_headers):
-    case = _make_case(client, db_session, room_capacity=20)
+    case = _make_case(client, db_session, capacity=100, room_capacity=20)
 
     generated = _generate(
         client,

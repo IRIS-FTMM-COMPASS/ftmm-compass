@@ -701,9 +701,7 @@ async def generate_schedule(
         room_rows[room.owner_study_program_id].append(
             RoomOption(room.room_id, room.room_code, room.capacity)
         )
-    rooms_by_program = {
-        program_id: tuple(options) for program_id, options in room_rows.items()
-    }
+    shared_rooms = room_rows.pop(None, [])
 
     lecturer_ids = {
         user_id for users in lecturers_by_course.values() for user_id in users
@@ -780,6 +778,11 @@ async def generate_schedule(
         )
         tasks.append(task)
         task_by_section[task.section_id] = task
+    program_ids = {task.study_program_id for task in tasks} | set(room_rows)
+    rooms_by_program = {
+        program_id: tuple(room_rows.get(program_id, []) + shared_rooms)
+        for program_id in program_ids
+    }
 
     occupied: list[Block] = []
     filled: set[UUID] = set()

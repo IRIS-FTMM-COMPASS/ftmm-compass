@@ -560,6 +560,8 @@ class TimetableResponse(BaseModel):
 
 class RoomCreateRequest(BaseModel):
     room_code: str = Field(..., min_length=1, max_length=50)
+    building: str = Field(..., min_length=1, max_length=50)
+    floor: Optional[str] = Field(None, max_length=20)
     capacity: int = Field(..., ge=1, le=32767)
     owner_study_program_id: Optional[str] = None
     is_active: bool = True
@@ -567,14 +569,18 @@ class RoomCreateRequest(BaseModel):
 
 class RoomUpdateRequest(BaseModel):
     room_code: Optional[str] = Field(None, min_length=1, max_length=50)
+    building: Optional[str] = Field(None, min_length=1, max_length=50)
+    floor: Optional[str] = Field(None, max_length=20)
     capacity: Optional[int] = Field(None, ge=1, le=32767)
     owner_study_program_id: Optional[str] = None
     is_active: Optional[bool] = None
 
 
 class RoomResponse(BaseModel):
-    room_id: str
     room_code: str
+    room_id: str
+    building: str = "NANO"
+    floor: Optional[str] = None
     capacity: int
     owner_study_program_id: Optional[str] = None
     is_active: bool = True
@@ -596,6 +602,13 @@ class InstructorReferenceResponse(BaseModel):
     lecturer_name: Optional[str] = None
 
 
+class InstructorReferenceCreateRequest(BaseModel):
+    curriculum_course_id: str
+    instructor_name: str = Field(..., min_length=1, max_length=200)
+    instructor_role: Literal["pjmk", "teaching_team", "lecturer", "other"] = "pjmk"
+    user_id: Optional[str] = None
+
+
 class InstructorMappingRequest(BaseModel):
     # None memutus pemetaan nama dosen ke akun.
     user_id: Optional[str] = None
@@ -605,6 +618,16 @@ class InstructorReferenceListResponse(BaseModel):
     data: List[InstructorReferenceResponse] = Field(default_factory=list)
     meta: Dict[str, Any] = Field(default_factory=dict)
 
+
+class CurriculumCourseOption(BaseModel):
+    curriculum_course_id: str
+    course_code: str
+    course_name: str
+
+
+class CurriculumCourseListResponse(BaseModel):
+    data: List[CurriculumCourseOption] = Field(default_factory=list)
+    meta: Dict[str, Any] = Field(default_factory=dict)
 
 class AvailabilitySlotRequest(BaseModel):
     day_of_week: int = Field(..., ge=1, le=5)

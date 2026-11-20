@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react"
-import { AlertCircle, RefreshCw } from "lucide-react"
+import { useEffect, useMemo, useState, type FormEvent } from "react"
+import { AlertCircle, Plus, RefreshCw, Trash2 } from "lucide-react"
 import { useSession } from "@/features/auth/session"
 import {
   authService,
@@ -8,7 +8,10 @@ import {
 } from "@/features/auth/authService"
 import {
   schedulingService,
+  type CurriculumCourseOption,
+  type InstructorReferenceCreateRequest,
   type InstructorReferenceResponse,
+  type InstructorReferenceRole,
 } from "@/features/scheduling/schedulingService"
 import { apiErrorMessage } from "@/shared/api/client"
 import { cn } from "@/shared/utils"
@@ -26,11 +29,31 @@ const inputClass =
 const buttonClass =
   "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 cursor-pointer"
 
+const ROLE_OPTIONS: { value: InstructorReferenceRole label: string }[] = [
+  { value: "pjmk", label: "PJ MK" },
+  { value: "teaching_team", label: "Tim Pengajar" },
+  { value: "lecturer", label: "Dosen" },
+  { value: "other", label: "Lainnya" },
+]
+
+interface ReferenceFormValues {
+  curriculum_course_id: string
+  instructor_name: string
+  instructor_role: InstructorReferenceRole | ""
+  user_id: string
+}
+
+type ReferenceFieldErrors = Partial<Record<"curriculum_course_id" | "instructor_name" | "instructor_role", string>>
+
+const EMPTY_REFERENCE_FORM: ReferenceFormValues = {
+  curriculum_course_id: "",
+  instructor_name: "",
+  instructor_role: "",
+  user_id: "",
+}
+
 function roleLabel(role: string): string {
-  if (role === "pj") return "PJ MK"
-  if (role === "lecturer") return "Tim Pengajar"
-  if (role === "other") return "Lainnya"
-  return role
+  return ROLE_OPTIONS.find((option) => option.value === role)?.label ?? role
 }
 
 function RoleNotice() {
@@ -46,8 +69,8 @@ function RoleNotice() {
         Pemetaan Pengajar
       </h2>
       <p className="mx-auto mt-2 max-w-lg text-sm text-muted">
-        Pemetaan nama dosen pada mata kuliah ke akun hanya dapat dilakukan oleh
-        admin FTMM Compass.
+        Pemetaan nama dosen pada mata kuliah ke akun tersedia bagi admin FTMM
+        Compass dan PJ Prodi.
       </p>
     </section>
   )
@@ -56,6 +79,9 @@ function RoleNotice() {
 export default function InstructorMappingPanel() {
   const { user } = useSession()
   const isAdmin = user?.role === "admin"
+  const isPjProdi =
+    user?.role === "lecturer" && user.is_program_coordinator === true
+  const canManage = isAdmin || isPjProdi
 
   const [references, setReferences] = useState<InstructorReferenceResponse[]>(
     [],
@@ -79,8 +105,21 @@ export default function InstructorMappingPanel() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
+  const [courses, setCourses] = useState<CurriculumCourseOption[]>([])
+  const [isLoadingCourses, setIsLoadingCourses] = useState(true)
+  const [courseError, setCourseError] = useState<string | null>(null)
+  const [courseReloadKey, setCourseReloadKey] = useState(0)
+  const [formOpen, setFormOpen] = useState(false)
+  const [referenceForm, setReferenceForm] =
+    useState<ReferenceFormValues>(EMPTY_REFERENCE_FORM)
+  const [referenceErrors, setReferenceErrors] = useState<ReferenceFieldErrors>(
+    {},
+  )
+  const [isCreating, setIsCreating] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
   useEffect(() => {
-    if (!isAdmin) return
+    if (!canManage) return
     let active = true
     setIsLoading(true)
     setLoadError(null)
@@ -114,10 +153,35 @@ export default function InstructorMappingPanel() {
     return () => {
       active = false
     }
-  }, [isAdmin, reloadKey])
+  }, [canManage, reloadKey])
 
   useEffect(() => {
-    if (!isAdmin) return
+    if (!canManage) return
+    let active = true
+    setIsLoadingCourses(true)
+    setCourseError(null)
+    schedulingService
+      .listCurriculumCourses()
+      .then((items) => {
+        if (active) setCourses(items)
+      })
+      .catch((cause) => {
+        if (active) {
+          setCourseError(
+            apiErrorMessage(cause, "Daftar mata kuliah tidak dapat dimuat."),
+          )
+        }
+      })
+      .finally(() => {
+        if (active) setIsLoadingCourses(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [canManage, courseReloadKey])
+
+  useEffect(() => {
+    if (!canManage) return
     let active = true
     if (page === 1) setIsLoadingAccounts(true)
     else setIsLoadingMore(true)
@@ -146,7 +210,7 @@ export default function InstructorMappingPanel() {
     return () => {
       active = false
     }
-  }, [isAdmin, page, accountReloadKey])
+  }, [canManage, page, accountReloadKey])
 
   const lecturerOptions = useMemo(() => {
     const options: {
@@ -236,21 +300,121 @@ export default function InstructorMappingPanel() {
     }
   }
 
-  if (!isAdmin) return <RoleNotice />
+  const openReferenceForm = () => {
+    setReferenceForm(EMPTY_REFERENCE_FORM)
+    setReferenceErrors({})
+    setActionError(null)
+    setSuccess(null)
+    setFormOpen(true)
+  }
+
+  const closeReferenceForm = () => {
+    setFormOpen(false)
+    setReferenceErrors({})
+  }
+
+  const createReference = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const errors: ReferenceFieldErrors = {}
+    if (!referenceForm.curriculum_course_id) {
+      errors.curriculum_course_id = "Mata kuliah wajib dipilih."
+    }
+    if (!referenceForm.instructor_name.trim()) {
+      errors.instructor_name = "Nama pengajar wajib diisi."
+    }
+    if (!referenceForm.instructor_role) {
+      errors.instructor_role = "Peran pengajar wajib dipilih."
+    }
+    setReferenceErrors(errors)
+    if (Object.keys(errors).length > 0) return
+
+    const payload: InstructorReferenceCreateRequest = {
+      curriculum_course_id: referenceForm.curriculum_course_id,
+      instructor_name: referenceForm.instructor_name.trim(),
+      instructor_role: referenceForm.instructor_role as InstructorReferenceRole,
+      user_id: referenceForm.user_id.trim() || null,
+    }
+    setIsCreating(true)
+    setActionError(null)
+    setSuccess(null)
+    try {
+      const created = await schedulingService.createInstructorReference(payload)
+      setReferences((previous) => [created, ...previous])
+      setDrafts((previous) => ({
+        ...previous,
+        [created.reference_id]: created.user_id ?? "",
+      }))
+      setFilter("all")
+      setQuery("")
+      setFormOpen(false)
+      setReferenceForm(EMPTY_REFERENCE_FORM)
+      setSuccess(`Referensi ${created.instructor_name} berhasil ditambahkan.`)
+    } catch (cause) {
+      setActionError(
+        apiErrorMessage(cause, "Referensi pengajar gagal ditambahkan."),
+      )
+    } finally {
+      setIsCreating(false)
+    }
+  }
+
+  const removeReference = async (reference: InstructorReferenceResponse) => {
+    setDeletingId(reference.reference_id)
+    setActionError(null)
+    setSuccess(null)
+    try {
+      await schedulingService.deleteInstructorReference(reference.reference_id)
+      setReferences((previous) =>
+        previous.filter((item) => item.reference_id !== reference.reference_id),
+      )
+      setDrafts((previous) => {
+        const next = { ...previous }
+        delete next[reference.reference_id]
+        return next
+      })
+      setSuccess(`Referensi ${reference.instructor_name} dihapus.`)
+    } catch (cause) {
+      setActionError(
+        `${reference.instructor_name}: ${apiErrorMessage(
+          cause,
+          "Referensi pengajar gagal dihapus.",
+        )}`,
+      )
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  if (!canManage) return <RoleNotice />
 
   return (
     <section aria-labelledby="mapping-title" className="space-y-4">
-      <div>
-        <h2
-          id="mapping-title"
-          className="font-heading text-lg font-bold text-navy md:text-xl"
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2
+            id="mapping-title"
+            className="font-heading text-lg font-bold text-navy md:text-xl"
+          >
+            Pemetaan Pengajar
+          </h2>
+          <p className="text-xs text-muted">
+            Hubungkan nama pengajar pada mata kuliah dengan akun agar jadwal
+            dapat dicek terhadap ketersediaan dosen.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={formOpen ? closeReferenceForm : openReferenceForm}
+          aria-expanded={formOpen}
+          aria-controls="reference-form"
+          className={cn(
+            buttonClass,
+            "border border-navy bg-navy text-white hover:bg-navy-light",
+          )}
         >
-          Pemetaan Pengajar
-        </h2>
-        <p className="text-xs text-muted">
-          Hubungkan nama dosen pada mata kuliah dengan akun agar jadwal dapat
-          dicek terhadap ketersediaan dosen.
-        </p>
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          {formOpen ? "Tutup formulir" : "Tambah referensi"}
+        </button>
       </div>
 
       {success && (
@@ -273,6 +437,238 @@ export default function InstructorMappingPanel() {
           />
           {actionError}
         </p>
+      )}
+
+      {formOpen && (
+        <form
+          noValidate
+          id="reference-form"
+          onSubmit={createReference}
+          aria-labelledby="reference-form-title"
+          className="space-y-4 rounded-xl border border-border bg-surface p-4"
+        >
+          <h3
+            id="reference-form-title"
+            className="font-heading text-base font-bold text-navy"
+          >
+            Tambah referensi pengajar
+          </h3>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5 sm:col-span-2">
+              <label
+                htmlFor="reference-course"
+                className="block text-xs font-semibold text-foreground"
+              >
+                Mata kuliah
+              </label>
+              {isLoadingCourses ? (
+                <p
+                  id="reference-course-status"
+                  className="rounded-lg border border-border bg-background px-3 py-2.5 text-xs text-muted"
+                >
+                  Memuat mata kuliah...
+                </p>
+              ) : courseError ? (
+                <div
+                  role="alert"
+                  className="flex flex-col gap-2 rounded-lg border border-orange/30 bg-orange/10 px-3 py-2 text-xs text-navy sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <span>{courseError}</span>
+                  <button
+                    type="button"
+                    onClick={() => setCourseReloadKey((key) => key + 1)}
+                    className={cn(
+                      buttonClass,
+                      "border border-orange/40 bg-surface text-orange hover:bg-orange/10",
+                    )}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                    Coba lagi
+                  </button>
+                </div>
+              ) : courses.length === 0 ? (
+                <p
+                  id="reference-course-status"
+                  className="rounded-lg border border-border bg-background px-3 py-2.5 text-xs text-muted"
+                >
+                  Belum ada mata kuliah pada kurikulum.
+                </p>
+              ) : (
+                <select
+                  id="reference-course"
+                  value={referenceForm.curriculum_course_id}
+                  onChange={(event) =>
+                    setReferenceForm((previous) => ({
+                      ...previous,
+                      curriculum_course_id: event.target.value,
+                    }))
+                  }
+                  aria-invalid={Boolean(referenceErrors.curriculum_course_id)}
+                  aria-describedby={
+                    referenceErrors.curriculum_course_id
+                      ? "reference-course-error"
+                      : undefined
+                  }
+                  className={inputClass}
+                >
+                  <option value="">Pilih mata kuliah</option>
+                  {courses.map((course) => (
+                    <option
+                      key={course.curriculum_course_id}
+                      value={course.curriculum_course_id}
+                    >
+                      {`${course.course_code || "Tanpa kode"} · ${
+                        course.course_name || "Tanpa nama"
+                      }`}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {referenceErrors.curriculum_course_id && (
+                <p
+                  id="reference-course-error"
+                  role="alert"
+                  className="text-xs text-orange"
+                >
+                  {referenceErrors.curriculum_course_id}
+                </p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <label
+                htmlFor="reference-name"
+                className="block text-xs font-semibold text-foreground"
+              >
+                Nama pengajar
+              </label>
+              <input
+                id="reference-name"
+                type="text"
+                maxLength={100}
+                value={referenceForm.instructor_name}
+                onChange={(event) =>
+                  setReferenceForm((previous) => ({
+                    ...previous,
+                    instructor_name: event.target.value,
+                  }))
+                }
+                aria-invalid={Boolean(referenceErrors.instructor_name)}
+                aria-describedby={
+                  referenceErrors.instructor_name
+                    ? "reference-name-error"
+                    : undefined
+                }
+                placeholder="Nama sesuai mata kuliah"
+                className={inputClass}
+              />
+              {referenceErrors.instructor_name && (
+                <p
+                  id="reference-name-error"
+                  role="alert"
+                  className="text-xs text-orange"
+                >
+                  {referenceErrors.instructor_name}
+                </p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <label
+                htmlFor="reference-role"
+                className="block text-xs font-semibold text-foreground"
+              >
+                Peran pengajar
+              </label>
+              <select
+                id="reference-role"
+                value={referenceForm.instructor_role}
+                onChange={(event) =>
+                  setReferenceForm((previous) => ({
+                    ...previous,
+                    instructor_role: event.target
+                      .value as InstructorReferenceRole | "",
+                  }))
+                }
+                aria-invalid={Boolean(referenceErrors.instructor_role)}
+                aria-describedby={
+                  referenceErrors.instructor_role
+                    ? "reference-role-error"
+                    : undefined
+                }
+                className={inputClass}
+              >
+                <option value="">Pilih peran</option>
+                {ROLE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              {referenceErrors.instructor_role && (
+                <p
+                  id="reference-role-error"
+                  role="alert"
+                  className="text-xs text-orange"
+                >
+                  {referenceErrors.instructor_role}
+                </p>
+              )}
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <label
+                htmlFor="reference-account"
+                className="block text-xs font-semibold text-foreground"
+              >
+                Akun dosen (opsional)
+              </label>
+              <select
+                id="reference-account"
+                value={referenceForm.user_id}
+                onChange={(event) =>
+                  setReferenceForm((previous) => ({
+                    ...previous,
+                    user_id: event.target.value,
+                  }))
+                }
+                className={inputClass}
+              >
+                <option value="">Tanpa akun</option>
+                {lecturerOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted">
+                {isLoadingAccounts
+                  ? "Memuat akun dosen..."
+                  : "Akun dapat dipetakan kemudian dari daftar referensi."}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="submit"
+              disabled={isCreating}
+              className={cn(
+                buttonClass,
+                "border border-navy bg-navy text-white hover:bg-navy-light disabled:cursor-not-allowed disabled:opacity-60",
+              )}
+            >
+              {isCreating ? "Menyimpan..." : "Simpan referensi"}
+            </button>
+            <button
+              type="button"
+              onClick={closeReferenceForm}
+              disabled={isCreating}
+              className={cn(
+                buttonClass,
+                "border border-border bg-surface text-navy hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60",
+              )}
+            >
+              Batal
+            </button>
+          </div>
+        </form>
       )}
 
       <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-3 sm:flex-row sm:items-end sm:justify-between">
@@ -376,7 +772,7 @@ export default function InstructorMappingPanel() {
       {!isLoading && !loadError && filtered.length === 0 && (
         <div className="rounded-xl border border-border bg-surface px-4 py-10 text-center text-sm text-muted">
           {references.length === 0
-            ? "Belum ada referensi pengajar yang perlu dipetakan."
+            ? "Belum ada referensi pengajar. Gunakan tombol Tambah referensi untuk membuat referensi pertama."
             : "Tidak ada referensi yang cocok dengan pencarian atau filter ini."}
         </div>
       )}
@@ -478,37 +874,59 @@ export default function InstructorMappingPanel() {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        {changed && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          {changed && (
+                            <button
+                              type="button"
+                              disabled={saving}
+                              onClick={() =>
+                                applyMapping(reference, selected || null)
+                              }
+                              className={cn(
+                                buttonClass,
+                                "border border-navy bg-navy text-white hover:bg-navy-light disabled:cursor-not-allowed disabled:opacity-60",
+                              )}
+                            >
+                              {saving ? "Menyimpan..." : "Simpan"}
+                            </button>
+                          )}
+                          {reference.is_mapped && !changed && (
+                            <button
+                              type="button"
+                              disabled={saving}
+                              onClick={() => applyMapping(reference, null)}
+                              className={cn(
+                                buttonClass,
+                                "border border-border bg-surface text-orange hover:bg-orange/10 disabled:cursor-not-allowed disabled:opacity-60",
+                              )}
+                            >
+                              {saving ? "Menyimpan..." : "Hapus pemetaan"}
+                            </button>
+                          )}
+                          {!reference.is_mapped && !changed ? (
+                            <span className="text-xs text-muted">—</span>
+                          ) : null}
                           <button
                             type="button"
-                            disabled={saving}
-                            onClick={() =>
-                              applyMapping(reference, selected || null)
+                            disabled={
+                              saving || deletingId === reference.reference_id
                             }
-                            className={cn(
-                              buttonClass,
-                              "border border-navy bg-navy text-white hover:bg-navy-light disabled:cursor-not-allowed disabled:opacity-60",
-                            )}
-                          >
-                            {saving ? "Menyimpan..." : "Simpan"}
-                          </button>
-                        )}
-                        {reference.is_mapped && !changed && (
-                          <button
-                            type="button"
-                            disabled={saving}
-                            onClick={() => applyMapping(reference, null)}
+                            onClick={() => removeReference(reference)}
+                            aria-label={`Hapus referensi ${reference.instructor_name}`}
                             className={cn(
                               buttonClass,
                               "border border-border bg-surface text-orange hover:bg-orange/10 disabled:cursor-not-allowed disabled:opacity-60",
                             )}
                           >
-                            {saving ? "Menyimpan..." : "Hapus pemetaan"}
+                            <Trash2
+                              className="h-3.5 w-3.5"
+                              aria-hidden="true"
+                            />
+                            {deletingId === reference.reference_id
+                              ? "Menghapus..."
+                              : "Hapus"}
                           </button>
-                        )}
-                        {!reference.is_mapped && !changed ? (
-                          <span className="text-xs text-muted">—</span>
-                        ) : null}
+                        </div>
                       </td>
                     </tr>
                   )

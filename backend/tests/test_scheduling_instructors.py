@@ -208,7 +208,7 @@ def test_account_without_lecturer_profile_rejected_422(
     assert response.json()["error"]["code"] == "not_lecturer"
 
 
-def test_non_admin_cannot_read_or_map_references(
+def test_student_cannot_read_or_map_references(
     client, student_headers, pj_headers, db_session
 ):
     reference = _create_reference(client, db_session)
@@ -219,7 +219,7 @@ def test_non_admin_cannot_read_or_map_references(
     assert student_list.json()["error"]["code"] == "forbidden"
 
     pj_list = client.get(PATH, headers=pj_headers)
-    assert pj_list.status_code == 403, pj_list.text
+    assert pj_list.status_code == 200, pj_list.text
 
     student_patch = client.patch(
         url, headers=student_headers, json={"user_id": str(uuid.uuid4())}
@@ -229,4 +229,33 @@ def test_non_admin_cannot_read_or_map_references(
     pj_patch = client.patch(
         url, headers=pj_headers, json={"user_id": str(uuid.uuid4())}
     )
-    assert pj_patch.status_code == 403, pj_patch.text
+    assert pj_patch.status_code == 422, pj_patch.text
+    assert pj_patch.json()["error"]["code"] == "not_lecturer"
+
+
+def test_admin_and_pj_can_create_and_delete_references(
+    client, admin_headers, pj_headers
+):
+    courses = client.get(f"{V1}/scheduling/curriculum-courses", headers=pj_headers)
+    assert courses.status_code == 200, courses.text
+    curriculum_course_id = courses.json()["data"][0]["curriculum_course_id"]
+
+    created = client.post(
+        PATH,
+        headers=pj_headers,
+        json={
+            "curriculum_course_id": curriculum_course_id,
+            "instructor_name": "Dosen Uji Tambah",
+            "instructor_role": "teaching_team",
+        },
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["instructor_role"] == "teaching_team"
+    assert created.json()["is_mapped"] is False
+
+    reference_id = created.json()["reference_id"]
+    deleted = client.delete(f"{PATH}/{reference_id}", headers=admin_headers)
+    assert deleted.status_code == 204, deleted.text
+
+    missing = client.delete(f"{PATH}/{reference_id}", headers=admin_headers)
+    assert missing.status_code == 404, missing.text

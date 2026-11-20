@@ -12,6 +12,8 @@ import { cn } from "@/shared/utils"
 
 interface RoomFormValues {
   room_code: string
+  building: string
+  floor: string
   capacity: string
   owner_study_program_id: string
   is_active: boolean
@@ -22,10 +24,12 @@ interface ProgramOption {
   label: string
 }
 
-type FieldErrors = Partial<Record<"room_code" | "capacity", string>>
+type FieldErrors = Partial<Record<"room_code" | "building" | "capacity", string>>
 
 const EMPTY_FORM: RoomFormValues = {
   room_code: "",
+  building: "",
+  floor: "",
   capacity: "",
   owner_study_program_id: "",
   is_active: true,
@@ -44,6 +48,9 @@ function validate(values: RoomFormValues): FieldErrors {
   } else if (code.length > 50) {
     errors.room_code = "Kode ruangan maksimal 50 karakter."
   }
+  if (!values.building.trim()) {
+    errors.building = "Gedung wajib diisi."
+  }
   if (!values.capacity.trim()) {
     errors.capacity = "Kapasitas wajib diisi."
   } else {
@@ -53,6 +60,14 @@ function validate(values: RoomFormValues): FieldErrors {
     }
   }
   return errors
+}
+
+function roomLocation(room: RoomResponse): string {
+  const parts: string[] = []
+  if (room.building?.trim()) parts.push(room.building.trim())
+  if (room.floor?.trim()) parts.push(`Lantai ${room.floor.trim()}`)
+  parts.push(room.room_code)
+  return parts.join(" · ")
 }
 
 function RoleNotice() {
@@ -190,6 +205,8 @@ export default function RoomAdminPanel() {
   const openEdit = (room: RoomResponse) => {
     setForm({
       room_code: room.room_code,
+      building: room.building ?? "",
+      floor: room.floor ?? "",
       capacity: String(room.capacity),
       owner_study_program_id: room.owner_study_program_id ?? "",
       is_active: room.is_active,
@@ -215,6 +232,8 @@ export default function RoomAdminPanel() {
 
     const payload: RoomCreateRequest = {
       room_code: form.room_code.trim(),
+      building: form.building.trim(),
+      floor: form.floor.trim() || null,
       capacity: Number(form.capacity),
       owner_study_program_id: form.owner_study_program_id.trim() || null,
       is_active: form.is_active,
@@ -258,8 +277,8 @@ export default function RoomAdminPanel() {
             Kelola Ruangan
           </h2>
           <p className="text-xs text-muted">
-            Tambah ruangan dan atur kapasitas, prodi pemilik, serta status
-            penggunaannya pada penjadwalan.
+            Tambah ruangan dan atur gedung, lantai, kapasitas, prodi pemilik,
+            serta status penggunaannya pada penjadwalan.
           </p>
         </div>
         <button
@@ -333,6 +352,66 @@ export default function RoomAdminPanel() {
                   {fieldErrors.room_code}
                 </p>
               )}
+            </div>
+            <div className="space-y-1.5">
+              <label
+                htmlFor="room-building"
+                className="block text-xs font-semibold text-foreground"
+              >
+                Gedung
+              </label>
+              <input
+                id="room-building"
+                type="text"
+                maxLength={100}
+                value={form.building}
+                onChange={(event) =>
+                  setForm((previous) => ({
+                    ...previous,
+                    building: event.target.value,
+                  }))
+                }
+                aria-invalid={Boolean(fieldErrors.building)}
+                aria-describedby={
+                  fieldErrors.building ? "room-building-error" : undefined
+                }
+                placeholder="Contoh: NANO"
+                className={inputClass}
+              />
+              {fieldErrors.building && (
+                <p
+                  id="room-building-error"
+                  role="alert"
+                  className="text-xs text-orange"
+                >
+                  {fieldErrors.building}
+                </p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <label
+                htmlFor="room-floor"
+                className="block text-xs font-semibold text-foreground"
+              >
+                Lantai
+              </label>
+              <input
+                id="room-floor"
+                type="text"
+                maxLength={20}
+                value={form.floor}
+                onChange={(event) =>
+                  setForm((previous) => ({
+                    ...previous,
+                    floor: event.target.value,
+                  }))
+                }
+                placeholder="Contoh: 6"
+                className={inputClass}
+              />
+              <p className="text-xs text-muted">
+                Kosongkan bila ruangan tidak memiliki lantai.
+              </p>
             </div>
             <div className="space-y-1.5">
               <label
@@ -524,12 +603,12 @@ export default function RoomAdminPanel() {
         <div className="overflow-x-auto rounded-xl border border-border bg-surface">
           <table className="w-full min-w-[36rem] text-left text-sm">
             <caption className="sr-only">
-              Daftar ruangan beserta kapasitas dan statusnya
+              Daftar ruangan beserta gedung, lantai, kapasitas, dan statusnya
             </caption>
             <thead className="bg-secondary text-xs uppercase tracking-wide text-muted">
               <tr>
                 <th scope="col" className="px-4 py-3 font-semibold">
-                  Kode ruangan
+                  Ruangan
                 </th>
                 <th scope="col" className="px-4 py-3 font-semibold">
                   Kapasitas
@@ -555,7 +634,7 @@ export default function RoomAdminPanel() {
                 return (
                   <tr key={room.room_id} className="text-foreground">
                     <th scope="row" className="px-4 py-3 font-semibold">
-                      {room.room_code}
+                      {roomLocation(room)}
                     </th>
                     <td className="px-4 py-3">{room.capacity}</td>
                     <td className="max-w-52 truncate px-4 py-3" title={owner}>
