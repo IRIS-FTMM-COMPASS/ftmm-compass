@@ -40,6 +40,22 @@ _Avoid_: dosen pengampu, PJ dosen, koordinator matkul
 Dosen yang mengajar pada satu atau lebih Kelas MK; dapat sekaligus menjadi PJ MK pada mata kuliah lain.
 _Avoid_: dosen pengajar, pengampu, dosen PJMK
 
+**Blok Jadwal**:
+Rentang waktu satu jam per SKS yang dipesan untuk satu Kelas MK di papan jadwal; blok ini satu-satunya dasar deteksi tabrakan dosen dan ruangan.
+_Avoid_: durasi kuliah, jam tatap muka, slot 50 menit
+
+**Beban Tatap Muka**:
+Beban akademik resmi 50 menit per SKS sesuai panduan FTMM; berlaku untuk beban dosen, bukan untuk deteksi tabrakan jadwal.
+_Avoid_: durasi blok, jam kuliah
+
+**Jeda Terjadwal**:
+Sisa waktu di dalam Blok Jadwal setelah Beban Tatap Muka selesai; tidak boleh diisi Kelas MK lain.
+_Avoid_: waktu kosong, break
+
+**Papan Jadwal Bersama**:
+Tampilan satu periode akademik yang memuat seluruh Kelas MK dari lima prodi; PJ Prodi mengedit kelas prodinya saja dan konflik dihitung di tampilan itu.
+_Avoid_: jadwal per prodi, draft terpisah
+
 ## Manajemen Akun
 
 **Akun nonaktif**:
