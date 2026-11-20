@@ -28,6 +28,7 @@ interface ClassSelectorPanelProps {
   onAutoResolveConflicts?: () => void
   periodLabel: string
   sectionsState: Pick<ReloadableResource<unknown>, "status" | "error" | "reload">
+  scheduleIsFinal?: boolean
 }
 
 export default function ClassSelectorPanel({
@@ -42,6 +43,7 @@ export default function ClassSelectorPanel({
   onAutoResolveConflicts,
   periodLabel,
   sectionsState,
+  scheduleIsFinal = true,
 }: ClassSelectorPanelProps) {
   const alternatives = validationState.data?.alternatives ?? []
   const validationError = validationState.error
@@ -88,7 +90,8 @@ export default function ClassSelectorPanel({
                 <button
                   type="button"
                   onClick={onAutoResolveConflicts}
-                  className="min-h-11 min-w-11 px-2.5 text-xs font-semibold rounded-lg bg-navy text-white hover:bg-navy-light transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                  disabled={!scheduleIsFinal}
+                  className="min-h-11 min-w-11 px-2.5 text-xs font-semibold rounded-lg bg-navy text-white hover:bg-navy-light transition-colors flex items-center justify-center gap-1 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-navy"
                   title="Pilih kombinasi kelas yang tidak bentrok secara otomatis"
                 >
                   <RotateCcw className="w-3 h-3 text-gold" />
@@ -196,7 +199,8 @@ export default function ClassSelectorPanel({
                   <button
                     type="button"
                     onClick={() => onApplyAlternative(alternative)}
-                    className="min-h-11 px-3 rounded-lg bg-teal text-white text-xs font-semibold cursor-pointer hover:bg-navy focus-visible:outline-2 focus-visible:outline-navy focus-visible:outline-offset-2"
+                    disabled={!scheduleIsFinal}
+                    className="min-h-11 px-3 rounded-lg bg-teal text-white text-xs font-semibold cursor-pointer hover:bg-navy focus-visible:outline-2 focus-visible:outline-navy focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-teal"
                   >
                     Terapkan Solusi
                   </button>
@@ -208,6 +212,15 @@ export default function ClassSelectorPanel({
       )}
 
       <div className="flex-1 overflow-y-auto py-3 space-y-3.5 pr-0.5">
+        {!scheduleIsFinal && (
+          <div
+            role="status"
+            className="flex items-center gap-2 rounded-lg border border-orange/40 bg-orange/10 px-3 py-2 text-xs font-semibold text-navy"
+          >
+            <Clock className="w-4 h-4 flex-shrink-0 text-orange" />
+            Jadwal masih dalam proses
+          </div>
+        )}
         {semesterCourses.length === 0 ? (
           <div className="h-40 flex flex-col items-center justify-center text-center p-4 border border-dashed border-border rounded-xl">
             <Calendar className="w-8 h-8 text-muted/40 mb-2" />
@@ -322,11 +335,12 @@ export default function ClassSelectorPanel({
                         <button
                           key={sec.sectionId}
                           type="button"
+                          disabled={!scheduleIsFinal}
                           onClick={() =>
                             onSelectSection(offering.courseId, sec.sectionId)
                           }
                           className={cn(
-                            "min-h-11 p-2.5 rounded-lg border text-left transition-all cursor-pointer flex flex-col justify-between gap-1",
+                            "min-h-11 p-2.5 rounded-lg border text-left transition-all cursor-pointer flex flex-col justify-between gap-1 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-border",
                             isSelected
                               ? "bg-navy text-white border-navy shadow-2xs font-medium"
                               : "bg-surface border-border hover:border-navy/30 text-foreground",

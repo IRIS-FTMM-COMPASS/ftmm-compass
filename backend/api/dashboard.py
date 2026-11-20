@@ -18,6 +18,7 @@ from models import (
     DegreePlan,
     DegreePlanItem,
     OfferingComponent,
+    ScheduleProgramStatus,
     StudentCourseRecord,
     StudentProfile as StudentProfileModel,
     StudyProgram,
@@ -32,6 +33,7 @@ from schemas import (
     LecturerDashboardStats,
     StudentDashboardStats,
 )
+from scheduling_common import current_period_id, status_label
 
 router = APIRouter()
 
@@ -101,6 +103,34 @@ async def _student_schedule(db: AsyncSession, user_id) -> list[DashboardSchedule
         for index, (schedule, section, _component, _offering, course) in enumerate(rows)
     ]
 
+
+
+
+async def _schedule_status(db: AsyncSession, current_user: User) -> str:
+    """Status jadwal prodi pengguna pada periode akademik berjalan."""
+    profile = (
+        current_user.student_profile
+        if current_user.role == "student"
+        else current_user.lecturer_profile
+        if current_user.role == "lecturer"
+        else None
+    )
+    if profile is None or profile.study_program_id is None:
+        return status_label("draft")
+
+    period_id = await current_period_id(db)
+    if period_id is None:
+        return status_label("draft")
+
+    state = (
+        await db.execute(
+            select(ScheduleProgramStatus.state).where(
+                ScheduleProgramStatus.academic_period_id == period_id,
+                ScheduleProgramStatus.study_program_id == profile.study_program_id,
+            )
+        )
+    ).scalar_one_or_none()
+    return status_label(state or "draft")
 
 @router.get("/dashboard/me", response_model=DashboardMeResponse)
 async def get_dashboard_me(
@@ -209,6 +239,7 @@ async def get_dashboard_me(
             ),
             stats=stats,
             schedule=await _student_schedule(db, current_user.user_id),
+            schedule_status=await _schedule_status(db, current_user),
         )
 
     if current_user.role == "lecturer":
@@ -227,6 +258,7 @@ async def get_dashboard_me(
             email=current_user.email,
             stats=stats,
             schedule=[],
+            schedule_status=await _schedule_status(db, current_user),
         )
 
     total_students = (

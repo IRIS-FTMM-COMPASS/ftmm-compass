@@ -1,0 +1,349 @@
+"""Endpoint pembangkit jadwal dan diagnosis kelas yang belum terjadwal."""
+
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, status
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from api.errors import error_response
+from auth import get_current_user
+from database import get_db
+from models import (
+    AcademicPeriod,
+    ClassCountOverride,
+    ClassSection,
+    Course,
+    CourseOffering,
+    Curriculum,
+    CurriculumCourse,
+    OfferingComponent,
+    SchedulePeriodLock,
+    ScheduleRun,
+    StudyProgram,
+    UnassignedClass,
+    User,
+)
+from scheduler import generate_schedule
+from schemas import GenerateRequest, GenerateResponse, UnassignedItem
+from scheduling_common import current_period_id
+
+router = APIRouter()
+
+_UNPROCESSABLE = getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", 422)
+
+
+class ClassCountOverrideRequest(BaseModel):
+    academic_period_id: str | None = None
+    course_id: str
+    study_program_id: str
+    class_count: int = Field(..., ge=1, le=3)
+
+
+class ClassCountOverrideResponse(BaseModel):
+    override_id: str
+    academic_period_id: str
+    course_id: str
+    study_program_id: str
+    class_count: int
+    created: bool
+
+
+def _field_error(field: str, message: str, code: str = "validation_error"):
+    return error_response(
+        _UNPROCESSABLE,
+        code,
+        "Data yang dikirim tidak valid.",
+        detail="Data yang dikirim tidak valid.",
+        details=[{"field": field, "message": message, "code": code}],
+    )
+
+
+def _require_scheduler(current_user: User):
+    """Admin dan PJ Prodi boleh membangkitkan jadwal."""
+    if current_user.role == "admin":
+        return None
+    profile = current_user.lecturer_profile
+    if (
+        current_user.role == "lecturer"
+        and profile is not None
+        and profile.is_program_coordinator
+        and profile.study_program is not None
+    ):
+        return None
+    return error_response(
+        status.HTTP_403_FORBIDDEN,
+        "forbidden",
+        "Pembangkitan jadwal hanya tersedia untuk admin dan PJ Prodi.",
+        detail="Pembangkitan jadwal hanya tersedia untuk admin dan PJ Prodi.",
+    )
+
+
+def _parse_id(value: str, field: str) -> UUID | object:
+    try:
+        return UUID(value)
+    except (ValueError, AttributeError, TypeError):
+        return _field_error(field, f"{field} bukan UUID yang valid.")
+
+
+async def _resolve_period(
+    db: AsyncSession, requested: str | None
+) -> AcademicPeriod | object | None:
+    if requested:
+        period_id = _parse_id(requested, "academic_period_id")
+        if not isinstance(period_id, UUID):
+            return period_id
+        period = await db.get(AcademicPeriod, period_id)
+    else:
+        active_id = await current_period_id(db)
+        period = await db.get(AcademicPeriod, active_id) if active_id else None
+    if period is None:
+        return error_response(
+            status.HTTP_404_NOT_FOUND,
+            "period_not_found",
+            "Periode akademik tidak ditemukan.",
+            detail="Periode akademik tidak ditemukan.",
+        )
+    return period
+
+
+@router.post("/scheduling/generate", response_model=GenerateResponse)
+async def generate(
+    payload: GenerateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    denied = _require_scheduler(current_user)
+    if denied is not None:
+        return denied
+
+    if payload.mode == "full_reset":
+        if current_user.role != "admin":
+            return error_response(
+                status.HTTP_403_FORBIDDEN,
+                "forbidden",
+                "Mode full_reset hanya tersedia untuk admin.",
+                detail="Mode full_reset hanya tersedia untuk admin.",
+            )
+        if not payload.confirm_full_reset:
+            return _field_error(
+                "confirm_full_reset",
+                "Mode full_reset memerlukan konfirmasi confirm_full_reset=true.",
+                "confirmation_required",
+            )
+
+    period = await _resolve_period(db, payload.academic_period_id)
+    if not isinstance(period, AcademicPeriod):
+        return period
+
+    lock = await db.get(SchedulePeriodLock, period.academic_period_id)
+    if lock is not None and lock.krs_open:
+        message = "KRS sudah dibuka; jadwal periode ini tidak dapat diubah."
+        return error_response(
+            status.HTTP_409_CONFLICT,
+            "scheduling_locked",
+            message,
+            detail=message,
+        )
+
+    return await generate_schedule(
+        db,
+        period,
+        mode=payload.mode,
+        triggered_by=current_user.user_id,
+    )
+
+
+@router.post("/scheduling/class-count-overrides", response_model=ClassCountOverrideResponse)
+async def put_class_count_override(
+    payload: ClassCountOverrideRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    denied = _require_scheduler(current_user)
+    if denied is not None:
+        return denied
+
+    period_id = _parse_id(payload.academic_period_id or "", "academic_period_id") if (
+        payload.academic_period_id
+    ) else await current_period_id(db)
+    if period_id is None:
+        return error_response(
+            status.HTTP_404_NOT_FOUND,
+            "period_not_found",
+            "Tidak ada periode akademik aktif.",
+            detail="Tidak ada periode akademik aktif.",
+        )
+    if not isinstance(period_id, UUID):
+        return period_id
+    course_id = _parse_id(payload.course_id, "course_id")
+    program_id = _parse_id(payload.study_program_id, "study_program_id")
+    for candidate in (course_id, program_id):
+        if not isinstance(candidate, UUID):
+            return candidate
+
+    if current_user.role != "admin":
+        profile = current_user.lecturer_profile
+        if profile.study_program_id != program_id:
+            return error_response(
+                status.HTTP_403_FORBIDDEN,
+                "akses_prodi_ditolak",
+                "PJ hanya dapat mengatur jumlah kelas prodinya sendiri.",
+                detail="PJ hanya dapat mengatur jumlah kelas prodinya sendiri.",
+            )
+
+    period = await db.get(AcademicPeriod, period_id)
+    course = await db.get(Course, course_id)
+    program = await db.get(StudyProgram, program_id)
+    if period is None:
+        return error_response(
+            status.HTTP_404_NOT_FOUND,
+            "period_not_found",
+            "Periode akademik tidak ditemukan.",
+            detail="Periode akademik tidak ditemukan.",
+        )
+    if course is None:
+        return error_response(
+            status.HTTP_404_NOT_FOUND,
+            "course_not_found",
+            "Mata kuliah tidak ditemukan.",
+            detail="Mata kuliah tidak ditemukan.",
+        )
+    if program is None:
+        return error_response(
+            status.HTTP_404_NOT_FOUND,
+            "study_program_not_found",
+            "Program studi tidak ditemukan.",
+            detail="Program studi tidak ditemukan.",
+        )
+    belongs = (
+        await db.execute(
+            select(CurriculumCourse.curriculum_course_id)
+            .join(
+                Curriculum,
+                Curriculum.curriculum_id == CurriculumCourse.curriculum_id,
+            )
+            .where(
+                CurriculumCourse.course_id == course_id,
+                Curriculum.study_program_id == program_id,
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if belongs is None:
+        return error_response(
+            status.HTTP_404_NOT_FOUND,
+            "course_not_in_prodi",
+            "Mata kuliah tidak termasuk kurikulum program studi ini.",
+            detail="Mata kuliah tidak termasuk kurikulum program studi ini.",
+        )
+
+    existing = (
+        await db.execute(
+            select(ClassCountOverride).where(
+                ClassCountOverride.academic_period_id == period_id,
+                ClassCountOverride.course_id == course_id,
+                ClassCountOverride.study_program_id == program_id,
+            )
+        )
+    ).scalars().first()
+    if existing is None:
+        existing = ClassCountOverride(
+            academic_period_id=period_id,
+            course_id=course_id,
+            study_program_id=program_id,
+            class_count=payload.class_count,
+        )
+        db.add(existing)
+        created = True
+    else:
+        existing.class_count = payload.class_count
+        created = False
+    await db.flush()
+
+    return ClassCountOverrideResponse(
+        override_id=str(existing.id),
+        academic_period_id=str(period_id),
+        course_id=str(course_id),
+        study_program_id=str(program_id),
+        class_count=payload.class_count,
+        created=created,
+    )
+
+
+@router.get("/scheduling/unassigned")
+async def list_unassigned(
+    academic_period_id: str | None = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    denied = _require_scheduler(current_user)
+    if denied is not None:
+        return denied
+
+    period = await _resolve_period(db, academic_period_id)
+    if not isinstance(period, AcademicPeriod):
+        return period
+
+    latest_run = (
+        await db.execute(
+            select(ScheduleRun)
+            .where(ScheduleRun.academic_period_id == period.academic_period_id)
+            .order_by(ScheduleRun.started_at.desc(), ScheduleRun.run_id.desc())
+            .limit(1)
+        )
+    ).scalars().first()
+    if latest_run is None:
+        return {
+            "data": [],
+            "meta": {
+                "total": 0,
+                "academic_period_id": str(period.academic_period_id),
+                "run_id": None,
+            },
+        }
+
+    rows = (
+        await db.execute(
+            select(UnassignedClass, ClassSection, Course)
+            .join(
+                ClassSection,
+                ClassSection.class_section_id == UnassignedClass.class_section_id,
+            )
+            .join(
+                OfferingComponent,
+                OfferingComponent.offering_component_id
+                == ClassSection.offering_component_id,
+            )
+            .join(
+                CourseOffering,
+                CourseOffering.course_offering_id
+                == OfferingComponent.course_offering_id,
+            )
+            .join(Course, Course.course_id == CourseOffering.course_id)
+            .where(UnassignedClass.run_id == latest_run.run_id)
+            .order_by(Course.course_code, ClassSection.section_code)
+        )
+    ).all()
+
+    data = []
+    for unassigned, section, course in rows:
+        item = UnassignedItem(
+            class_section_id=str(section.class_section_id),
+            course_code=course.course_code,
+            reason=unassigned.reason,
+        ).model_dump()
+        item["section_code"] = section.section_code
+        data.append(item)
+
+    return {
+        "data": data,
+        "meta": {
+            "total": len(data),
+            "academic_period_id": str(period.academic_period_id),
+            "run_id": str(latest_run.run_id),
+            "mode": latest_run.mode,
+            "stats": latest_run.stats,
+        },
+    }

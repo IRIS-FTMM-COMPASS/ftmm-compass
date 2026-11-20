@@ -32,6 +32,12 @@ from api import (
     plans,
     polling,
     timetable,
+    scheduling_availability,
+    scheduling_board,
+    scheduling_edits,
+    scheduling_generate,
+    scheduling_instructors,
+    scheduling_rooms,
 )
 from api.errors import error_response
 from catalog import refresh_from_db
@@ -119,6 +125,12 @@ for resource in (
     degree_plans,
     course_records,
     timetable,
+    scheduling_availability,
+    scheduling_board,
+    scheduling_edits,
+    scheduling_generate,
+    scheduling_instructors,
+    scheduling_rooms,
 ):
     mount_resource(resource.router)
 

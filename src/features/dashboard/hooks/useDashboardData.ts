@@ -85,6 +85,7 @@ export function useDashboardData(user: AuthUser | null) {
 
   return {
     dashboardData,
+    scheduleStatus: dashboardData?.schedule_status,
     isLoading,
     displayedSchedule,
     hasConflict,
