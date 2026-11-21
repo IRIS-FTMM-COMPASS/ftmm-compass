@@ -75,7 +75,7 @@ cp .env.example .env
 | `DEFAULT_RATE_LIMIT` | none | Slowapi global limit per client; kosongkan untuk menonaktifkan |
 | `CORS_ORIGINS` | `*` | Allowed CORS origins, dipisah koma |
 
-> `AUTO_SEED=true` hanya menjalankan `seed_data()` dari `scripts/seed.py` (akun dan data demo). Katalog penuh tidak pernah di-seed saat startup — jalankan eksplisit dengan `uv run --directory backend python -m scripts.seed_full_catalog.py`. Lihat `docs/demo-data-policy.md` sebagai SSOT kebijakan data demo.
+> `AUTO_SEED=true` hanya menjalankan `seed_data()` dari `scripts/seed.py` (akun dan data demo). Katalog penuh tidak pernah di-seed saat startup — jalankan eksplisit dengan `uv run --directory backend python -m scripts.seed_full_catalog`. Lihat `docs/demo-data-policy.md` sebagai SSOT kebijakan data demo.
 
 ### 3. Run Development Server
 
@@ -182,4 +182,4 @@ uv run python -m pytest tests -q
 
 ## 🗄️ Database Coordination (PostgreSQL Baseline)
 
-The relational schema baseline is `database/schema_v2_1_rc1.sql` (PostgreSQL 16); perubahan schema sejak baseline dikelola lewat migrasi Alembic di `backend/migrations/versions/` (`alembic upgrade head`). Migrasi indeks `c4d2e6f8a1b3` menjalankan `CREATE EXTENSION pg_trgm`, jadi role database harus boleh membuat ekstensi tersebut (atau ekstensi sudah di-provision oleh admin). Katalog asli 5 prodi diisi oleh `uv run --directory backend python -m scripts.seed_full_catalog.py` (tidak otomatis saat startup). Untuk detail lihat `database/seed/README.md`.
+The relational schema baseline is `database/schema_v2_1_rc1.sql` (PostgreSQL 16); perubahan schema sejak baseline dikelola lewat migrasi Alembic di `backend/migrations/versions/` (`alembic upgrade head`). Migrasi indeks `c4d2e6f8a1b3` menjalankan `CREATE EXTENSION pg_trgm`, jadi role database harus boleh membuat ekstensi tersebut (atau ekstensi sudah di-provision oleh admin). Katalog asli 5 prodi diisi oleh `uv run --directory backend python -m scripts.seed_full_catalog` (tidak otomatis saat startup). Untuk detail lihat `database/seed/README.md`.

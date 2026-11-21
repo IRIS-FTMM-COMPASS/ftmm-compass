@@ -395,7 +395,7 @@ make format        # Auto-format frontend via oxfmt (tidak memformat backend)
 make seed
 
 #    Manual untuk urutan yang sama:
-uv run --directory backend python -m scripts.seed_full_catalog.py
+uv run --directory backend python -m scripts.seed_full_catalog
 uv run --directory backend python -m scripts.seed
 
 # 2. Jalankan seluruh suite backend (domain + endpoint + polling + chat + degree-plan)

@@ -46,7 +46,7 @@ Secara otomatis dan berurutan, dengan urutan database `db-up -> db-wait -> migra
 4. **Dependencies Installation**: Memasang paket frontend via `pnpm install` dan sinkronisasi virtualenv backend via `uv sync`.
 5. **Database Provisioning**: Menyalakan container PostgreSQL 16 (`docker compose up -d postgres`) dan menunggu hingga siap menerima koneksi (`pg_isready`).
 6. **Schema Migration**: Menjalankan migrasi basis data Alembic ke versi terbaru (38 tabel canonical skema v2.1 RC1).
-7. **Database Seeding**: Mengisi data awal akun pengujian (*student*, *lecturer*, *admin*) dan katalog kurikulum 5 prodi dari `database/seed`. Kedua seeder dijalankan berurutan: katalog penuh (`python -m scripts.seed_full_catalog.py`) lebih dulu, lalu data demo (`python -m scripts.seed`).
+7. **Database Seeding**: Mengisi data awal akun pengujian (*student*, *lecturer*, *admin*) dan katalog kurikulum 5 prodi dari `database/seed`. Kedua seeder dijalankan berurutan: katalog penuh (`python -m scripts.seed_full_catalog`) lebih dulu, lalu data demo (`python -m scripts.seed`).
 
 ---
 
@@ -130,7 +130,7 @@ Seeding juga bisa dijalankan sendiri setelah `db-up -> db-wait -> migrate`. Guna
 make seed
 
 # Opsi 2 — manual dari root repo
-uv run --directory backend python -m scripts.seed_full_catalog.py   # katalog 5 prodi
+uv run --directory backend python -m scripts.seed_full_catalog   # katalog 5 prodi
 uv run --directory backend python -m scripts.seed                   # akun & data demo
 ```
 

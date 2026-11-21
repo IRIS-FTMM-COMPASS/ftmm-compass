@@ -35,14 +35,14 @@ Seeder katalog tidak berjalan otomatis saat startup: `AUTO_SEED` default `false`
 ```bash
 docker compose up -d postgres
 uv run --directory backend alembic upgrade head
-uv run --directory backend python -m scripts.seed_full_catalog.py
+uv run --directory backend python -m scripts.seed_full_catalog
 ```
 
 Membangun ulang katalog (butuh PDF di `Ekstrak/pdf/` dan 5 JSON di `Ekstrak/`):
 
 ```bash
-uv run --with pypdf --directory backend python -m scripts.build_catalog.py
-uv run --directory backend python -m scripts.reconcile_catalog.py
+uv run --with pypdf --directory backend python -m scripts.build_catalog
+uv run --directory backend python -m scripts.reconcile_catalog
 ```
 
 Seeder idempoten: aman dijalankan berulang, baris yang hilang dari katalog dinonaktifkan
@@ -56,7 +56,7 @@ menghapus `degree_plan_items` dan `student_course_records`):
 
 ```bash
 psql "$DATABASE_URL" -c 'TRUNCATE curriculum_courses CASCADE'
-uv run --directory backend python -m scripts.seed_full_catalog.py
+uv run --directory backend python -m scripts.seed_full_catalog
 ```
 
 `pg_trgm` (dibutuhkan migrasi indeks) harus tersedia di role database; lihat `backend/README.md`.

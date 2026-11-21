@@ -171,7 +171,7 @@ jobs:
       - name: Seed full catalog
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ftmm_compass_dev
-        run: uv run --directory backend python -m scripts.seed_full_catalog.py
+        run: uv run --directory backend python -m scripts.seed_full_catalog
 
       - name: Run backend test suite
         env:

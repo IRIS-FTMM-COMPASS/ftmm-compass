@@ -15,7 +15,7 @@ Alasan: backend dapat start pada database kosong tanpa akun atau transkrip palsu
 ```bash
 AUTO_SEED=true uv run --directory backend python app.py
 # atau, untuk mengisi database yang sudah berjalan (urutan: katalog lalu demo):
-uv run --directory backend python -m scripts.seed_full_catalog.py
+uv run --directory backend python -m scripts.seed_full_catalog
 uv run --directory backend python -m scripts.seed
 ```
 
