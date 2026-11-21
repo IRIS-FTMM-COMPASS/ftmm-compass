@@ -24,6 +24,7 @@ from models import (
     ScheduleRun,
     StudyProgram,
     UnassignedClass,
+    User,
 )
 from scheduler import generate_schedule
 from schemas import GenerateRequest, GenerateResponse, UnassignedItem
