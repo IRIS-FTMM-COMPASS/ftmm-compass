@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from academics import TOTAL_SKS_FOR_GRADUATION, grade_points
+from features.scheduling.routers.scheduling_board import _program_statuses
 from auth import get_current_user
 from database import get_db
 from models import (
@@ -32,6 +33,7 @@ from schemas import (
     LecturerDashboardStats,
     StudentDashboardStats,
 )
+from scheduling_common import current_period_id, status_label
 
 router = APIRouter()
 
@@ -101,6 +103,20 @@ async def _student_schedule(db: AsyncSession, user_id) -> list[DashboardSchedule
         for index, (schedule, section, _component, _offering, course) in enumerate(rows)
     ]
 
+
+
+
+async def _schedule_status(db: AsyncSession) -> str:
+    """Status global pada Papan Jadwal Bersama: final bila seluruh prodi aktif final."""
+    period_id = await current_period_id(db)
+    if period_id is None:
+        return status_label("draft")
+
+    _, state_by_program = await _program_statuses(db, period_id)
+    all_final = bool(state_by_program) and all(
+        state == "final" for state in state_by_program.values()
+    )
+    return status_label("final") if all_final else status_label("draft")
 
 @router.get("/dashboard/me", response_model=DashboardMeResponse)
 async def get_dashboard_me(
@@ -209,6 +225,7 @@ async def get_dashboard_me(
             ),
             stats=stats,
             schedule=await _student_schedule(db, current_user.user_id),
+            schedule_status=await _schedule_status(db),
         )
 
     if current_user.role == "lecturer":
@@ -227,6 +244,7 @@ async def get_dashboard_me(
             email=current_user.email,
             stats=stats,
             schedule=[],
+            schedule_status=await _schedule_status(db),
         )
 
     total_students = (

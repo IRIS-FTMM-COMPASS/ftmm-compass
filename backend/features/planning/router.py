@@ -22,8 +22,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import settings
 from catalog import authoritative_curriculum_id, get_courses_for_curriculum
 from database import get_db
-from tools.planner import generate_study_plan
-from tools.prerequisite_validator import validate_plan_constraints
+from .degree_plans import router as degree_plans_router
+from .planner import generate_study_plan
+from .validator import validate_plan_constraints
 
 logger = logging.getLogger("ftmm_compass.gateway")
 
@@ -179,5 +180,8 @@ async def v1_validate_plan(
 @router.post("/plans", response_model=DegreePlanPayload)
 async def v1_generate_plan(profile: StudentProfile):
     return await handle_generate_plan(profile)
+
+
+router.include_router(degree_plans_router)
 
 

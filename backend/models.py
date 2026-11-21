@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from sqlalchemy import (
     Boolean,
     Date,
@@ -490,8 +490,14 @@ class ClassSchedule(Base):
     start_time: Mapped[datetime] = mapped_column(Time, nullable=False)
     end_time: Mapped[datetime] = mapped_column(Time, nullable=False)
     room_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    room_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("rooms.room_id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     class_section: Mapped["ClassSection"] = relationship("ClassSection")
+    room: Mapped[Optional["Room"]] = relationship("Room")
 
 
 class Timetable(Base):
@@ -674,3 +680,260 @@ class DegreePlanItem(Base):
 
     plan: Mapped["DegreePlan"] = relationship("DegreePlan", back_populates="items")
     curriculum_course: Mapped["CurriculumCourse"] = relationship("CurriculumCourse")
+
+
+class Room(Base):
+    __tablename__ = "rooms"
+
+    room_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    room_code: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    capacity: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    building: Mapped[str] = mapped_column(String(50), nullable=False, default="NANO")
+    floor: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    owner_study_program_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("study_programs.study_program_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    study_program: Mapped[Optional["StudyProgram"]] = relationship("StudyProgram")
+
+
+class LecturerAvailability(Base):
+    __tablename__ = "lecturer_availability"
+
+    availability_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    day_of_week: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    start_hour: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    end_hour: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+
+    user: Mapped["User"] = relationship("User")
+
+
+class CourseInstructorReference(Base):
+    """Nama dosen hasil ekstraksi katalog; `user_id` mengikat ke akun nyata."""
+
+    __tablename__ = "course_instructor_references"
+
+    instructor_reference_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    curriculum_course_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("curriculum_courses.curriculum_course_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    # FK ke source_documents ada di skema fisik, tetapi tabel induknya tidak punya model ORM.
+    source_document_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    instructor_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    instructor_role: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="other", server_default=text("'other'")
+    )
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.user_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    user: Mapped[Optional["User"]] = relationship("User")
+    curriculum_course: Mapped["CurriculumCourse"] = relationship("CurriculumCourse")
+
+
+class ScheduleRun(Base):
+    __tablename__ = "schedule_runs"
+
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    academic_period_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("academic_periods.academic_period_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    mode: Mapped[str] = mapped_column(String(20), nullable=False)
+    triggered_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.user_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="running", server_default=text("'running'")
+    )
+    stats: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    ended_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    academic_period: Mapped["AcademicPeriod"] = relationship("AcademicPeriod")
+    trigger_user: Mapped[Optional["User"]] = relationship("User")
+
+
+class ScheduleProgramStatus(Base):
+    __tablename__ = "schedule_program_status"
+
+    academic_period_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("academic_periods.academic_period_id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    study_program_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("study_programs.study_program_id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    state: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="draft", server_default=text("'draft'")
+    )
+    finalized_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.user_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    finalized_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    academic_period: Mapped["AcademicPeriod"] = relationship("AcademicPeriod")
+    study_program: Mapped["StudyProgram"] = relationship("StudyProgram")
+    finalizer: Mapped[Optional["User"]] = relationship("User")
+
+
+class UnassignedClass(Base):
+    __tablename__ = "unassigned_classes"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("schedule_runs.run_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    class_section_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("class_sections.class_section_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    reason: Mapped[str] = mapped_column(String(200), nullable=False)
+
+    run: Mapped["ScheduleRun"] = relationship("ScheduleRun")
+    class_section: Mapped["ClassSection"] = relationship("ClassSection")
+
+
+class ScheduleEditLog(Base):
+    __tablename__ = "schedule_edit_log"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    class_section_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("class_sections.class_section_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    changed_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.user_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
+    before_state: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    after_state: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    class_section: Mapped["ClassSection"] = relationship("ClassSection")
+    changer: Mapped["User"] = relationship("User")
+
+
+class ClassCountOverride(Base):
+    __tablename__ = "class_count_overrides"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    academic_period_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("academic_periods.academic_period_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    course_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("courses.course_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    study_program_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("study_programs.study_program_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    class_count: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+
+    academic_period: Mapped["AcademicPeriod"] = relationship("AcademicPeriod")
+    course: Mapped["Course"] = relationship("Course")
+    study_program: Mapped["StudyProgram"] = relationship("StudyProgram")
+
+
+class SchedulePeriodLock(Base):
+    __tablename__ = "schedule_period_locks"
+
+    academic_period_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("academic_periods.academic_period_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    krs_open: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    locked_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    locked_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.user_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    academic_period: Mapped["AcademicPeriod"] = relationship("AcademicPeriod")
+    locker: Mapped[Optional["User"]] = relationship("User")

@@ -41,8 +41,8 @@ router = APIRouter()
 
 import logging
 
-from api.plans import normalize_plan_payload
-from tools.planner import generate_study_plan
+from features.planning.router import normalize_plan_payload
+from features.planning.planner import generate_study_plan
 
 logger = logging.getLogger("ftmm_compass.gateway")
 

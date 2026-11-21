@@ -36,6 +36,11 @@ export default function DashboardMainPanel({
   hasConflict,
   onNavigate,
 }: DashboardMainPanelProps) {
+  const scheduleStatus =
+    dashboardData?.schedule_status &&
+    dashboardData.schedule_status !== "Jadwal final"
+      ? dashboardData.schedule_status
+      : null
   return (
     <>
       {user?.role === "admin" ? (
@@ -123,6 +128,18 @@ export default function DashboardMainPanel({
                   ? "Jadwal Mengajar Dosen Minggu Ini"
                   : "Jadwal Perkuliahan Minggu Ini"}
               </h3>
+              {scheduleStatus && (
+                <span
+                  role="status"
+                  className="inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 px-2 py-0.5 rounded-full text-xs font-medium text-navy bg-gold/10 border border-gold/30"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="h-1.5 w-1.5 rounded-full bg-gold"
+                  />
+                  {scheduleStatus}
+                </span>
+              )}
               <span className="text-xs font-mono text-muted bg-background border border-border px-2 py-0.5 rounded">
                 {period?.label ?? "—"} · {period?.week_label ?? ""}
               </span>

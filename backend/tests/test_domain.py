@@ -1,6 +1,6 @@
 from schemas import PlacedCourseModel, StudentProfile
-from tools.prerequisite_validator import validate_plan_constraints
-from tools.planner import generate_study_plan
+from features.planning.validator import validate_plan_constraints
+from features.planning.planner import generate_study_plan
 
 
 def _course(name, code, credits, semester, parity, course_type="Wajib"):

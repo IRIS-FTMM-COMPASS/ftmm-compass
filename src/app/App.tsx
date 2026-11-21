@@ -1,6 +1,7 @@
 import {
   AlertCircle,
   BookOpen,
+  CalendarDays,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -36,6 +37,7 @@ import PjCoursesPage from "@/features/pj/PjCoursesPage"
 import CourseFinder from "@/features/course-finder/CourseFinderPage"
 
 import DegreePlanner from "@/features/degree-planner/DegreePlannerPage"
+import SchedulingPage from "@/features/scheduling/SchedulingPage"
 import Chatbot from "@/features/chatbot/ChatbotPage"
 import type { DegreePlanPayload } from "@/shared/domain/plan"
 import {
@@ -76,13 +78,14 @@ import {
   useAcademicPeriod,
 } from "@/shared/academic-period/academic"
 
-type Page = "dashboard" | "course-finder" | "pj-courses" | "degree-planner" | "chatbot" | "profile" | "admin-accounts"
+type Page = "dashboard" | "course-finder" | "pj-courses" | "degree-planner" | "scheduling" | "chatbot" | "profile" | "admin-accounts"
 
 const PAGES: Page[] = [
   "dashboard",
   "course-finder",
   "pj-courses",
   "degree-planner",
+  "scheduling",
   "chatbot",
   "profile",
   "admin-accounts",
@@ -1480,6 +1483,7 @@ function AppShell() {
       return [
         { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
         { id: "pj-courses", label: "Rekap & Kelola MK", icon: BookOpen },
+        { id: "scheduling", label: "Jadwal Bersama", icon: CalendarDays },
       ] as const
     }
 
@@ -1488,6 +1492,7 @@ function AppShell() {
         { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
         { id: "course-finder", label: "Course Management", icon: BookOpen },
         { id: "admin-accounts", label: "Manajemen Akun", icon: Users },
+        { id: "scheduling", label: "Jadwal Bersama", icon: CalendarDays },
       ] as const
     }
     return [
@@ -1646,14 +1651,16 @@ function AppShell() {
                 ? "Manajemen Akun"
                 : visiblePage === "pj-courses"
                   ? "Rekap & Kelola MK"
-                  : visiblePage === "chatbot"
-                    ? "Compass AI"
-                    : visiblePage === "profile"
-                      ? "Profil Pengguna"
-                      : visiblePage === "course-finder" &&
-                          user?.role === "admin"
-                        ? "Course Management"
-                        : visiblePage.replace("-", " ")}
+                  : visiblePage === "scheduling"
+                    ? "Jadwal Bersama"
+                    : visiblePage === "chatbot"
+                      ? "Compass AI"
+                      : visiblePage === "profile"
+                        ? "Profil Pengguna"
+                        : visiblePage === "course-finder" &&
+                            user?.role === "admin"
+                          ? "Course Management"
+                          : visiblePage.replace("-", " ")}
             </h2>
           </div>
           <div className="flex items-center gap-2 md:gap-4">
@@ -1712,6 +1719,10 @@ function AppShell() {
               {visiblePage === "pj-courses" && user?.role === "lecturer" && (
                 <PjCoursesPage onNavigate={handleNavigate} />
               )}
+              {visiblePage === "scheduling" &&
+                (user?.role === "admin" || user?.role === "lecturer") && (
+                  <SchedulingPage />
+                )}
               {visiblePage === "degree-planner" && (
                 <DegreePlanner
                   onNavigate={handleNavigate}

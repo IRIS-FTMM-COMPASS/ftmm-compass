@@ -54,7 +54,7 @@ def downgrade() -> None:
                 'downgrade b3f1c2d4e5a6 butuh % baris MK pilihan ber-semester. '
                 'Isi recommended_semester/term manual. Pada DB dev, reset katalog '
                 '(CASCADE ikut menghapus degree_plan_items & student_course_records): '
-                'TRUNCATE curriculum_courses CASCADE; python seed_full_catalog.py', n;
+                'TRUNCATE curriculum_courses CASCADE; python -m scripts.seed_full_catalog', n;
         END IF;
     END $$;
     """)

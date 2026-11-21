@@ -16,7 +16,7 @@ _Avoid_: kartu, task Trello, isu eksternal
 
 **PJ Prodi**:
 Dosen penanggung jawab satu program studi yang berwenang melihat rekap peminatan prodinya dan menentukan ketersediaan mata kuliah prodi untuk semester berikutnya. Tepat satu PJ berlaku untuk setiap prodi.
-_Avoid_: kaprodi, koordinator dosen, dosen biasa
+_Avoid_: kaprodi, koordinator dosen, dosen biasa, PJ dosen
 
 **Rekap Peminatan**:
 Agregat jumlah peminat per mata kuliah pilihan pada satu periode polling, tanpa identitas mahasiswa pemilih.
@@ -25,6 +25,56 @@ _Avoid_: wishlist dosen, daftar pemilih, rekap voting per mahasiswa
 **MK Terkunci**:
 Mata kuliah yang tetap tampil di katalog tetapi tidak dapat divote karena paritas semester tidak sesuai atau dinonaktifkan oleh PJ Prodi.
 _Avoid_: MK dihapus, MK tersembunyi
+
+## Penjadwalan Kelas
+
+**Kelas MK**:
+Satu kelas dari mata kuliah yang ditawarkan satu prodi pada satu periode akademik, dengan kuota pesertanya sendiri. Satu mata kuliah dapat memiliki satu sampai tiga kelas; kelas adalah unit penempatan jadwal.
+_Avoid_: section, kelas fisik, kuota mingguan
+
+**PJ MK**:
+Dosen penanggung jawab satu atau lebih mata kuliah; jabatannya adalah relasi pada mata kuliah, berbeda dari PJ Prodi dan dari tim pengajar.
+_Avoid_: dosen pengampu, PJ dosen, koordinator matkul
+
+**Tim Pengajar**:
+Dosen yang mengajar pada satu atau lebih Kelas MK; dapat sekaligus menjadi PJ MK pada mata kuliah lain.
+_Avoid_: dosen pengajar, pengampu, dosen PJMK
+
+**Blok Jadwal**:
+Rentang waktu satu jam per SKS yang dipesan untuk satu Kelas MK di papan jadwal; blok ini satu-satunya dasar deteksi tabrakan dosen dan ruangan.
+_Avoid_: durasi kuliah, jam tatap muka, slot 50 menit
+
+**Beban Tatap Muka**:
+Beban akademik resmi 50 menit per SKS sesuai panduan FTMM; berlaku untuk beban dosen, bukan untuk deteksi tabrakan jadwal.
+_Avoid_: durasi blok, jam kuliah
+
+**Jeda Terjadwal**:
+Sisa waktu di dalam Blok Jadwal setelah Beban Tatap Muka selesai; tidak boleh diisi Kelas MK lain.
+_Avoid_: waktu kosong, break
+
+**Papan Jadwal Bersama**:
+Tampilan satu periode akademik yang memuat seluruh Kelas MK dari lima prodi; PJ Prodi mengedit kelas prodinya saja dan konflik dihitung di tampilan itu.
+_Avoid_: jadwal per prodi, draft terpisah
+
+**Gedung**:
+Bangunan fisik FTMM yang menjadi lokasi ruangan; yang dikenal saat ini adalah NANO dan NANI.
+_Avoid_: lokasi, kampus, blok gedung
+
+**Lantai**:
+Tingkat di dalam satu gedung tempat sebuah ruangan berada, dinyatakan dengan nomor.
+_Avoid_: tingkat, lantai bangunan
+
+**Ruangan**:
+Tempat fisik di dalam gedung dan lantai tertentu yang dapat dipesan untuk satu Blok Jadwal; memiliki kode, kapasitas, dan status aktif.
+_Avoid_: ruang kelas, ruang, room
+
+**Ruang Terikat Prodi**:
+Ruangan yang alokasinya ditetapkan untuk satu prodi; penjadwal hanya menempatkan Kelas MK prodi itu di ruangan tersebut.
+_Avoid_: ruang milik prodi, ruang booked, ruang eksklusif
+
+**Ruang Bersama**:
+Ruangan tanpa alokasi prodi tertentu yang dapat dipakai prodi mana pun pada Blok Jadwal yang berbeda.
+_Avoid_: ruang fakultas, ruang umum, ruang kosong
 
 ## Manajemen Akun
 

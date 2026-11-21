@@ -56,6 +56,7 @@ export interface DashboardMeResponse {
   email: string
   student_number?: string
   study_program?: string
+  schedule_status?: string
   stats: DashboardStats
   schedule: DashboardScheduleItem[]
 }

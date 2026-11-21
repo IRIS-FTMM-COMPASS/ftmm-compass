@@ -1,8 +1,10 @@
 import asyncio
 import datetime
+import json
+import os
 import sys
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import selectinload
 
 from academics import current_period, semester_end, semester_start
@@ -27,6 +29,7 @@ from models import (
     OfferingComponent,
     ClassSection,
     ClassSchedule,
+    Room,
     Timetable,
     TimetableItem,
     ElectivePollingPeriod,
@@ -72,6 +75,8 @@ PJ_PRODI_CODES = ("TSD", "TRKB", "RN", "TI", "TE")
 PJ_PASSWORD = "PjProdi2026!"
 LEGACY_LECTURER_EMAIL = "dosen.testing@ftmm.unair.ac.id"
 VOTERS_PER_PRODI = 9
+SEED_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "database", "seed")
+LECTURER_PASSWORD = "DosenFTMM2026!"
 
 COURSES_DATA = [
     {"code": "KIK101", "name": "Kalkulus I", "credits": 3, "sem": 1, "term": "ganjil", "type": "wajib"},
@@ -353,6 +358,98 @@ async def seed_data():
 
         await session.flush()
         print(f"  [OK] {len(PJ_PRODI_CODES)} akun PJ Prodi aktif, satu PJ per prodi")
+        with open(os.path.join(SEED_DIR, "rooms.json"), encoding="utf-8") as handle:
+            room_seed = json.load(handle)
+        for item in room_seed["rooms"]:
+            existing = (
+                await session.execute(
+                    select(Room).where(Room.room_code == item["room_code"])
+                )
+            ).scalars().first()
+            if existing is None:
+                session.add(
+                    Room(
+                        room_code=item["room_code"],
+                        building=item["building"],
+                        floor=item.get("floor"),
+                        capacity=room_seed["capacity"],
+                        owner_study_program_id=None,
+                        is_active=True,
+                    )
+                )
+            else:
+                existing.building = item["building"]
+                existing.floor = item.get("floor")
+                existing.capacity = room_seed["capacity"]
+                existing.is_active = True
+        await session.flush()
+        print(f"  [OK] {len(room_seed['rooms'])} ruangan master tersedia")
+
+        with open(os.path.join(SEED_DIR, "lecturers.json"), encoding="utf-8") as handle:
+            lecturer_seed = json.load(handle)
+        for item in lecturer_seed["lecturers"]:
+            prodi = prodi_map[item["prodi_code"]]
+            if item["is_coordinator"]:
+                pj_email = f"pj.{item['prodi_code'].lower()}@ftmm.unair.ac.id"
+                account = (
+                    await session.execute(
+                        select(User)
+                        .options(selectinload(User.lecturer_profile))
+                        .where(User.email == pj_email)
+                    )
+                ).scalars().first()
+                if account is None:
+                    continue
+                account.full_name = item["name"]
+                if account.lecturer_profile is not None:
+                    account.lecturer_profile.employee_number = item["employee_number"]
+                    account.lecturer_profile.is_program_coordinator = True
+                continue
+
+            account = (
+                await session.execute(
+                    select(User)
+                    .options(selectinload(User.lecturer_profile))
+                    .where(User.email == item["email"])
+                )
+            ).scalars().first()
+            if account is None:
+                account = User(
+                    email=item["email"],
+                    full_name=item["name"],
+                    role="lecturer",
+                    password_hash=get_password_hash(LECTURER_PASSWORD),
+                    is_active=True,
+                )
+                session.add(account)
+                await session.flush()
+                session.add(
+                    LecturerProfile(
+                        user_id=account.user_id,
+                        study_program_id=prodi.study_program_id,
+                        is_program_coordinator=False,
+                        employee_number=item["employee_number"],
+                    )
+                )
+            else:
+                account.full_name = item["name"]
+                account.role = "lecturer"
+                account.is_active = True
+                if account.lecturer_profile is None:
+                    session.add(
+                        LecturerProfile(
+                            user_id=account.user_id,
+                            study_program_id=prodi.study_program_id,
+                            is_program_coordinator=False,
+                            employee_number=item["employee_number"],
+                        )
+                    )
+                else:
+                    account.lecturer_profile.study_program_id = prodi.study_program_id
+                    account.lecturer_profile.employee_number = item["employee_number"]
+                    account.lecturer_profile.is_program_coordinator = False
+        await session.flush()
+        print(f"  [OK] {len(lecturer_seed['lecturers'])} profil dosen tersinkron")
 
         print("\n[SEED 4/8] Checking and seeding Curriculum & Courses...")
         stmt_curr = select(Curriculum).where(
@@ -1395,6 +1492,12 @@ async def seed_data():
                     action_url=ncfg["action_url"],
                 )
                 session.add(new_notif)
+
+        await session.execute(
+            update(ClassSchedule)
+            .where(ClassSchedule.room_id.is_(None))
+            .values(room_name=None)
+        )
 
         await session.commit()
         print(f"  [OK] Seeded {len(notifications_seed_data)} persistent user notifications across all roles")

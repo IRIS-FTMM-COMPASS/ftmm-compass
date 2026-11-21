@@ -1,10 +1,12 @@
 """Integrasi seeder #33: PJ Prodi, voter per prodi, dan idempotensi."""
 
+import json
 from collections import Counter, defaultdict
+from pathlib import Path
 
 from sqlalchemy import text
 
-import seed as seed_module
+from scripts import seed as seed_module
 from catalog import get_all_courses, prodi_code
 
 EXPECTED_PJ = {
@@ -13,6 +15,13 @@ EXPECTED_PJ = {
     "RN": "pj.rn@ftmm.unair.ac.id",
     "TI": "pj.ti@ftmm.unair.ac.id",
     "TE": "pj.te@ftmm.unair.ac.id",
+}
+EXPECTED_PJ_NAMES = {
+    "TSD": "Dr. Dwi Rantini, S.Si.",
+    "TRKB": "Asif Ali Zamzami",
+    "RN": "Mirza Ardella Saputra, S.Si., M.Sc., Ph.D",
+    "TI": "Chandrawati Putri Wulandari, S.T., M.T., MBA., Ph.D.",
+    "TE": "Dr. Agus Mukhlisin, S.T., M.T.",
 }
 PJ_PASSWORD = "PjProdi2026!"
 LEGACY_LECTURER_EMAIL = "dosen.testing@ftmm.unair.ac.id"
@@ -123,7 +132,7 @@ def test_seed_creates_exactly_five_active_pj_accounts(client, admin_headers, db_
     assert len(pjs) == 5
     for pj in pjs:
         code = next(code for code, email in EXPECTED_PJ.items() if email == pj["email"])
-        assert pj["full_name"] == f"PJ Prodi {code}"
+        assert pj["full_name"] == EXPECTED_PJ_NAMES[code]
         assert pj["role"] == "lecturer"
 
     response = client.get(
@@ -150,7 +159,72 @@ def test_seed_has_one_active_coordinator_per_prodi(client, db_session):
     )
     assert len(coordinators) == 5
     assert {row["program_code"]: row["email"] for row in coordinators} == EXPECTED_PJ
-    assert all(row["employee_number"] is None for row in coordinators)
+    assert all(row["employee_number"] is not None for row in coordinators)
+
+
+def test_seed_rooms_match_inventory_floor_plan(client, db_session):
+    rooms = _rows(
+        client,
+        db_session,
+        "SELECT room_code, building, floor, capacity, is_active FROM rooms",
+    )
+    assert len(rooms) == 27
+    assert len({room["room_code"] for room in rooms}) == 27
+    assert all(room["is_active"] for room in rooms)
+    assert all(room["capacity"] == 60 for room in rooms)
+
+    by_code = {room["room_code"]: room for room in rooms}
+    for code in ("LAB-TRKB", "LAB-TI"):
+        assert (by_code[code]["building"], by_code[code]["floor"]) == ("NANO", "1")
+    assert (by_code["10.RN"]["building"], by_code["10.RN"]["floor"]) == ("NANI", "10")
+
+
+def test_seed_creates_52_active_lecturers_from_curated_roster(client, db_session):
+    lecturers = _rows(
+        client,
+        db_session,
+        "SELECT u.email, u.full_name, lp.employee_number "
+        "FROM users u JOIN lecturer_profiles lp ON lp.user_id = u.user_id "
+        "WHERE u.is_active = true AND u.role = 'lecturer'",
+    )
+    assert len(lecturers) == 52
+    assert len({row["email"] for row in lecturers}) == 52
+    assert all(row["employee_number"] is not None for row in lecturers)
+    assert LEGACY_LECTURER_EMAIL not in {row["email"] for row in lecturers}
+
+    roster_path = Path(__file__).resolve().parents[2] / "database" / "seed" / "lecturers.json"
+    with roster_path.open(encoding="utf-8") as handle:
+        roster = json.load(handle)["lecturers"]
+    expected = {
+        (
+            f"pj.{item['prodi_code'].lower()}@ftmm.unair.ac.id"
+            if item["is_coordinator"]
+            else item["email"]
+        ): (item["name"], item["employee_number"])
+        for item in roster
+    }
+    assert {row["email"] for row in lecturers} == set(expected)
+    for row in lecturers:
+        name, employee_number = expected[row["email"]]
+        assert row["full_name"] == name, row["email"]
+        assert row["employee_number"] == employee_number, row["email"]
+
+
+def test_seed_pj_coordinator_profiles_use_curated_full_names(client, db_session):
+    coordinators = _rows(
+        client,
+        db_session,
+        "SELECT u.email, sp.program_code, u.full_name, lp.employee_number "
+        "FROM lecturer_profiles lp "
+        "JOIN users u ON u.user_id = lp.user_id "
+        "JOIN study_programs sp ON sp.study_program_id = lp.study_program_id "
+        "WHERE lp.is_program_coordinator = true AND u.is_active = true "
+        "AND u.email LIKE 'pj.%@ftmm.unair.ac.id'",
+    )
+    assert len(coordinators) == 5
+    assert {row["email"] for row in coordinators} == set(EXPECTED_PJ.values())
+    assert {row["program_code"]: row["full_name"] for row in coordinators} == EXPECTED_PJ_NAMES
+    assert all(row["employee_number"] is not None for row in coordinators)
 
 def test_legacy_testing_lecturer_is_not_active(client, admin_headers, db_session):
     active = _one(

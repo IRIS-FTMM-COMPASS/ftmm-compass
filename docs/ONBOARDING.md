@@ -39,14 +39,14 @@ make setup
 ```
 
 ### Apa yang Dilakukan oleh `make setup`?
-Secara otomatis dan berurutan:
+Secara otomatis dan berurutan, dengan urutan database `db-up -> db-wait -> migrate -> seed`:
 1. **System Diagnostics**: Memverifikasi keberadaan Node, pnpm, Python, uv, dan Docker.
 2. **Environment Initialization**: Menyalin berkas template `.env.example` $\rightarrow$ `.env` dan `backend/.env.example` $\rightarrow$ `backend/.env` (tanpa menimpa berkas yang sudah ada).
 3. **Network Initialization**: Memastikan bridge network `ftmm-network` dibuat di Docker Engine.
 4. **Dependencies Installation**: Memasang paket frontend via `pnpm install` dan sinkronisasi virtualenv backend via `uv sync`.
 5. **Database Provisioning**: Menyalakan container PostgreSQL 16 (`docker compose up -d postgres`) dan menunggu hingga siap menerima koneksi (`pg_isready`).
 6. **Schema Migration**: Menjalankan migrasi basis data Alembic ke versi terbaru (38 tabel canonical skema v2.1 RC1).
-7. **Database Seeding**: Mengisi data awal akun pengujian (*student*, *lecturer*, *admin*) dan katalog kurikulum 5 prodi dari `database/seed`.
+7. **Database Seeding**: Mengisi data awal akun pengujian (*student*, *lecturer*, *admin*) dan katalog kurikulum 5 prodi dari `database/seed`. Kedua seeder dijalankan berurutan: katalog penuh (`python -m scripts.seed_full_catalog`) lebih dulu, lalu data demo (`python -m scripts.seed`).
 
 ---
 
@@ -122,6 +122,19 @@ Gunakan: make [target]
   docker-down        Menghentikan seluruh stack Docker container
   clean              Membersihkan artefak build sementara dan cache
 ```
+
+Seeding juga bisa dijalankan sendiri setelah `db-up -> db-wait -> migrate`. Gunakan `make seed`, atau manual dua perintah berikut (urutan katalog lalu demo):
+
+```bash
+# Opsi 1 — via Makefile
+make seed
+
+# Opsi 2 — manual dari root repo
+uv run --directory backend python -m scripts.seed_full_catalog   # katalog 5 prodi
+uv run --directory backend python -m scripts.seed                   # akun & data demo
+```
+
+`AUTO_SEED` default `false`: startup tidak mengisi database secara otomatis. Bila di-set `true`, startup hanya menjalankan `seed_data()` dari `scripts/seed.py` (data demo), bukan seeder katalog penuh. Lihat `docs/demo-data-policy.md` sebagai SSOT kebijakan data demo.
 
 ---
 

@@ -97,7 +97,7 @@ def test_stream_identity_comes_from_token(client, chatbot_url, student_headers):
     claimed_id = "00000000-0000-0000-0000-000000000001"
     with (
         patch("httpx.AsyncClient.stream", return_value=_sse_response()),
-        patch("api.chat.log_chat_metadata", new_callable=AsyncMock) as log_metadata,
+        patch("features.chat.router.log_chat_metadata", new_callable=AsyncMock) as log_metadata,
     ):
         response = client.post(
             "/api/v1/chat/stream",

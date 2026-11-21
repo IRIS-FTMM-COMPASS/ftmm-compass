@@ -39,7 +39,7 @@ def test_sections_for_active_period(client, student_headers):
     assert meeting["day"] == "Senin"
     assert meeting["start_time"] == "08:00"
     assert meeting["end_time"] == "10:30"
-    assert "Lab Komputasi A" in meeting["room"]
+    assert meeting["room"] is None
 
 
 def test_legacy_alias_returns_same_collection(client, student_headers):
