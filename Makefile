@@ -87,9 +87,9 @@ migrate: ## Menjalankan migrasi skema database Alembic ke head
 
 seed: ## Mengisi database dengan data pengguna, kurikulum, dan katalog 5 prodi
 	@echo -e "$(CYAN)[SEED] Mengisi katalog 5 prodi dari database/seed...$(RESET)"
-	@uv run --directory backend python seed_full_catalog.py
+	@uv run --directory backend python -m scripts.seed_full_catalog.py
 	@echo -e "$(CYAN)[SEED] Mengisi data awal ke database...$(RESET)"
-	@uv run --directory backend python seed.py
+	@uv run --directory backend python -m scripts.seed
 
 setup: doctor env-init network-init install db-up db-wait migrate seed ## Alur otomatis satu perintah untuk developer baru
 	@echo -e "\n$(GREEN)=====================================================$(RESET)"

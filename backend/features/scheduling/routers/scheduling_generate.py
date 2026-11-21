@@ -26,7 +26,7 @@ from models import (
     UnassignedClass,
     User,
 )
-from scheduler import generate_schedule
+from ..scheduler import generate_schedule
 from schemas import GenerateRequest, GenerateResponse, UnassignedItem
 from scheduling_common import all_study_program_ids, current_period_id
 

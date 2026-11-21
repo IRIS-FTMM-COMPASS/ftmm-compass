@@ -75,7 +75,7 @@ PJ_PRODI_CODES = ("TSD", "TRKB", "RN", "TI", "TE")
 PJ_PASSWORD = "PjProdi2026!"
 LEGACY_LECTURER_EMAIL = "dosen.testing@ftmm.unair.ac.id"
 VOTERS_PER_PRODI = 9
-SEED_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "database", "seed")
+SEED_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "database", "seed")
 LECTURER_PASSWORD = "DosenFTMM2026!"
 
 COURSES_DATA = [

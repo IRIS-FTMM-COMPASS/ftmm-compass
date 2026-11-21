@@ -1,6 +1,6 @@
 # Laporan Rekonsiliasi Katalog FTMM
 
-Dibuat otomatis oleh `backend/reconcile_catalog.py`. Jangan diedit manual;
+Dibuat otomatis oleh `backend/scripts/reconcile_catalog.py`. Jangan diedit manual;
 keputusan diisi di `reconciliation.json`.
 
 ## Ringkasan

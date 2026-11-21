@@ -12,7 +12,7 @@ Output:
 - database/seed/catalog_build_report.md
 
 Jalankan dari root repo:
-    uv run --with pypdf --directory backend python build_catalog.py
+    uv run --with pypdf --directory backend python -m scripts.build_catalog
 """
 
 import difflib
@@ -23,7 +23,7 @@ from collections import defaultdict
 
 import pypdf
 
-from reconcile_catalog import EKSTRAK_DIR, OUT_DIR, load_rows, normalize_name
+from .reconcile_catalog import EKSTRAK_DIR, OUT_DIR, load_rows, normalize_name
 
 PDF_DIR = os.path.join(EKSTRAK_DIR, "pdf")
 PANDUAN_FILE = "Panduan Pendidikan FTMM UNAIR 2024-2025.pdf"

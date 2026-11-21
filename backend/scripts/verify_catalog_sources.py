@@ -8,7 +8,7 @@ Sumber yang dibaca (semua di Ekstrak/pdf, tidak di-commit):
 Output: database/seed/source_verification.md dan source_verification.json
 
 Jalankan dari root repo:
-    uv run --with pypdf --directory backend python verify_catalog_sources.py
+    uv run --with pypdf --directory backend python -m scripts.verify_catalog_sources
 """
 
 import glob
@@ -19,7 +19,7 @@ from collections import defaultdict
 
 import pypdf
 
-from reconcile_catalog import EKSTRAK_DIR, OUT_DIR, load_rows, normalize_name
+from .reconcile_catalog import EKSTRAK_DIR, OUT_DIR, load_rows, normalize_name
 
 PDF_DIR = os.path.join(EKSTRAK_DIR, "pdf")
 REPORT_PATH = os.path.join(OUT_DIR, "source_verification.md")

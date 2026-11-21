@@ -6,14 +6,14 @@ Pipeline untuk mengisi katalog 5 prodi FTMM (TSD, RN, TRKB, TE, TI) ke PostgreSQ
 PDF resmi (Drive tim: Dataset Matkul Prodi/Dokumen Mentah)  ──┐
 Ekstrak/FIX *.json (detail: deskripsi, CPL, teks prasyarat) ──┤
                                                               ▼
-backend/build_catalog.py      → database/seed/catalog_canonical.json   (struktur, di-commit)
-                              → Ekstrak/derived/catalog_details.json   (deskripsi/CPL/dosen, TIDAK di-commit)
-backend/reconcile_catalog.py  → database/seed/reconciliation.json      (keputusan reviewer + bukti halaman)
-                              → database/seed/reconciliation_report.md
-backend/seed_full_catalog.py  → deskripsi: Ekstrak/derived/catalog_details.json bila ada
-                                  → fallback: Ekstrak/FIX *.json via json_record_key
-                                  → fallback: kosong (mis. CI tanpa Ekstrak)
-                              → PostgreSQL
+backend/scripts/build_catalog.py      → database/seed/catalog_canonical.json   (struktur, di-commit)
+                                      → Ekstrak/derived/catalog_details.json   (deskripsi/CPL/dosen, TIDAK di-commit)
+backend/scripts/reconcile_catalog.py  → database/seed/reconciliation.json      (keputusan reviewer + bukti halaman)
+                                      → database/seed/reconciliation_report.md
+backend/scripts/seed_full_catalog.py  → deskripsi: Ekstrak/derived/catalog_details.json bila ada
+                                          → fallback: Ekstrak/FIX *.json via json_record_key
+                                          → fallback: kosong (mis. CI tanpa Ekstrak)
+                                      → PostgreSQL
 ```
 
 ## Menjalankan
@@ -30,17 +30,19 @@ arahkan `EKSTRAK_DIR` ke direktori Ekstrak yang sudah ada.
 CI sengaja men-seed tanpa deskripsi karena direktori `Ekstrak/` tidak tersedia; deskripsi
 kosong dan suite tes CI tidak memerlukan data terklasifikasi ini.
 
+Seeder katalog tidak berjalan otomatis saat startup: `AUTO_SEED` default `false`, dan bila diaktifkan startup hanya menjalankan `seed_data()` dari `scripts/seed.py` (data demo). Lihat `docs/demo-data-policy.md` sebagai SSOT kebijakan data demo.
+
 ```bash
 docker compose up -d postgres
 uv run --directory backend alembic upgrade head
-uv run --directory backend python seed_full_catalog.py
+uv run --directory backend python -m scripts.seed_full_catalog.py
 ```
 
 Membangun ulang katalog (butuh PDF di `Ekstrak/pdf/` dan 5 JSON di `Ekstrak/`):
 
 ```bash
-uv run --with pypdf --directory backend python build_catalog.py
-uv run --directory backend python reconcile_catalog.py
+uv run --with pypdf --directory backend python -m scripts.build_catalog.py
+uv run --directory backend python -m scripts.reconcile_catalog.py
 ```
 
 Seeder idempoten: aman dijalankan berulang, baris yang hilang dari katalog dinonaktifkan
@@ -54,7 +56,7 @@ menghapus `degree_plan_items` dan `student_course_records`):
 
 ```bash
 psql "$DATABASE_URL" -c 'TRUNCATE curriculum_courses CASCADE'
-uv run --directory backend python seed_full_catalog.py
+uv run --directory backend python -m scripts.seed_full_catalog.py
 ```
 
 `pg_trgm` (dibutuhkan migrasi indeks) harus tersedia di role database; lihat `backend/README.md`.

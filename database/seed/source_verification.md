@@ -1,6 +1,6 @@
 # Verifikasi Ekstrak JSON terhadap PDF Resmi
 
-Dibuat otomatis oleh `backend/verify_catalog_sources.py`. Parser tabel PDF tidak sempurna:
+Dibuat otomatis oleh `backend/scripts/verify_catalog_sources.py`. Parser tabel PDF tidak sempurna:
 setiap temuan di bawah harus dikonfirmasi manual ke halaman yang disebut.
 
 - Baris JSON: **369** — cocok di semua aspek: **216**, ada temuan: **153**

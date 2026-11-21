@@ -6,7 +6,7 @@ from pathlib import Path
 
 from sqlalchemy import text
 
-import seed as seed_module
+from scripts import seed as seed_module
 from catalog import get_all_courses, prodi_code
 
 EXPECTED_PJ = {

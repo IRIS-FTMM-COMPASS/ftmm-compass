@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from academics import TOTAL_SKS_FOR_GRADUATION, grade_points
-from api.scheduling_board import _program_statuses
+from features.scheduling.routers.scheduling_board import _program_statuses
 from auth import get_current_user
 from database import get_db
 from models import (

@@ -8,7 +8,7 @@ Keputusan yang sudah diisi di reconciliation.json tidak akan ditimpa saat
 script dijalankan ulang, jadi aman di-run berkali-kali.
 
 Jalankan dari root repo:
-    uv run --directory backend python reconcile_catalog.py
+    uv run --directory backend python -m scripts.reconcile_catalog
 """
 
 import difflib
@@ -20,7 +20,7 @@ import re
 from collections import defaultdict
 from settings import EKSTRAK_DIR
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OUT_DIR = os.path.join(REPO_ROOT, "database", "seed")
 REPORT_PATH = os.path.join(OUT_DIR, "reconciliation_report.md")
 DECISIONS_PATH = os.path.join(OUT_DIR, "reconciliation.json")

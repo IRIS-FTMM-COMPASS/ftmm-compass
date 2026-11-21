@@ -148,7 +148,7 @@ def deterministic_surface():
     original = settings.CHATBOT_SERVICE_URL
     settings.CHATBOT_SERVICE_URL = OFFLINE_CHATBOT_URL
     try:
-        with patch("api.auth._format_relative_time", return_value="Baru saja"):
+        with patch("features.auth.router._format_relative_time", return_value="Baru saja"):
             yield
     finally:
         settings.CHATBOT_SERVICE_URL = original

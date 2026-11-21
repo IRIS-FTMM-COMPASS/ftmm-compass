@@ -109,8 +109,8 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ftmm_compass_dev
         run: |
-          uv run --directory backend python seed.py
-          uv run --directory backend python seed.py
+          uv run --directory backend python -m scripts.seed
+          uv run --directory backend python -m scripts.seed
 
   backend:
     name: Backend Test Suite
@@ -166,12 +166,12 @@ jobs:
       - name: Python lint check with Ruff
         run: uv run --directory backend ruff check .
 
-      # Tes katalog dan degree-plan membaca data katalog 5 prodi; seed.py saja
+      # Tes katalog dan degree-plan membaca data katalog 5 prodi; scripts.seed saja
       # hanya mengisi pengguna demo dan 28 mata kuliah.
       - name: Seed full catalog
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ftmm_compass_dev
-        run: uv run --directory backend python seed_full_catalog.py
+        run: uv run --directory backend python -m scripts.seed_full_catalog.py
 
       - name: Run backend test suite
         env:
