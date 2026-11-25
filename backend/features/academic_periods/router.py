@@ -30,7 +30,7 @@ async def get_current_academic_period(
     if period is None:
         year_start, term = current_period(today)
         return AcademicPeriodResponse(
-            **period_payload(year_start, term, None, None, today)
+            **period_payload(year_start, term, None, None, today, semester_number=None)
         )
 
     return AcademicPeriodResponse(
@@ -40,5 +40,6 @@ async def get_current_academic_period(
             period.start_date,
             period.end_date,
             today,
+            semester_number=period.semester_number,
         )
     )

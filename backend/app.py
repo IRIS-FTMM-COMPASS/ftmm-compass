@@ -28,9 +28,11 @@ from features import (
     health,
     planning,
     polling,
+    scheduling,
     timetable,
 )
 from features.planning.router import v1_generate_plan, v1_validate_plan
+from features.scheduling.routers import scheduling_assignments, scheduling_period_inputs
 from api.errors import error_response
 from catalog import refresh_from_db
 from rate_limit import limiter
@@ -114,8 +116,12 @@ for resource in (
     academic_periods,
     course_records,
     timetable,
+    scheduling,
 ):
     mount_resource(resource.router)
+
+mount_resource(scheduling_period_inputs.router)
+mount_resource(scheduling_assignments.router)
 
 info_router = APIRouter()
 

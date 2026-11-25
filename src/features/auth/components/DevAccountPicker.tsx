@@ -4,7 +4,8 @@ interface DevAccountPickerProps {
 
 interface DemoAccount {
   label: string
-  localPart: string
+  localPart?: string
+  email?: string
 }
 
 const DEV_ACCOUNT_PICKER_ENABLED = true
@@ -24,11 +25,11 @@ const MAHASISWA_ACCOUNTS: DemoAccount[] = [
 ]
 
 const PJ_ACCOUNTS: DemoAccount[] = [
-  { label: "TSD", localPart: "pj.tsd" },
-  { label: "TRKB", localPart: "pj.trkb" },
-  { label: "RN", localPart: "pj.rn" },
-  { label: "TI", localPart: "pj.ti" },
-  { label: "TE", localPart: "pj.te" },
+  { label: "TSD", email: "dwi.rantini@ftmm.unair.ac.id" },
+  { label: "TRKB", email: "asif.ali@ftmm.unair.ac.id" },
+  { label: "RN", email: "mirza.ardella@ftmm.unair.ac.id" },
+  { label: "TI", email: "chandrawati.p.w@ftmm.unair.ac.id" },
+  { label: "TE", email: "agus.mukhlisin@ftmm.unair.ac.id" },
 ]
 
 const ADMIN_ACCOUNTS: DemoAccount[] = [{ label: "Admin", localPart: "admin" }]
@@ -54,9 +55,11 @@ function AccountGroup({
       <span className="text-[11px] font-semibold text-muted">{label}</span>
       {accounts.map((account) => (
         <button
-          key={account.localPart}
+          key={account.email ?? account.localPart}
           type="button"
-          onClick={() => onSelect(`${account.localPart}${DOMAIN}`, password)}
+          onClick={() =>
+            onSelect(account.email ?? `${account.localPart}${DOMAIN}`, password)
+          }
           className={BUTTON_CLASS}
         >
           {account.label}

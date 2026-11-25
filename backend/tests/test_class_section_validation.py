@@ -1,6 +1,6 @@
 import datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 import app as app_module
 from database import get_db
@@ -85,6 +85,51 @@ def _parallel_sections(client):
                     room_name="Ruang Uji",
                 )
             )
+        await session.flush()
+        for code, section_code, day, start, end in (
+            ("TSD201", "A", 1, "09:00", "10:00"),
+            ("TSD301", "B", 1, "08:00", "09:00"),
+        ):
+            section_ids = (
+                await session.execute(
+                    select(ClassSection.class_section_id)
+                    .join(
+                        OfferingComponent,
+                        OfferingComponent.offering_component_id
+                        == ClassSection.offering_component_id,
+                    )
+                    .join(
+                        CourseOffering,
+                        CourseOffering.course_offering_id
+                        == OfferingComponent.course_offering_id,
+                    )
+                    .join(Course, Course.course_id == CourseOffering.course_id)
+                    .where(
+                        Course.course_code == code,
+                        ClassSection.section_code == section_code,
+                        CourseOffering.academic_period_id
+                        == period.academic_period_id,
+                    )
+                )
+            ).scalars().all()
+            assert section_ids
+            await session.execute(
+                delete(ClassSchedule).where(
+                    ClassSchedule.class_section_id.in_(section_ids)
+                )
+            )
+            start_hour, start_minute = map(int, start.split(":"))
+            end_hour, end_minute = map(int, end.split(":"))
+            for section_id in section_ids:
+                session.add(
+                    ClassSchedule(
+                        class_section_id=section_id,
+                        day_of_week=day,
+                        start_time=datetime.time(start_hour, start_minute),
+                        end_time=datetime.time(end_hour, end_minute),
+                        room_name="Ruang Uji",
+                    )
+                )
         await session.flush()
 
         ids = {}
@@ -244,6 +289,7 @@ def _insert_plan_sections(client, plans):
         assert period is not None
 
         components = {}
+        ids = {}
         for code, section_code, day, start, end in plans:
             if code not in components:
                 course = (
@@ -279,6 +325,7 @@ def _insert_plan_sections(client, plans):
             )
             session.add(section)
             await session.flush()
+            ids.setdefault(code, {})[section_code] = str(section.class_section_id)
             start_hour, start_minute = map(int, start.split(":"))
             end_hour, end_minute = map(int, end.split(":"))
             session.add(
@@ -292,30 +339,6 @@ def _insert_plan_sections(client, plans):
             )
         await session.flush()
 
-        ids = {}
-        for code in {plan[0] for plan in plans}:
-            rows = (
-                await session.execute(
-                    select(ClassSection.section_code, ClassSection.class_section_id)
-                    .join(
-                        OfferingComponent,
-                        OfferingComponent.offering_component_id
-                        == ClassSection.offering_component_id,
-                    )
-                    .join(
-                        CourseOffering,
-                        CourseOffering.course_offering_id
-                        == OfferingComponent.course_offering_id,
-                    )
-                    .join(Course, Course.course_id == CourseOffering.course_id)
-                    .where(
-                        Course.course_code == code,
-                        CourseOffering.academic_period_id
-                        == period.academic_period_id,
-                    )
-                )
-            ).all()
-            ids[code] = {str(section_code): str(uuid) for section_code, uuid in rows}
         return ids
 
     return client.portal.call(insert)
@@ -363,6 +386,9 @@ def test_batch_alternatives_cannot_create_a_new_clash(client, student_headers):
         ("TSD301", "R3", 1, "14:00", "15:00"),
     )
     ids = _insert_plan_sections(client, plans)
+    inserted_ids = {
+        section_id for sections in ids.values() for section_id in sections.values()
+    }
     response = client.post(
         PATH,
         json={
@@ -379,9 +405,10 @@ def test_batch_alternatives_cannot_create_a_new_clash(client, student_headers):
     assert body["meta"]["total_conflicts"] == 1
     by_code: dict[str, list[str]] = {}
     for alternative in body["alternatives"]:
-        by_code.setdefault(alternative["course_code"], []).append(
-            alternative["section"]["section_id"]
-        )
+        section_id = alternative["section"]["section_id"]
+        if section_id not in inserted_ids:
+            continue
+        by_code.setdefault(alternative["course_code"], []).append(section_id)
     assert all(by_code.get(code) for code in ("TSD201", "TSD301"))
 
     codes = sorted(by_code)

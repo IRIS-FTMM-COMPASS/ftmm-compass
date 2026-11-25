@@ -56,6 +56,7 @@ import {
   timetableService,
   type TimetableSelectionInput,
 } from "@/features/degree-planner/services/timetableService"
+import { useSchedulingStatus } from "@/features/scheduling/hooks/useSchedulingStatus"
 
 const EMPTY_SECTIONS: Record<string, ClassSection[]> = {}
 
@@ -107,6 +108,7 @@ export default function DegreePlanner({
   const { period } = useAcademicPeriod()
   const planner = usePlanner()
   const { user } = useSession()
+  const { isFinal } = useSchedulingStatus()
   const currentProgram = user?.student_profile?.study_program ?? null
   const {
     drafts,
@@ -1063,6 +1065,7 @@ export default function DegreePlanner({
             <div className="lg:col-span-4 min-h-[380px] lg:h-full min-h-0 flex flex-col">
               <ClassSelectorPanel
                 activeSemester={activeTimetableSem}
+                scheduleIsFinal={isFinal}
                 semesterCourses={currentTimetableCourses}
                 offerings={offerings}
                 selectedSections={selectedSections}

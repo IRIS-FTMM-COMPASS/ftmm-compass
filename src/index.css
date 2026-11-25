@@ -46,6 +46,13 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
   
+  /* Program studi accents */
+  --color-prodi-tsd: #a16207;
+  --color-prodi-rn: #be123c;
+  --color-prodi-ti: #2563eb;
+  --color-prodi-trkb: #7c3aed;
+  --color-prodi-te: #0f766e;
+
   /* Status */
   --color-warning: #d7b03d;
   --color-danger: #ad5712;

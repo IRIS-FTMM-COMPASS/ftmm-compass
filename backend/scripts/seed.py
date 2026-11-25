@@ -1,16 +1,22 @@
 import asyncio
 import datetime
+import glob
+import json
+import os
 import sys
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import selectinload
 
 from academics import current_period, semester_end, semester_start
 from auth import get_password_hash
 from catalog import get_all_courses, prodi_code, refresh_from_db
 from database import AsyncSessionLocal
+from features.scheduling.scheduler import generate_schedule
 from models import (
     StudyProgram,
+    LecturerSchedulePreference,
+    ClassInstructorAssignment,
     User,
     LecturerProfile,
     StudentProfile,
@@ -27,13 +33,18 @@ from models import (
     OfferingComponent,
     ClassSection,
     ClassSchedule,
+    Room,
     Timetable,
     TimetableItem,
     ElectivePollingPeriod,
     ElectiveCourseVote,
     UserNotification,
+    ScheduleRun,
+    CourseInstructorReference,
+    ClassCountOverride,
 )
 from plan_storage import NoCurriculumAssignment, ensure_assignment
+from scheduling_assignment_rules import snake_candidate_index, snake_order
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(line_buffering=True)
@@ -72,6 +83,9 @@ PJ_PRODI_CODES = ("TSD", "TRKB", "RN", "TI", "TE")
 PJ_PASSWORD = "PjProdi2026!"
 LEGACY_LECTURER_EMAIL = "dosen.testing@ftmm.unair.ac.id"
 VOTERS_PER_PRODI = 9
+SEED_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "database", "seed")
+LECTURER_PASSWORD = "DosenFTMM2026!"
+EKSTRAK_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "Ekstrak")
 
 COURSES_DATA = [
     {"code": "KIK101", "name": "Kalkulus I", "credits": 3, "sem": 1, "term": "ganjil", "type": "wajib"},
@@ -107,6 +121,484 @@ COURSES_DATA = [
     {"code": "TSD402", "name": "Sistem Rekomendasi", "credits": 3, "sem": 6, "term": "genap", "type": "pilihan"},
     {"code": "TSD403", "name": "Komputasi Awan", "credits": 3, "sem": 6, "term": "genap", "type": "pilihan"},
 ]
+
+
+async def _seed_demo_preferences(session, period, lecturers: list[User]) -> int:
+    if not lecturers:
+        return 0
+    user_ids = {lecturer.user_id for lecturer in lecturers}
+    existing = set(
+        (
+            await session.execute(
+                select(LecturerSchedulePreference.user_id).where(
+                    LecturerSchedulePreference.academic_period_id
+                    == period.academic_period_id,
+                    LecturerSchedulePreference.user_id.in_(user_ids),
+                )
+            )
+        ).scalars()
+    )
+    created = 0
+    for lecturer in sorted(lecturers, key=lambda item: item.email):
+        if lecturer.user_id in existing:
+            continue
+        for day in range(1, 6):
+            session.add(
+                LecturerSchedulePreference(
+                    user_id=lecturer.user_id,
+                    academic_period_id=period.academic_period_id,
+                    day_of_week=day,
+                    start_time=datetime.time(7, 0),
+                    end_time=datetime.time(17, 0),
+                    kind="preferred",
+                )
+            )
+            created += 1
+    await session.flush()
+    return created
+
+
+async def _seed_period_instructor_mappings(
+    session,
+    period,
+    program_ids: set,
+    lecturers_by_program: dict,
+) -> int:
+    if not program_ids:
+        return 0
+    rows = (
+        await session.execute(
+            select(
+                CurriculumCourse.curriculum_course_id,
+                Curriculum.study_program_id,
+                Course.course_code,
+                Curriculum.curriculum_year,
+            )
+            .join(Curriculum, Curriculum.curriculum_id == CurriculumCourse.curriculum_id)
+            .join(Course, Course.course_id == CurriculumCourse.course_id)
+            .join(
+                StudyProgram,
+                StudyProgram.study_program_id == Curriculum.study_program_id,
+            )
+            .where(
+                Curriculum.study_program_id.in_(program_ids),
+                Curriculum.is_active.is_(True),
+                CurriculumCourse.is_active.is_(True),
+                Course.is_active.is_(True),
+            )
+            .order_by(
+                StudyProgram.program_code,
+                Course.course_code,
+                Curriculum.curriculum_year,
+                CurriculumCourse.curriculum_course_id,
+            )
+        )
+    ).all()
+    if not rows:
+        return 0
+    curriculum_course_ids = {row.curriculum_course_id for row in rows}
+    references = (
+        await session.execute(
+            select(CourseInstructorReference).where(
+                CourseInstructorReference.curriculum_course_id.in_(
+                    curriculum_course_ids
+                ),
+                CourseInstructorReference.academic_period_id
+                == period.academic_period_id,
+            )
+        )
+    ).scalars()
+    by_course: dict[object, list[CourseInstructorReference]] = {
+        curriculum_course_id: [] for curriculum_course_id in curriculum_course_ids
+    }
+    for reference in references:
+        by_course[reference.curriculum_course_id].append(reference)
+    legacy_sources = (
+        await session.execute(
+            select(
+                CourseInstructorReference.curriculum_course_id,
+                CourseInstructorReference.user_id,
+                CourseInstructorReference.instructor_reference_id,
+            ).where(
+                CourseInstructorReference.curriculum_course_id.in_(
+                    curriculum_course_ids
+                ),
+                CourseInstructorReference.academic_period_id.is_(None),
+                CourseInstructorReference.user_id.is_not(None),
+            )
+        )
+    ).all()
+    source_by_user = {
+        (row.curriculum_course_id, row.user_id): row.instructor_reference_id
+        for row in legacy_sources
+    }
+    program_offsets: dict[object, int] = {}
+    created = 0
+    for row in rows:
+        lecturers = sorted(
+            lecturers_by_program.get(row.study_program_id, []),
+            key=lambda item: item.email,
+        )
+        if not lecturers:
+            continue
+        offset = program_offsets.get(row.study_program_id, 0)
+        program_offsets[row.study_program_id] = offset + 1
+        course_references = by_course[row.curriculum_course_id]
+        had_references = bool(course_references)
+        used_positions = {
+            reference.position
+            for reference in course_references
+            if reference.position is not None
+        }
+        pool_users = {
+            reference.user_id
+            for reference in course_references
+            if reference.user_id is not None
+        }
+
+        def add_reference(lecturer: User, role: str) -> None:
+            nonlocal created
+            position = 1
+            while position in used_positions:
+                position += 1
+            reference = CourseInstructorReference(
+                curriculum_course_id=row.curriculum_course_id,
+                academic_period_id=period.academic_period_id,
+                instructor_name=lecturer.full_name,
+                instructor_role=role,
+                user_id=lecturer.user_id,
+                position=position,
+                source_reference_id=source_by_user.get(
+                    (row.curriculum_course_id, lecturer.user_id)
+                ),
+            )
+            session.add(reference)
+            course_references.append(reference)
+            used_positions.add(position)
+            pool_users.add(lecturer.user_id)
+            created += 1
+
+        if not any(reference.instructor_role == "pjmk" for reference in course_references):
+            add_reference(lecturers[offset % len(lecturers)], "pjmk")
+        if not had_references:
+            for step in range(1, len(lecturers)):
+                lecturer = lecturers[(offset + step) % len(lecturers)]
+                if lecturer.user_id not in pool_users:
+                    add_reference(lecturer, "teaching_team")
+                if len(pool_users) >= 3:
+                    break
+    await session.flush()
+    return created
+
+
+async def _seed_demo_assignments(session, period, admin: User) -> int:
+    contexts = (
+        await session.execute(
+            select(
+                ClassSection.class_section_id,
+                ClassSection.section_code,
+                ClassSection.offering_component_id,
+                CurriculumCourse.curriculum_course_id,
+                StudyProgram.program_code,
+                Course.course_code,
+            )
+            .join(
+                OfferingComponent,
+                OfferingComponent.offering_component_id
+                == ClassSection.offering_component_id,
+            )
+            .join(
+                CourseOffering,
+                CourseOffering.course_offering_id
+                == OfferingComponent.course_offering_id,
+            )
+            .join(
+                CourseOfferingEligibility,
+                CourseOfferingEligibility.course_offering_id
+                == CourseOffering.course_offering_id,
+            )
+            .join(
+                CurriculumCourse,
+                CurriculumCourse.curriculum_course_id
+                == CourseOfferingEligibility.curriculum_course_id,
+            )
+            .join(
+                Curriculum,
+                Curriculum.curriculum_id == CurriculumCourse.curriculum_id,
+            )
+            .join(
+                StudyProgram,
+                StudyProgram.study_program_id == Curriculum.study_program_id,
+            )
+            .join(Course, Course.course_id == CurriculumCourse.course_id)
+            .where(
+                CourseOffering.academic_period_id == period.academic_period_id,
+                Course.is_active.is_(True),
+            )
+            .order_by(
+                ClassSection.offering_component_id,
+                StudyProgram.program_code,
+                Course.course_code,
+                CurriculumCourse.curriculum_course_id,
+            )
+        )
+    ).all()
+    if not contexts:
+        return 0
+    by_class: dict[object, list] = {}
+    curriculum_course_ids = set()
+    for row in contexts:
+        by_class.setdefault(row.class_section_id, []).append(row)
+        curriculum_course_ids.add(row.curriculum_course_id)
+    pool_rows = (
+        await session.execute(
+            select(
+                CourseInstructorReference.curriculum_course_id,
+                CourseInstructorReference.instructor_role,
+                CourseInstructorReference.position,
+                CourseInstructorReference.user_id,
+                User.email,
+            )
+            .join(User, User.user_id == CourseInstructorReference.user_id)
+            .join(LecturerProfile, LecturerProfile.user_id == User.user_id)
+            .where(
+                CourseInstructorReference.curriculum_course_id.in_(
+                    curriculum_course_ids
+                ),
+                CourseInstructorReference.academic_period_id
+                == period.academic_period_id,
+                CourseInstructorReference.instructor_role.in_(("pjmk", "teaching_team")),
+                User.role == "lecturer",
+                User.is_active.is_(True),
+            )
+            .order_by(
+                CourseInstructorReference.curriculum_course_id,
+                CourseInstructorReference.instructor_role != "pjmk",
+                CourseInstructorReference.position.is_(None),
+                CourseInstructorReference.position,
+                User.email,
+                CourseInstructorReference.instructor_reference_id,
+            )
+        )
+    ).all()
+    pools: dict[object, list] = {
+        curriculum_course_id: [] for curriculum_course_id in curriculum_course_ids
+    }
+    seen: dict[object, set] = {
+        curriculum_course_id: set() for curriculum_course_id in curriculum_course_ids
+    }
+    for row in pool_rows:
+        if row.user_id in seen[row.curriculum_course_id]:
+            continue
+        seen[row.curriculum_course_id].add(row.user_id)
+        pools[row.curriculum_course_id].append(row)
+    existing = set(
+        (
+            await session.execute(
+                select(ClassInstructorAssignment.class_section_id).where(
+                    ClassInstructorAssignment.academic_period_id
+                    == period.academic_period_id,
+                    ClassInstructorAssignment.is_active.is_(True),
+                )
+            )
+        ).scalars()
+    )
+    groups: dict[object, list] = {}
+    for class_rows in by_class.values():
+        groups.setdefault(class_rows[0].offering_component_id, []).extend(class_rows)
+    created = 0
+    for context_rows in groups.values():
+        rows = {row.class_section_id: row for row in context_rows}
+        candidates = {}
+        for row in context_rows:
+            for pool_row in pools[row.curriculum_course_id]:
+                key = pool_row.user_id
+                candidate = (
+                    pool_row.instructor_role != "pjmk",
+                    pool_row.position or 10_000,
+                    pool_row.email,
+                    str(key),
+                )
+                candidates[key] = min(candidates.get(key, candidate), candidate)
+        pool = [
+            user_id
+            for user_id, _ in sorted(candidates.items(), key=lambda item: item[1])
+        ]
+        classes = snake_order(
+            sorted(
+                rows.values(),
+                key=lambda row: (row.section_code, str(row.class_section_id)),
+            )
+        )
+        for class_index, row in enumerate(classes):
+            if row.class_section_id in existing:
+                continue
+            pool_index = snake_candidate_index(len(pool), class_index)
+            if pool_index is None:
+                continue
+            session.add(
+                ClassInstructorAssignment(
+                    class_section_id=row.class_section_id,
+                    academic_period_id=period.academic_period_id,
+                    curriculum_course_id=row.curriculum_course_id,
+                    user_id=pool[pool_index],
+                    source="auto",
+                    is_pinned=False,
+                    is_active=True,
+                    assigned_by=admin.user_id,
+                )
+            )
+            existing.add(row.class_section_id)
+            created += 1
+    await session.flush()
+    return created
+
+
+async def _run_demo_schedule_once(session, period, admin: User) -> None:
+    completed_run = (
+        await session.execute(
+            select(ScheduleRun.run_id)
+            .where(
+                ScheduleRun.academic_period_id == period.academic_period_id,
+                ScheduleRun.status == "completed",
+                ScheduleRun.mode == "fill_empty",
+            )
+            .limit(1)
+        )
+    ).scalar()
+    if completed_run is not None:
+        print("  [SKIP] Scheduler demo sudah pernah selesai untuk periode aktif")
+        return
+    stats = await generate_schedule(
+        session,
+        period,
+        mode="fill_empty",
+        triggered_by=admin.user_id,
+    )
+    print(
+        f"  [OK] Penjadwalan otomatis: {stats.assigned_count} kelas terjadwal, "
+        f"{stats.unassigned_count} belum terjadwal, {stats.conflict_count} konflik"
+    )
+
+
+async def _seed_demo_sections(session, period) -> int:
+    """Bound demo demand and materialize every section before assignment."""
+    rows = (
+        await session.execute(
+            select(
+                CourseOffering.course_id,
+                CourseOffering.course_offering_id,
+                CourseOffering.offering_code,
+                StudyProgram.study_program_id,
+                Course.course_code,
+            )
+            .join(
+                CourseOfferingEligibility,
+                CourseOfferingEligibility.course_offering_id
+                == CourseOffering.course_offering_id,
+            )
+            .join(
+                CurriculumCourse,
+                CurriculumCourse.curriculum_course_id
+                == CourseOfferingEligibility.curriculum_course_id,
+            )
+            .join(
+                Curriculum,
+                Curriculum.curriculum_id == CurriculumCourse.curriculum_id,
+            )
+            .join(
+                StudyProgram,
+                StudyProgram.study_program_id == Curriculum.study_program_id,
+            )
+            .join(Course, Course.course_id == CourseOffering.course_id)
+            .where(
+                CourseOffering.academic_period_id == period.academic_period_id,
+                Course.is_active.is_(True),
+            )
+            .order_by(Course.course_code, CourseOffering.offering_code)
+        )
+    ).all()
+    pairs = {(row.course_id, row.study_program_id) for row in rows}
+    overrides = {
+        (override.course_id, override.study_program_id): override.class_count
+        for override in (
+            await session.execute(
+                select(ClassCountOverride).where(
+                    ClassCountOverride.academic_period_id
+                    == period.academic_period_id
+                )
+            )
+        ).scalars()
+    }
+    for course_id, program_id in sorted(pairs, key=lambda pair: tuple(map(str, pair))):
+        if (course_id, program_id) not in overrides:
+            session.add(
+                ClassCountOverride(
+                    academic_period_id=period.academic_period_id,
+                    course_id=course_id,
+                    study_program_id=program_id,
+                    class_count=1,
+                )
+            )
+            overrides[(course_id, program_id)] = 1
+    offerings_by_course: dict[object, list] = {}
+    for row in rows:
+        offerings = offerings_by_course.setdefault(row.course_id, [])
+        if row.course_offering_id not in {item.course_offering_id for item in offerings}:
+            offerings.append(row)
+    created = 0
+    for course_id, offerings in offerings_by_course.items():
+        target = max(
+            (
+                count
+                for (target_course_id, _), count in overrides.items()
+                if target_course_id == course_id
+            ),
+            default=1,
+        )
+        component = (
+            await session.execute(
+                select(OfferingComponent)
+                .where(
+                    OfferingComponent.course_offering_id
+                    == offerings[0].course_offering_id
+                )
+                .order_by(OfferingComponent.component_code)
+                .limit(1)
+            )
+        ).scalar()
+        if component is None:
+            continue
+        sections = (
+            (
+                await session.execute(
+                    select(ClassSection).where(
+                        ClassSection.offering_component_id
+                        == component.offering_component_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        codes = {section.section_code for section in sections}
+        for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+            if len(codes) >= target:
+                break
+            if letter in codes:
+                continue
+            session.add(
+                ClassSection(
+                    offering_component_id=component.offering_component_id,
+                    section_code=letter,
+                    capacity=40,
+                    enrollment_status="open",
+                )
+            )
+            codes.add(letter)
+            created += 1
+    await session.flush()
+    return created
 
 
 async def seed_data():
@@ -148,11 +640,16 @@ async def seed_data():
             p_obj = (await session.execute(stmt)).scalars().first()
             start_date = semester_start(pcfg["year"], pcfg["term"])
             end_date = semester_end(pcfg["year"], pcfg["term"])
+            if pcfg["year"] == current_year - 1:
+                semester_number = 1 if pcfg["term"] == "ganjil" else 2
+            else:
+                semester_number = 3 if pcfg["term"] == "ganjil" else 4
             if not p_obj:
                 p_obj = AcademicPeriod(
                     academic_year_start=pcfg["year"],
                     term=pcfg["term"],
                     is_active=pcfg["active"],
+                    semester_number=semester_number,
                     start_date=start_date,
                     end_date=end_date,
                 )
@@ -164,6 +661,7 @@ async def seed_data():
                 p_obj.start_date = start_date
                 p_obj.end_date = end_date
                 print(f"  [EXISTS] Academic period: {pcfg['year']} {pcfg['term']}")
+            p_obj.semester_number = semester_number
             period_map[f"{pcfg['year']}_{pcfg['term']}"] = p_obj
 
         # Hanya satu periode aktif, termasuk periode lama di database.
@@ -302,14 +800,37 @@ async def seed_data():
                 legacy_lecturer.lecturer_profile.is_program_coordinator = False
             print(f"  [DEACTIVATED] Legacy lecturer user: {LEGACY_LECTURER_EMAIL}")
 
+        with open(os.path.join(SEED_DIR, "lecturers.json"), encoding="utf-8") as handle:
+            lecturer_seed = json.load(handle)
+        coordinator_by_prodi = {
+            item["prodi_code"]: item
+            for item in lecturer_seed["lecturers"]
+            if item["is_coordinator"]
+        }
+
         for code in PJ_PRODI_CODES:
-            pj_email = f"pj.{code.lower()}@ftmm.unair.ac.id"
+            coordinator = coordinator_by_prodi.get(code)
+            pj_email = (
+                coordinator["email"]
+                if coordinator is not None
+                else f"pj.{code.lower()}@ftmm.unair.ac.id"
+            )
+            legacy_email = f"pj.{code.lower()}@ftmm.unair.ac.id"
             stmt_pj = (
                 select(User)
                 .options(selectinload(User.lecturer_profile))
                 .where(User.email == pj_email)
             )
             pj_user = (await session.execute(stmt_pj)).scalars().first()
+            if pj_user is None and legacy_email != pj_email:
+                stmt_legacy = (
+                    select(User)
+                    .options(selectinload(User.lecturer_profile))
+                    .where(User.email == legacy_email)
+                )
+                pj_user = (await session.execute(stmt_legacy)).scalars().first()
+                if pj_user is not None:
+                    pj_user.email = pj_email
             prodi = prodi_map[code]
             if pj_user is None:
                 pj_user = User(
@@ -353,6 +874,106 @@ async def seed_data():
 
         await session.flush()
         print(f"  [OK] {len(PJ_PRODI_CODES)} akun PJ Prodi aktif, satu PJ per prodi")
+        with open(os.path.join(SEED_DIR, "rooms.json"), encoding="utf-8") as handle:
+            room_seed = json.load(handle)
+        for item in room_seed["rooms"]:
+            existing = (
+                await session.execute(
+                    select(Room).where(Room.room_code == item["room_code"])
+                )
+            ).scalars().first()
+            if existing is None:
+                session.add(
+                    Room(
+                        room_code=item["room_code"],
+                        building=item["building"],
+                        floor=item.get("floor"),
+                        capacity=room_seed["capacity"],
+                        owner_study_program_id=None,
+                        is_active=True,
+                    )
+                )
+            else:
+                existing.building = item["building"]
+                existing.floor = item.get("floor")
+                existing.capacity = room_seed["capacity"]
+                existing.is_active = True
+        await session.flush()
+        print(f"  [OK] {len(room_seed['rooms'])} ruangan master tersedia")
+
+        for item in lecturer_seed["lecturers"]:
+            prodi = prodi_map[item["prodi_code"]]
+            if item["is_coordinator"]:
+                legacy_email = f"pj.{item['prodi_code'].lower()}@ftmm.unair.ac.id"
+                account = (
+                    await session.execute(
+                        select(User)
+                        .options(selectinload(User.lecturer_profile))
+                        .where(User.email == item["email"])
+                    )
+                ).scalars().first()
+                if account is None and item["email"] != legacy_email:
+                    account = (
+                        await session.execute(
+                            select(User)
+                            .options(selectinload(User.lecturer_profile))
+                            .where(User.email == legacy_email)
+                        )
+                    ).scalars().first()
+                    if account is not None:
+                        account.email = item["email"]
+                if account is None:
+                    continue
+                account.full_name = item["name"]
+                if account.lecturer_profile is not None:
+                    account.lecturer_profile.employee_number = item["employee_number"]
+                    account.lecturer_profile.is_program_coordinator = True
+                continue
+
+            account = (
+                await session.execute(
+                    select(User)
+                    .options(selectinload(User.lecturer_profile))
+                    .where(User.email == item["email"])
+                )
+            ).scalars().first()
+            if account is None:
+                account = User(
+                    email=item["email"],
+                    full_name=item["name"],
+                    role="lecturer",
+                    password_hash=get_password_hash(LECTURER_PASSWORD),
+                    is_active=True,
+                )
+                session.add(account)
+                await session.flush()
+                session.add(
+                    LecturerProfile(
+                        user_id=account.user_id,
+                        study_program_id=prodi.study_program_id,
+                        is_program_coordinator=False,
+                        employee_number=item["employee_number"],
+                    )
+                )
+            else:
+                account.full_name = item["name"]
+                account.role = "lecturer"
+                account.is_active = True
+                if account.lecturer_profile is None:
+                    session.add(
+                        LecturerProfile(
+                            user_id=account.user_id,
+                            study_program_id=prodi.study_program_id,
+                            is_program_coordinator=False,
+                            employee_number=item["employee_number"],
+                        )
+                    )
+                else:
+                    account.lecturer_profile.study_program_id = prodi.study_program_id
+                    account.lecturer_profile.employee_number = item["employee_number"]
+                    account.lecturer_profile.is_program_coordinator = False
+        await session.flush()
+        print(f"  [OK] {len(lecturer_seed['lecturers'])} profil dosen tersinkron")
 
         print("\n[SEED 4/8] Checking and seeding Curriculum & Courses...")
         stmt_curr = select(Curriculum).where(
@@ -697,9 +1318,8 @@ async def seed_data():
 
         # Seluruh MK wajib pada periode aktif dari semua kurikulum aktif mendapat
         # satu penawaran per course_id; eligibility dibuat per curriculum_course
-        # agar timetable lolos trg_timetable_items_validate.
-        # Jadwal seksi legacy tidak diubah. Jadwal seksi kanonik yang dibuat blok
-        # ini direkonsiliasi ke slot hasil komputasi ulang agar seed idempoten.
+        # agar timetable lolos trg_timetable_items_validate. Penjadwalan seksi
+        # diserahkan ke solver setelah data penawaran dan dosen lengkap.
         stmt_mandatory = (
             select(CurriculumCourse, Course.course_code)
             .join(Course, Course.course_id == CurriculumCourse.course_id)
@@ -721,7 +1341,6 @@ async def seed_data():
         mandatory_rows = (await session.execute(stmt_mandatory)).all()
 
         offerings_by_course: dict[object, CourseOffering] = {}
-        canonical_sections: list[tuple[object, ClassSection]] = []
         for cc_obj, code in mandatory_rows:
             course_id = cc_obj.course_id
             offering = offerings_by_course.get(course_id)
@@ -775,11 +1394,9 @@ async def seed_data():
                 session.add(comp)
                 await session.flush()
 
-            # Kode khas kanonik: seksi legacy "A"/"B" pada penawaran lain tetap
-            # menjadi seksi yang dipakai timetable dan uji validasi.
+            # Penawaran kanonik memakai seksi yang sudah ada; kode milik
+            # pengguna tidak diubah. Seksi tambahan disiapkan helper demo.
             canonical_section_code = "Z"
-            # Penawaran kanonik hanya dikelola blok ini: pakai seksi apa pun
-            # yang sudah ada (termasuk kode lama) lalu samakan kodenya.
             stmt_sec = select(ClassSection).where(
                 ClassSection.offering_component_id == comp.offering_component_id,
             )
@@ -793,100 +1410,127 @@ async def seed_data():
                 )
                 session.add(sec)
                 await session.flush()
-            elif sec.section_code != canonical_section_code:
-                sec.section_code = canonical_section_code
-                await session.flush()
 
-            canonical_sections.append((course_id, sec))
+        await session.flush()
 
-        # Jadwal seksi kanonik dikecualikan dari slot terpakai: baris lamanya
-        # akan diperbarui ke slot hasil komputasi ulang. Jadwal legacy (dan
-        # seksi lain pada periode aktif) tetap dipertahankan sebagai penghalang.
-        canonical_section_ids = {sec.class_section_id for _, sec in canonical_sections}
-        active_schedule_rows = (
-            await session.execute(
-                select(ClassSchedule)
-                .join(
-                    ClassSection,
-                    ClassSection.class_section_id == ClassSchedule.class_section_id,
-                )
-                .join(
-                    OfferingComponent,
-                    OfferingComponent.offering_component_id
-                    == ClassSection.offering_component_id,
-                )
-                .join(
-                    CourseOffering,
-                    CourseOffering.course_offering_id
-                    == OfferingComponent.course_offering_id,
-                )
+        # Referensi dosen pengampu dari Ekstrak disimpan sebagai nama tim;
+        # pemetaan ke akun dosen dilakukan manual oleh PJ.
+        instructor_refs_created = 0
+        if os.path.exists(EKSTRAK_DIR):
+            stmt_cc = (
+                select(CurriculumCourse, Course.course_code)
+                .join(Course, Course.course_id == CurriculumCourse.course_id)
+                .join(Curriculum, Curriculum.curriculum_id == CurriculumCourse.curriculum_id)
                 .where(
-                    CourseOffering.academic_period_id == active_period.academic_period_id
+                    Curriculum.is_active.is_(True),
+                    CurriculumCourse.is_active.is_(True),
                 )
             )
-        ).scalars().all()
-        existing_schedules: list[tuple[int, datetime.time, datetime.time]] = []
-        canonical_schedules_by_section: dict[object, ClassSchedule] = {}
-        for row in active_schedule_rows:
-            if row.class_section_id in canonical_section_ids:
-                canonical_schedules_by_section[row.class_section_id] = row
-            else:
-                existing_schedules.append(
-                    (row.day_of_week, row.start_time, row.end_time)
-                )
+            cc_ids_by_code: dict[str, list[object]] = {}
+            for cc_obj, course_code in (await session.execute(stmt_cc)).all():
+                cc_ids_by_code.setdefault(course_code, []).append(cc_obj.curriculum_course_id)
 
-        # Senin-Jumat, 40 slot 15 menit per hari antara 07:00-17:00 (200 slot).
-        slot_minutes = 15
-        waves_per_day = 40
-        days_per_week = 5
-        total_slots = waves_per_day * days_per_week
+            existing_ref_pairs: set[tuple[object, str]] = {
+                (row.curriculum_course_id, row.instructor_name)
+                for row in (
+                    await session.execute(
+                        select(
+                            CourseInstructorReference.curriculum_course_id,
+                            CourseInstructorReference.instructor_name,
+                        ).where(
+                            CourseInstructorReference.academic_period_id.is_(None)
+                        )
+                    )
+                ).all()
+            }
 
-        def slot_bounds(candidate: int) -> tuple[int, datetime.time, datetime.time]:
-            index = candidate % total_slots
-            day_of_week = (index % days_per_week) + 1
-            wave = index // days_per_week
-            start_dt = datetime.datetime.combine(
-                datetime.date.today(), datetime.time(7, 0)
-            ) + datetime.timedelta(minutes=slot_minutes * wave)
-            end_dt = start_dt + datetime.timedelta(minutes=slot_minutes)
-            return day_of_week, start_dt.time(), end_dt.time()
-
-        def slot_is_free(
-            day_of_week: int, start_time: datetime.time, end_time: datetime.time
-        ) -> bool:
-            return not any(
-                day == day_of_week and start_time < occupied_end and occupied_start < end_time
-                for day, occupied_start, occupied_end in existing_schedules
-            )
-
-        def next_free_slot(slot: int) -> tuple[int, int, datetime.time, datetime.time]:
-            for candidate in range(slot, slot + total_slots):
-                day_of_week, start_time, end_time = slot_bounds(candidate)
-                if slot_is_free(day_of_week, start_time, end_time):
-                    return candidate, day_of_week, start_time, end_time
-            raise RuntimeError(
-                "Tidak ada slot jadwal bebas tersisa untuk MK wajib pada "
-                f"periode aktif ({len(canonical_sections)} seksi, {total_slots} slot)."
-            )
-
-        section_slots: dict[object, int] = {}
-        for course_id, sec in canonical_sections:
-            slot = section_slots.setdefault(course_id, len(section_slots))
-            slot, day_of_week, start_time, end_time = next_free_slot(slot)
-            section_slots[course_id] = slot
-
-            cs = canonical_schedules_by_section.get(sec.class_section_id)
-            if cs is None:
-                cs = ClassSchedule(class_section_id=sec.class_section_id)
-                session.add(cs)
-            cs.day_of_week = day_of_week
-            cs.start_time = start_time
-            cs.end_time = end_time
-            cs.room_name = f"Ruang Kelas {sec.section_code}"
+            for filepath in sorted(glob.glob(os.path.join(EKSTRAK_DIR, "FIX *.json"))):
+                try:
+                    with open(filepath, encoding="utf-8") as handle:
+                        ekstrak = json.load(handle)
+                except (OSError, json.JSONDecodeError):
+                    continue
+                for item in ekstrak.get("mata_kuliah", []):
+                    cc_ids = cc_ids_by_code.get(str(item.get("kode_mk") or "").strip(), [])
+                    if not cc_ids:
+                        continue
+                    for raw_name in item.get("dosen_pengampu") or []:
+                        instructor_name = str(raw_name).strip()
+                        if not instructor_name:
+                            continue
+                        for cc_id in cc_ids:
+                            pair = (cc_id, instructor_name)
+                            if pair in existing_ref_pairs:
+                                continue
+                            session.add(
+                                CourseInstructorReference(
+                                    curriculum_course_id=cc_id,
+                                    instructor_name=instructor_name,
+                                    instructor_role="teaching_team",
+                                    user_id=None,
+                                )
+                            )
+                            existing_ref_pairs.add(pair)
+                            instructor_refs_created += 1
             await session.flush()
-            existing_schedules.append((day_of_week, start_time, end_time))
+        print(
+            f"  [OK] Seeded course instructor references "
+            f"({instructor_refs_created} referensi)"
+        )
+        await session.flush()
 
-        print("  [OK] Seeded mandatory curriculum-eligible class sections for active curricula")
+        scheduler_admin = (
+            await session.execute(select(User).where(User.role == "admin"))
+        ).scalars().first()
+        if scheduler_admin is None:
+            print("  [WARN] Penjadwalan otomatis dilewati: akun admin tidak ditemukan")
+        else:
+            demo_program_ids = {
+                prodi_map[code].study_program_id for code in PJ_PRODI_CODES
+            }
+            demo_lecturers = (
+                (
+                    await session.execute(
+                        select(User)
+                        .options(selectinload(User.lecturer_profile))
+                        .where(
+                            User.email.in_(
+                                [item["email"] for item in lecturer_seed["lecturers"]]
+                            ),
+                            User.role == "lecturer",
+                            User.is_active.is_(True),
+                        )
+                        .order_by(User.email)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            lecturers_by_program: dict[object, list[User]] = {
+                program_id: [] for program_id in demo_program_ids
+            }
+            for lecturer in demo_lecturers:
+                profile = lecturer.lecturer_profile
+                if profile is not None and profile.study_program_id in lecturers_by_program:
+                    lecturers_by_program[profile.study_program_id].append(lecturer)
+            sections_created = await _seed_demo_sections(session, active_period)
+            preferences_created = await _seed_demo_preferences(
+                session, active_period, demo_lecturers
+            )
+            mappings_created = await _seed_period_instructor_mappings(
+                session,
+                active_period,
+                demo_program_ids,
+                lecturers_by_program,
+            )
+            assignments_created = await _seed_demo_assignments(
+                session, active_period, scheduler_admin
+            )
+            print(
+                f"  [OK] Input scheduling demo siap: {sections_created} kelas, "
+                f"{preferences_created} preferensi, {mappings_created} mapping, "
+                f"{assignments_created} assignment dibuat"
+            )
 
         # Kelima mahasiswa demo harus punya rencana studi aktif yang bisa
         # dipakai. Rencana yang sudah berisi item tidak pernah diubah.
@@ -1279,6 +1923,9 @@ async def seed_data():
         await session.flush()
         print(f"  [OK] Seeded {len(voter_users)} prodi-scoped voters with up to {max_votes} elective votes each")
 
+        if scheduler_admin is not None:
+            await _run_demo_schedule_once(session, active_period, scheduler_admin)
+
         print("\n[SEED 8/8] Checking and seeding Persistent Notifications...")
         notifications_seed_data = [
             {
@@ -1395,6 +2042,12 @@ async def seed_data():
                     action_url=ncfg["action_url"],
                 )
                 session.add(new_notif)
+
+        await session.execute(
+            update(ClassSchedule)
+            .where(ClassSchedule.room_id.is_(None))
+            .values(room_name=None)
+        )
 
         await session.commit()
         print(f"  [OK] Seeded {len(notifications_seed_data)} persistent user notifications across all roles")

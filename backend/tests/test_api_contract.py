@@ -213,6 +213,9 @@ def test_pasangan_kanonik_dan_lawas_setara(
     client, admin_headers, student_headers, label, canonical_path, legacy_path, method, options
 ):
     request_options = dict(options)
+    role = request_options.pop("as", None)
+    if role == "admin":
+        request_options["headers"] = admin_headers
     if request_options.pop("authenticated", False):
         request_options["headers"] = student_headers
     if label.startswith("courses"):
