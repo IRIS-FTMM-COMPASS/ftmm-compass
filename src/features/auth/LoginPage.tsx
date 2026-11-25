@@ -515,7 +515,9 @@ export default function Login({ onLogin }: LoginProps) {
             </form>
           )}
 
-          {mode === "login" && <DevAccountPicker onSelect={performLogin} />}
+          {mode === "login" && (
+            <DevAccountPicker onSelect={performLogin} disabled={isLoading} />
+          )}
 
           {mode === "register" && (
             <form onSubmit={handleRegister} className="space-y-4">

@@ -67,6 +67,7 @@ services:
       - PORT=8443
       - BACKEND_HOST=gateway
       - BACKEND_PORT=8001
+      - VITE_DEV_ACCOUNT_PICKER=false
     depends_on:
       - gateway
     security_opt:

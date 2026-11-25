@@ -1,5 +1,16 @@
+import { useState } from "react"
+import SearchableCombobox, {
+  type ComboboxOption,
+} from "@/shared/ui/SearchableCombobox"
+import {
+  LECTURER_ACCOUNTS,
+  LECTURER_PASSWORD,
+  type LecturerAccount,
+} from "./lecturerAccounts"
+
 interface DevAccountPickerProps {
   onSelect: (identifier: string, password: string) => void
+  disabled?: boolean
 }
 
 interface DemoAccount {
@@ -7,8 +18,6 @@ interface DemoAccount {
   localPart?: string
   email?: string
 }
-
-const DEV_ACCOUNT_PICKER_ENABLED = true
 
 const DOMAIN = "@ftmm.unair.ac.id"
 const MAHASISWA_PASSWORD = "Mahasiswa2026!"
@@ -24,15 +33,17 @@ const MAHASISWA_ACCOUNTS: DemoAccount[] = [
   { label: "Budi", localPart: "mahasiswa.testing" },
 ]
 
-const PJ_ACCOUNTS: DemoAccount[] = [
-  { label: "TSD", email: "dwi.rantini@ftmm.unair.ac.id" },
-  { label: "TRKB", email: "asif.ali@ftmm.unair.ac.id" },
-  { label: "RN", email: "mirza.ardella@ftmm.unair.ac.id" },
-  { label: "TI", email: "chandrawati.p.w@ftmm.unair.ac.id" },
-  { label: "TE", email: "agus.mukhlisin@ftmm.unair.ac.id" },
-]
-
 const ADMIN_ACCOUNTS: DemoAccount[] = [{ label: "Admin", localPart: "admin" }]
+
+const lecturerOption = (lecturer: LecturerAccount): ComboboxOption => ({
+  value: lecturer.email,
+  label: lecturer.name,
+  hint: `${lecturer.prodi}, ${
+    lecturer.isCoordinator ? "Koordinator" : lecturer.nip
+  }`,
+})
+
+const LECTURER_OPTIONS: ComboboxOption[] = LECTURER_ACCOUNTS.map(lecturerOption)
 
 const BUTTON_CLASS =
   "min-h-8 px-2 rounded-md border border-border bg-surface text-[11px] font-medium text-navy hover:bg-navy/5 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
@@ -69,22 +80,46 @@ function AccountGroup({
   )
 }
 
-export default function DevAccountPicker({ onSelect }: DevAccountPickerProps) {
-  if (!import.meta.env.DEV || !DEV_ACCOUNT_PICKER_ENABLED) return null
+export default function DevAccountPicker({
+  onSelect,
+  disabled = false,
+}: DevAccountPickerProps) {
+  const [lecturerEmail, setLecturerEmail] = useState("")
+
+  if (
+    !import.meta.env.DEV ||
+    import.meta.env.VITE_DEV_ACCOUNT_PICKER === "false"
+  )
+    return null
+
+  const handleLecturerSelect = (email: string) => {
+    const lecturer = LECTURER_ACCOUNTS.find((item) => item.email === email)
+    if (!lecturer) return
+    setLecturerEmail(email)
+    onSelect(
+      lecturer.email,
+      lecturer.isCoordinator ? PJ_PASSWORD : LECTURER_PASSWORD,
+    )
+  }
 
   return (
     <div className="mt-5 space-y-2 rounded-xl border border-border bg-background p-3">
       <p className="text-[11px] font-semibold text-muted">Akun demo (dev)</p>
+      <SearchableCombobox
+        id="dev-lecturer-account"
+        label="Dosen"
+        options={LECTURER_OPTIONS}
+        value={lecturerEmail}
+        onChange={handleLecturerSelect}
+        placeholder="Pilih dosen"
+        searchPlaceholder="Cari nama, prodi, atau NIP"
+        emptyLabel="Dosen tidak ditemukan."
+        disabled={disabled}
+      />
       <AccountGroup
         label="Mahasiswa"
         accounts={MAHASISWA_ACCOUNTS}
         password={MAHASISWA_PASSWORD}
-        onSelect={onSelect}
-      />
-      <AccountGroup
-        label="PJ Prodi"
-        accounts={PJ_ACCOUNTS}
-        password={PJ_PASSWORD}
         onSelect={onSelect}
       />
       <AccountGroup
