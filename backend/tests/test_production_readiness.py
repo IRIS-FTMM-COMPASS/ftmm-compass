@@ -144,7 +144,7 @@ def test_stream_generator_stops_on_client_disconnect(client, student_headers):
         with (
             patch("httpx.AsyncClient.stream", return_value=FakeStream()),
             patch("starlette.requests.Request.is_disconnected", new=disconnected),
-            patch("api.chat.log_chat_metadata", new_callable=AsyncMock) as log_metadata,
+            patch("features.chat.router.log_chat_metadata", new_callable=AsyncMock) as log_metadata,
         ):
             response = client.post(
                 "/api/v1/chat/stream",

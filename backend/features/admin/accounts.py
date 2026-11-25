@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 from api.errors import error_response
 from audit import record_admin_action
 from auth import bump_token_version, get_current_user
-from curriculum_admin import (
+from .service import (
     active_plan_target_semester,
     current_curriculum_id,
     resolve_cohort_curriculum_id,

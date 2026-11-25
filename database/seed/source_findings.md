@@ -3,7 +3,7 @@
 Tanggal: 2026-11-03. Pembanding: 5 dokumen kurikulum 2021 (SK Rektor) dan Panduan
 Pendidikan FTMM 2021–2025 dari Drive tim (`Dataset Matkul Prodi/Dokumen Mentah`).
 Transkripsi tabel scan RN, TE, TI ada di `transcriptions/`; TRKB & TSD dibaca dari
-teks PDF oleh `backend/verify_catalog_sources.py`.
+teks PDF oleh `backend/scripts/verify_catalog_sources.py`.
 
 ## 1. Kesimpulan utama
 
@@ -79,7 +79,7 @@ dipastikan.
 ## 4b. Perbaikan setelah review (2026-11-03, sore)
 
 Diputuskan (Darryl): struktur katalog diambil dari **tabel Panduan Pendidikan 2024-2025**
-(`backend/build_catalog.py` → `catalog_canonical.json`), detail dari JSON/dokumen 2021.
+(`backend/scripts/build_catalog.py` → `catalog_canonical.json`), detail dari JSON/dokumen 2021.
 
 - 400 baris (282 kode unik) untuk 5 prodi; **37/37 total SKS per semester cocok** dengan
   angka Sub-Jumlah/Jumlah yang tercetak di tabel.
@@ -135,7 +135,7 @@ Diputuskan (Darryl): struktur katalog diambil dari **tabel Panduan Pendidikan 20
 
 Semua di bawah masuk DB berstatus `unverified` / rule `unresolved`, jadi tampil di aplikasi
 tapi tidak dianggap resmi dan tidak memblokir Planner. Ganti di `reconciliation.json` /
-`build_catalog.py` kalau ada konfirmasi prodi, lalu jalankan ulang seeder.
+`backend/scripts/build_catalog.py` kalau ada konfirmasi prodi, lalu jalankan ulang seeder.
 
 | Item | Asumsi | Alasan |
 |---|---|---|

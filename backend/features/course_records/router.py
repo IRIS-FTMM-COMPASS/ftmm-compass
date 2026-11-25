@@ -8,7 +8,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import get_current_user
-from course_records import (
+from .service import (
     AlreadyCompleted,
     NoActivePeriod,
     NonPassingGrade,

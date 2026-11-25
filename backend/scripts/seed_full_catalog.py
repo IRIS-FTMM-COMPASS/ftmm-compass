@@ -12,7 +12,7 @@ Seeder tidak pernah menandai rule prasyarat 'verified' selama policy
 verify_auto_parsed_prerequisites = false.
 
 Jalankan dari root repo (DB harus sudah di-migrate: alembic upgrade head):
-    uv run --directory backend python seed_full_catalog.py
+    uv run --directory backend python -m scripts.seed_full_catalog
 """
 
 import asyncio
@@ -24,7 +24,7 @@ from collections import Counter, defaultdict
 
 from sqlalchemy import text
 
-import reconcile_catalog as rc
+from . import reconcile_catalog as rc
 from database import AsyncSessionLocal
 
 SEED_DIR = rc.OUT_DIR
