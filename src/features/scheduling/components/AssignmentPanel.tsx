@@ -166,6 +166,7 @@ export default function AssignmentPanel({
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [showAllClasses, setShowAllClasses] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -763,206 +764,250 @@ export default function AssignmentPanel({
                 </p>
               )}
               <div className="space-y-4">
-                {preview.data.map((group) => (
-                  <section
-                    key={group.curriculum_course_id}
-                    aria-labelledby={`assignment-course-${group.curriculum_course_id}`}
-                    className="rounded-xl border border-border bg-surface"
-                  >
-                    <div className="border-b border-border p-4">
-                      <h3
-                        id={`assignment-course-${group.curriculum_course_id}`}
-                        className="font-heading text-base font-bold text-navy"
-                      >
-                        {group.course_code} {group.course_name}
-                      </h3>
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <p className="text-xs text-muted">
-                          {group.programs
-                            .map(
-                              (program) =>
-                                `${program.study_program_code} ${program.study_program_name}`,
-                            )
-                            .join(", ") ||
-                            group.study_program_code ||
-                            "Program studi tidak tersedia"}
-                        </p>
-                        <span className="rounded border border-border bg-background px-2 py-1 text-xs font-semibold text-navy">
-                          {group.can_edit ? "Dapat diubah" : "Hanya lihat"}
-                        </span>
-                      </div>
-                      <div className="mt-3">
-                        <h4 className="text-xs font-semibold text-foreground">
-                          Urutan Tim Pengajar gabungan
-                        </h4>
-                        {group.pool.length > 0 ? (
-                          <ol className="mt-2 flex flex-wrap gap-2 text-xs text-navy">
-                            {group.pool.map((lecturer) => (
-                              <li
-                                key={lecturer.user_id}
-                                className="rounded-md border border-border bg-background px-2 py-1"
-                              >
-                                {lecturer.position}. {lecturer.lecturer_name}
-                                {lecturer.is_pjmk ? " (PJ MK)" : ""}
-                              </li>
-                            ))}
-                          </ol>
-                        ) : (
-                          <p className="mt-2 text-sm text-muted">
-                            Tim Pengajar belum tersedia.
+                {(showAllClasses ? preview.data : preview.data.slice(0, 6)).map(
+                  (group) => (
+                    <section
+                      key={group.curriculum_course_id}
+                      aria-labelledby={`assignment-course-${group.curriculum_course_id}`}
+                      className="rounded-xl border border-border bg-surface"
+                    >
+                      <div className="border-b border-border p-4">
+                        <h3
+                          id={`assignment-course-${group.curriculum_course_id}`}
+                          className="font-heading text-base font-bold text-navy"
+                        >
+                          {group.course_code} {group.course_name}
+                        </h3>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <p className="text-xs text-muted">
+                            {group.programs
+                              .map(
+                                (program) =>
+                                  `${program.study_program_code} ${program.study_program_name}`,
+                              )
+                              .join(", ") ||
+                              group.study_program_code ||
+                              "Program studi tidak tersedia"}
                           </p>
-                        )}
+                          <span className="rounded border border-border bg-background px-2 py-1 text-xs font-semibold text-navy">
+                            {group.can_edit ? "Dapat diubah" : "Hanya lihat"}
+                          </span>
+                        </div>
+                        <div className="mt-3">
+                          <h4 className="text-xs font-semibold text-foreground">
+                            Urutan Tim Pengajar gabungan
+                          </h4>
+                          {group.pool.length > 0 ? (
+                            <ol className="mt-2 flex flex-wrap gap-2 text-xs text-navy">
+                              {group.pool.map((lecturer) => (
+                                <li
+                                  key={lecturer.user_id}
+                                  className="rounded-md border border-border bg-background px-2 py-1"
+                                >
+                                  {lecturer.position}. {lecturer.lecturer_name}
+                                  {lecturer.is_pjmk ? " (PJ MK)" : ""}
+                                </li>
+                              ))}
+                            </ol>
+                          ) : (
+                            <p className="mt-2 text-sm text-muted">
+                              Tim Pengajar belum tersedia.
+                            </p>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    <ul className="divide-y divide-border">
-                      {group.classes.map((item, index) => {
-                        const contextSelected =
-                          selectedContexts[item.class_section_id] ===
-                          group.curriculum_course_id
-                        const editable =
-                          group.can_edit && item.can_edit && contextSelected
-                        const decision = contextSelected
-                          ? decisions[item.class_section_id]
-                          : undefined
-                        const options = group.pool.map((lecturer) => ({
-                          value: lecturer.user_id,
-                          label: `${lecturer.position}. ${lecturer.lecturer_name}`,
-                          hint: lecturer.is_pjmk ? "PJ MK" : undefined,
-                        }))
-                        if (
-                          decision &&
-                          !options.some(
-                            (option) => option.value === decision.user_id,
-                          )
-                        ) {
-                          options.push({
-                            value: decision.user_id,
-                            label: lecturerName(group, item, decision.user_id),
-                            hint: "Tersimpan",
-                          })
-                        }
-                        const controlId = `assignment-${item.class_section_id}-${group.curriculum_course_id}`
-                        return (
-                          <li
-                            key={`${item.class_section_id}-${group.curriculum_course_id}`}
-                            className="space-y-3 p-4"
-                          >
-                            <div className="flex flex-wrap items-start justify-between gap-3">
-                              <div>
-                                <p className="font-semibold text-navy">
-                                  Kelas {item.section_code}
-                                  <span className="ml-2 text-xs font-normal text-muted">
-                                    Urutan snake {index + 1}
-                                  </span>
-                                </p>
-                                <p className="mt-1 text-xs text-muted">
-                                  Calon preview:{" "}
-                                  {item.candidate?.lecturer_name ??
-                                    "Tidak tersedia"}
-                                </p>
-                                {item.existing_assignment && (
-                                  <p className="mt-1 text-xs text-muted">
-                                    Assignment tersimpan:{" "}
-                                    {item.existing_assignment.lecturer_name}
+                      <ul className="divide-y divide-border">
+                        {(showAllClasses
+                          ? group.classes
+                          : group.classes.slice(0, 6)
+                        ).map((item, index) => {
+                          const contextSelected =
+                            selectedContexts[item.class_section_id] ===
+                            group.curriculum_course_id
+                          const editable =
+                            group.can_edit && item.can_edit && contextSelected
+                          const decision = contextSelected
+                            ? decisions[item.class_section_id]
+                            : undefined
+                          const options = group.pool.map((lecturer) => ({
+                            value: lecturer.user_id,
+                            label: `${lecturer.position}. ${lecturer.lecturer_name}`,
+                            hint: lecturer.is_pjmk ? "PJ MK" : undefined,
+                          }))
+                          if (
+                            decision &&
+                            !options.some(
+                              (option) => option.value === decision.user_id,
+                            )
+                          ) {
+                            options.push({
+                              value: decision.user_id,
+                              label: lecturerName(
+                                group,
+                                item,
+                                decision.user_id,
+                              ),
+                              hint: "Tersimpan",
+                            })
+                          }
+                          const controlId = `assignment-${item.class_section_id}-${group.curriculum_course_id}`
+                          return (
+                            <li
+                              key={`${item.class_section_id}-${group.curriculum_course_id}`}
+                              className="space-y-3 p-4"
+                            >
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                  <p className="font-semibold text-navy">
+                                    Kelas {item.section_code}
+                                    <span className="ml-2 text-xs font-normal text-muted">
+                                      Urutan snake {index + 1}
+                                    </span>
                                   </p>
-                                )}
+                                  <p className="mt-1 text-xs text-muted">
+                                    Calon preview:{" "}
+                                    {item.candidate?.lecturer_name ??
+                                      "Tidak tersedia"}
+                                  </p>
+                                  {item.existing_assignment && (
+                                    <p className="mt-1 text-xs text-muted">
+                                      Assignment tersimpan:{" "}
+                                      {item.existing_assignment.lecturer_name}
+                                    </p>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  {decision && (
+                                    <span className="rounded border border-border bg-background px-2 py-1 text-xs text-navy">
+                                      {decision.source === "manual"
+                                        ? "Manual"
+                                        : "Otomatis"}
+                                    </span>
+                                  )}
+                                  {decision?.is_pinned && (
+                                    <span className="rounded border border-gold bg-gold/15 px-2 py-1 text-xs font-semibold text-navy">
+                                      Dipin
+                                    </span>
+                                  )}
+                                </div>
                               </div>
-                              <div className="flex flex-wrap gap-2">
-                                {decision && (
-                                  <span className="rounded border border-border bg-background px-2 py-1 text-xs text-navy">
-                                    {decision.source === "manual"
-                                      ? "Manual"
-                                      : "Otomatis"}
-                                  </span>
-                                )}
-                                {decision?.is_pinned && (
-                                  <span className="rounded border border-gold bg-gold/15 px-2 py-1 text-xs font-semibold text-navy">
-                                    Dipin
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                            {decision && editable ? (
-                              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-                                <SearchableCombobox
-                                  id={controlId}
-                                  label="Dosen pengajar"
-                                  options={options}
-                                  value={decision.user_id}
-                                  onChange={(userId) =>
-                                    updateDecision(group, item, {
-                                      user_id: userId,
-                                    })
-                                  }
-                                  placeholder="Pilih dosen dari Tim Pengajar"
-                                  searchPlaceholder="Cari nama dosen"
-                                  emptyLabel="Tidak ada dosen yang cocok."
-                                  disabled={saving || deleting}
-                                  className={comboboxClass}
-                                  describeBy={`${controlId}-help`}
-                                />
-                                <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm font-medium text-navy">
-                                  <input
-                                    type="checkbox"
-                                    checked={decision.is_pinned}
-                                    disabled={saving || deleting}
-                                    onChange={(event) =>
+                              {decision && editable ? (
+                                <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+                                  <SearchableCombobox
+                                    id={controlId}
+                                    label="Dosen pengajar"
+                                    options={options}
+                                    value={decision.user_id}
+                                    onChange={(userId) =>
                                       updateDecision(group, item, {
-                                        is_pinned: event.target.checked,
+                                        user_id: userId,
                                       })
                                     }
-                                    className="h-5 w-5 rounded border-input text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                    placeholder="Pilih dosen dari Tim Pengajar"
+                                    searchPlaceholder="Cari nama dosen"
+                                    emptyLabel="Tidak ada dosen yang cocok."
+                                    disabled={saving || deleting}
+                                    className={comboboxClass}
+                                    describeBy={`${controlId}-help`}
                                   />
-                                  <Pin className="h-4 w-4" aria-hidden="true" />{" "}
-                                  Pin dosen
-                                </label>
-                              </div>
-                            ) : (
-                              <p className="text-sm text-muted">
-                                {!contextSelected
-                                  ? "Pilih konteks kurikulum kelas ini sebelum mengubah assignment."
-                                  : !group.can_edit || !item.can_edit
-                                    ? "Assignment pada konteks ini hanya dapat dilihat."
-                                    : "Belum ada calon dosen untuk kelas ini."}
-                              </p>
+                                  <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm font-medium text-navy">
+                                    <input
+                                      type="checkbox"
+                                      checked={decision.is_pinned}
+                                      disabled={saving || deleting}
+                                      onChange={(event) =>
+                                        updateDecision(group, item, {
+                                          is_pinned: event.target.checked,
+                                        })
+                                      }
+                                      className="h-5 w-5 rounded border-input text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                    />
+                                    <Pin
+                                      className="h-4 w-4"
+                                      aria-hidden="true"
+                                    />{" "}
+                                    Pin dosen
+                                  </label>
+                                </div>
+                              ) : (
+                                <p className="text-sm text-muted">
+                                  {!contextSelected
+                                    ? "Pilih konteks kurikulum kelas ini sebelum mengubah assignment."
+                                    : !group.can_edit || !item.can_edit
+                                      ? "Assignment pada konteks ini hanya dapat dilihat."
+                                      : "Belum ada calon dosen untuk kelas ini."}
+                                </p>
+                              )}
+                              {decision && editable && (
+                                <p
+                                  id={`${controlId}-help`}
+                                  className="text-xs text-muted"
+                                >
+                                  Mengubah dosen menjadikannya assignment
+                                  manual. Pin mempertahankan pilihan pada
+                                  preview berikutnya.
+                                </p>
+                              )}
+                              {item.existing_assignment && editable && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setDeleteError(null)
+                                    setDeleteTarget({ group, item })
+                                  }}
+                                  disabled={saving || deleting}
+                                  className={cn(
+                                    buttonClass,
+                                    "border border-orange/40 text-orange hover:bg-orange/10",
+                                  )}
+                                >
+                                  <Trash2
+                                    className="h-4 w-4"
+                                    aria-hidden="true"
+                                  />{" "}
+                                  Hapus assignment
+                                </button>
+                              )}
+                            </li>
+                          )
+                        })}
+                      </ul>
+                      {group.classes.length > 6 && (
+                        <div className="border-t border-border p-3">
+                          <button
+                            type="button"
+                            onClick={() => setShowAllClasses((value) => !value)}
+                            className={cn(
+                              buttonClass,
+                              "border border-border text-navy",
                             )}
-                            {decision && editable && (
-                              <p
-                                id={`${controlId}-help`}
-                                className="text-xs text-muted"
-                              >
-                                Mengubah dosen menjadikannya assignment manual.
-                                Pin mempertahankan pilihan pada preview
-                                berikutnya.
-                              </p>
-                            )}
-                            {item.existing_assignment && editable && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setDeleteError(null)
-                                  setDeleteTarget({ group, item })
-                                }}
-                                disabled={saving || deleting}
-                                className={cn(
-                                  buttonClass,
-                                  "border border-orange/40 text-orange hover:bg-orange/10",
-                                )}
-                              >
-                                <Trash2
-                                  className="h-4 w-4"
-                                  aria-hidden="true"
-                                />{" "}
-                                Hapus assignment
-                              </button>
-                            )}
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  </section>
-                ))}
+                          >
+                            {showAllClasses
+                              ? "Tampilkan lebih sedikit"
+                              : `Tampilkan semua ${group.classes.length} kelas`}
+                          </button>
+                        </div>
+                      )}
+                    </section>
+                  ),
+                )}
               </div>
+              {preview.data.length > 6 && (
+                <div className="flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setShowAllClasses((value) => !value)}
+                    className={cn(
+                      buttonClass,
+                      "border border-border text-navy",
+                    )}
+                  >
+                    {showAllClasses
+                      ? "Tampilkan lebih sedikit"
+                      : `Tampilkan semua ${preview.data.length} konteks`}
+                  </button>
+                </div>
+              )}
               <div className="sticky bottom-0 flex flex-col gap-3 border-t border-border bg-surface/95 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-sm text-muted">
                   {missingContextCount > 0
