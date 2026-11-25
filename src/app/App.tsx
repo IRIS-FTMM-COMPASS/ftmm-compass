@@ -1786,16 +1786,7 @@ function AppShell() {
               </button>
             </div>
           )}
-          <div
-            className={cn(
-              "mx-auto h-full",
-              visiblePage === "degree-planner" ||
-                visiblePage === "scheduling" ||
-                visiblePage === "pj-courses"
-                ? "w-full max-w-none"
-                : "max-w-7xl",
-            )}
-          >
+          <div className="h-full w-full">
             <ErrorBoundary key={visiblePage}>
               {visiblePage === "dashboard" && (
                 <Dashboard onNavigate={handleNavigate} />

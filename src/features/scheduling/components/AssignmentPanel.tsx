@@ -16,8 +16,6 @@ import {
   type SchedulingProgramIdentity,
 } from "../schedulingService"
 
-const inputClass =
-  "min-h-11 w-full rounded-lg border border-input bg-surface px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 const buttonClass =
   "inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
 const comboboxClass =
@@ -34,6 +32,7 @@ interface AssignmentContextOption {
   curriculum_course_id: string
   course_code: string
   course_name: string
+  study_program_code?: string | null
   programs: SchedulingProgramIdentity[]
 }
 interface AssignmentClassContext extends AssignmentContextOption {
@@ -344,6 +343,7 @@ export default function AssignmentPanel({
       byId.set(context.curriculum_course_id, {
         curriculum_course_id: context.curriculum_course_id,
         course_code: context.course_code,
+        study_program_code: context.study_program_code,
         course_name: context.course_name,
         programs: [context],
       })
@@ -352,6 +352,7 @@ export default function AssignmentPanel({
       byId.set(group.curriculum_course_id, {
         curriculum_course_id: group.curriculum_course_id,
         course_code: group.course_code,
+        study_program_code: group.study_program_code,
         course_name: group.course_name,
         programs: group.programs,
       })
@@ -377,6 +378,7 @@ export default function AssignmentPanel({
           curriculum_course_id: group.curriculum_course_id,
           course_code: group.course_code,
           course_name: group.course_name,
+          study_program_code: group.study_program_code,
           programs: group.programs,
           can_edit: group.can_edit && item.can_edit,
         })
@@ -516,9 +518,12 @@ export default function AssignmentPanel({
                 { value: "", label: "Semua konteks kurikulum" },
                 ...contextOptions.map((context) => ({
                   value: context.curriculum_course_id,
-                  label: `${context.programs
-                    .map((program) => program.study_program_code)
-                    .join(", ")} ${context.course_code} ${context.course_name}`,
+                  label: `${
+                    context.study_program_code ??
+                    context.programs
+                      .map((program) => program.study_program_code)
+                      .join(", ")
+                  } ${context.course_code} ${context.course_name}`,
                 })),
               ]}
               value={contextFilter}
@@ -701,43 +706,29 @@ export default function AssignmentPanel({
                   <ul className="space-y-3">
                     {ambiguousClasses.map((entry) => (
                       <li key={entry.class_section_id}>
-                        <label
-                          htmlFor={`assignment-context-${entry.class_section_id}`}
-                          className="flex flex-col gap-1 text-sm font-semibold text-navy"
-                        >
-                          Kelas {entry.section_code}
-                          <select
-                            id={`assignment-context-${entry.class_section_id}`}
-                            value={
-                              selectedContexts[entry.class_section_id] ?? ""
-                            }
-                            disabled={dirty || saving || deleting}
-                            onChange={(event) =>
-                              chooseContext(
-                                entry.class_section_id,
-                                event.target.value,
-                              )
-                            }
-                            className={inputClass}
-                          >
-                            <option value="">Pilih konteks kurikulum</option>
-                            {entry.contexts.map((context) => (
-                              <option
-                                key={context.curriculum_course_id}
-                                value={context.curriculum_course_id}
-                              >
-                                {context.programs
-                                  .map(
-                                    (program) =>
-                                      `${program.study_program_code} ${program.study_program_name}`,
-                                  )
-                                  .join(", ")}{" "}
-                                {context.course_code} {context.course_name}
-                                {context.can_edit ? "" : " (hanya lihat)"}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
+                        <SearchableCombobox
+                          id={`assignment-context-${entry.class_section_id}`}
+                          label={`Kelas ${entry.section_code}`}
+                          options={entry.contexts.map((context) => ({
+                            value: context.curriculum_course_id,
+                            label: `${
+                              context.study_program_code ??
+                              context.programs
+                                .map((program) => program.study_program_code)
+                                .join(", ")
+                            } ${context.course_code} ${context.course_name}`,
+                            hint: context.can_edit ? undefined : "Hanya lihat",
+                          }))}
+                          value={selectedContexts[entry.class_section_id] ?? ""}
+                          disabled={dirty || saving || deleting}
+                          onChange={(value) =>
+                            chooseContext(entry.class_section_id, value)
+                          }
+                          placeholder="Pilih konteks kurikulum"
+                          searchPlaceholder="Cari kode atau nama MK"
+                          emptyLabel="Konteks kurikulum tidak ditemukan."
+                          className="w-full"
+                        />
                       </li>
                     ))}
                   </ul>

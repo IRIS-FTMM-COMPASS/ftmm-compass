@@ -28,6 +28,7 @@ export type SearchableComboboxProps = {
   describeBy?: string
   invalid?: boolean
   errorId?: string
+  pageSize?: number
 }
 
 export default function SearchableCombobox(
@@ -47,11 +48,13 @@ export default function SearchableCombobox(
     describeBy,
     invalid = false,
     errorId,
+    pageSize = 10,
   } = props
 
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
   const [activeIndex, setActiveIndex] = useState(0)
+  const [page, setPage] = useState(0)
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -69,6 +72,11 @@ export default function SearchableCombobox(
           (option.hint ?? "").toLowerCase().includes(normalizedQuery),
       )
     : options
+  const size = Math.max(1, pageSize)
+  const totalPages = Math.max(1, Math.ceil(filteredOptions.length / size))
+  const visiblePage = Math.min(page, totalPages - 1)
+  const firstIndex = visiblePage * size
+  const visibleOptions = filteredOptions.slice(firstIndex, firstIndex + size)
 
   useEffect(() => {
     if (!open) return
@@ -103,6 +111,7 @@ export default function SearchableCombobox(
   const openPanel = () => {
     if (disabled) return
     setQuery("")
+    setPage(0)
     setActiveIndex(0)
     setOpen(true)
   }
@@ -121,18 +130,18 @@ export default function SearchableCombobox(
     if (event.key === "ArrowDown") {
       event.preventDefault()
       setActiveIndex((index) =>
-        filteredOptions.length === 0 ? 0 : (index + 1) % filteredOptions.length,
+        visibleOptions.length === 0 ? 0 : (index + 1) % visibleOptions.length,
       )
     } else if (event.key === "ArrowUp") {
       event.preventDefault()
       setActiveIndex((index) =>
-        filteredOptions.length === 0
+        visibleOptions.length === 0
           ? 0
-          : (index - 1 + filteredOptions.length) % filteredOptions.length,
+          : (index - 1 + visibleOptions.length) % visibleOptions.length,
       )
     } else if (event.key === "Enter") {
       event.preventDefault()
-      const option = filteredOptions[activeIndex]
+      const option = visibleOptions[activeIndex]
       if (option) select(option.value)
     } else if (event.key === "Escape") {
       event.preventDefault()
@@ -140,7 +149,7 @@ export default function SearchableCombobox(
     }
   }
 
-  const activeOption = filteredOptions[activeIndex]
+  const activeOption = visibleOptions[activeIndex]
 
   return (
     <div
@@ -212,6 +221,7 @@ export default function SearchableCombobox(
             onChange={(event) => {
               setQuery(event.target.value)
               setActiveIndex(0)
+              setPage(0)
             }}
             onKeyDown={handleInputKeyDown}
             className="min-h-10 w-full border-b border-navy/20 bg-warm-bg px-3 text-xs text-navy placeholder:text-navy/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold"
@@ -227,7 +237,7 @@ export default function SearchableCombobox(
                 {emptyLabel}
               </li>
             ) : (
-              filteredOptions.map((option, index) => (
+              visibleOptions.map((option, index) => (
                 <li
                   key={option.value}
                   id={`${id}-option-${index}`}
@@ -249,6 +259,37 @@ export default function SearchableCombobox(
               ))
             )}
           </ul>
+          {totalPages > 1 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-navy/20 bg-warm-bg px-3 py-2">
+              <span className="text-[11px] text-navy/60">
+                Halaman {visiblePage + 1} dari {totalPages}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  disabled={visiblePage === 0}
+                  onClick={() => {
+                    setPage(visiblePage - 1)
+                    setActiveIndex(0)
+                  }}
+                  className="min-h-8 rounded border border-border bg-white px-2 text-xs font-semibold text-navy disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Sebelumnya
+                </button>
+                <button
+                  type="button"
+                  disabled={visiblePage >= totalPages - 1}
+                  onClick={() => {
+                    setPage(visiblePage + 1)
+                    setActiveIndex(0)
+                  }}
+                  className="min-h-8 rounded border border-border bg-white px-2 text-xs font-semibold text-navy disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Berikutnya
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

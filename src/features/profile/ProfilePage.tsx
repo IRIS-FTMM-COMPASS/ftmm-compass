@@ -207,7 +207,7 @@ export default function Profile({ onNavigate, onRequestLogout }: ProfileProps) {
   return (
     <div
       className={cn(
-        "space-y-6 max-w-6xl mx-auto animate-in fade-in duration-300 pb-12",
+        "space-y-6 w-full animate-in fade-in duration-300 pb-12",
         "[&_button:not(.group)]:min-h-11 [&_button:not(.group)]:min-w-11",
         "[&_button:not(.group)]:inline-flex [&_button:not(.group)]:items-center [&_button:not(.group)]:justify-center",
         "[&_input]:min-h-11 [&_select]:min-h-11 [&_textarea]:min-h-11",

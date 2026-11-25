@@ -367,7 +367,7 @@ export default function PreferencePanel() {
   return (
     <section
       aria-labelledby="preference-title"
-      className="mx-auto flex w-full max-w-5xl flex-col gap-6"
+      className="flex w-full flex-col gap-6"
     >
       <header>
         <h1
