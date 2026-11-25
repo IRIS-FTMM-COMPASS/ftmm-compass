@@ -168,7 +168,13 @@ function formErrorsFromApi(
 }
 
 function periodLabel(period: InstructorPeriod): string {
-  return `${period.academic_year_start} ${period.term ?? `Semester ${period.semester_number}`}`
+  const term =
+    period.term === "ganjil"
+      ? "Ganjil"
+      : period.term === "genap"
+        ? "Genap"
+        : `Semester ${period.semester_number}`
+  return `${period.academic_year_start}/${period.academic_year_start + 1} ${term}`
 }
 
 function eligibilityLabel(reference: InstructorReferenceResponse): string {
@@ -200,6 +206,10 @@ export interface InstructorMappingPanelProps {
   initialReferenceId?: string | null
   initialRole?: InstructorReferenceRole
   bootstrapKey?: number
+  onContinueToAssignment?: (payload: {
+    academicPeriodId: string
+    curriculumCourseId: string
+  }) => void
 }
 
 export default function InstructorMappingPanel({
@@ -208,6 +218,7 @@ export default function InstructorMappingPanel({
   initialReferenceId = null,
   initialRole = "pjmk",
   bootstrapKey = 0,
+  onContinueToAssignment,
 }: InstructorMappingPanelProps) {
   const { user } = useSession()
   const canManage =
@@ -246,6 +257,9 @@ export default function InstructorMappingPanel({
   const [busyId, setBusyId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [lastSavedCourseId, setLastSavedCourseId] = useState<string | null>(
+    null,
+  )
   const [deleteTarget, setDeleteTarget] =
     useState<InstructorReferenceResponse | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -676,6 +690,7 @@ export default function InstructorMappingPanel({
             : "Anggota Tim Pengajar ditambahkan.",
         )
       }
+      setLastSavedCourseId(form.curriculum_course_id)
       setFormOpen(false)
       setEditingId(null)
       restoreFormOpener()
@@ -702,6 +717,7 @@ export default function InstructorMappingPanel({
         ...response.data,
       ])
       setNotice("Urutan Tim Pengajar disimpan.")
+      setLastSavedCourseId(courseId)
     } catch (cause) {
       setActionError(
         apiErrorMessage(cause, "Urutan Tim Pengajar gagal disimpan."),
@@ -919,12 +935,29 @@ export default function InstructorMappingPanel({
       )}
 
       {notice && (
-        <p
+        <div
           role="status"
-          className="rounded-lg border border-border bg-accent px-4 py-3 text-sm text-navy"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-accent px-4 py-3 text-sm text-navy"
         >
-          {notice}
-        </p>
+          <span>{notice}</span>
+          {lastSavedCourseId && onContinueToAssignment && (
+            <button
+              type="button"
+              onClick={() =>
+                onContinueToAssignment({
+                  academicPeriodId: periodId,
+                  curriculumCourseId: lastSavedCourseId,
+                })
+              }
+              className={cn(
+                buttonClass,
+                "border border-navy bg-navy text-white hover:bg-navy-light",
+              )}
+            >
+              Lanjut atur penugasan kelas
+            </button>
+          )}
+        </div>
       )}
       {actionError && (
         <p

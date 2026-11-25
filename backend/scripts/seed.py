@@ -627,9 +627,13 @@ async def seed_data():
         today = datetime.date.today()
         current_year, current_term = current_period(today)
         period_configs = [
-            {"year": current_year - 1, "term": "ganjil", "active": False},
-            {"year": current_year - 1, "term": "genap", "active": False},
-            {"year": current_year, "term": current_term, "active": True},
+            {
+                "year": current_year - offset,
+                "term": term,
+                "active": offset == 0 and term == current_term,
+            }
+            for offset in (2, 1, 0)
+            for term in ("ganjil", "genap")
         ]
         period_map = {}
         for pcfg in period_configs:
@@ -640,7 +644,7 @@ async def seed_data():
             p_obj = (await session.execute(stmt)).scalars().first()
             start_date = semester_start(pcfg["year"], pcfg["term"])
             end_date = semester_end(pcfg["year"], pcfg["term"])
-            if pcfg["year"] == current_year - 1:
+            if pcfg["year"] < current_year:
                 semester_number = 1 if pcfg["term"] == "ganjil" else 2
             else:
                 semester_number = 3 if pcfg["term"] == "ganjil" else 4

@@ -2,7 +2,7 @@
 
 Ketersediaan dosen sebelumnya menjadi syarat wajib yang bersifat global, pemetaan pengajar belum terikat periode, dan solver memperlakukan seluruh Tim Pengajar sebagai pengajar setiap Kelas MK. Model itu membuat dosen harus menjamin jam yang belum tentu diketahui, PJ Prodi mengelola detail berulang, dan kelas paralel berisiko memperlakukan semua dosen sebagai co-teacher. Keputusan ini memisahkan preferensi lunak dari blok tidak tersedia, mengikat pemetaan dan preferensi pada periode akademik, serta menetapkan satu Assignment Pengajar untuk setiap Kelas MK.
 
-**Status:** accepted
+**Status:** accepted (amended 2026-11-25)
 
 ## Keputusan
 
@@ -20,6 +20,7 @@ Ketersediaan dosen sebelumnya menjadi syarat wajib yang bersifat global, pemetaa
    - Satu Kelas MK memiliki satu Assignment Pengajar, tanpa co-teacher.
    - Dosen eksternal dapat tercatat dalam Tim Pengajar, tetapi wajib memiliki akun dosen untuk mendapat Assignment Pengajar melalui auto-scheduler.
    - Kelas lintas prodi memakai pool gabungan dan ditangani oleh PJ Prodi pemilik/primary sebagai PJ lead.
+   - Panel UI memakai label `Tim Pengajar` untuk pool per mata kuliah dan `Penugasan Kelas` untuk Assignment Pengajar. Setelah PJ MK/Tim Pengajar disimpan, UI menawarkan lanjut ke Penugasan Kelas dengan konteks mata kuliah yang sama.
 
 3. **Auto-assignment**
    - PJ Prodi mengatur urutan Tim Pengajar, dengan PJ MK pada posisi pertama secara default.
@@ -36,7 +37,7 @@ Ketersediaan dosen sebelumnya menjadi syarat wajib yang bersifat global, pemetaa
    - Satuan jadwal tetap mengikuti ADR 0004: satu Blok Jadwal per Kelas MK dengan durasi satu jam per SKS. Definisi konflik ruang/dosen mengikuti ADR 0006.
 
 5. **Tampilan dan peran**
-   - Dosen biasa dapat membaca Papan Jadwal Bersama lintas lima prodi, termasuk filter Kelas Saya, tanpa kontrol edit atau diagnosis operasional.
+   - Papan Jadwal Bersama menampilkan seluruh Kelas MK dari lima prodi untuk semua peran. Filter program studi hanya mengubah tampilan dan tersedia pula untuk PJ Prodi. Hak edit, generate, dan finalisasi tetap admin untuk semua prodi serta PJ Prodi hanya untuk prodi dari profilnya. Dosen biasa membaca dengan filter `Kelas Saya`, tanpa kontrol edit atau diagnosis operasional.
    - Dashboard dosen menampilkan jadwal nyata, mata kuliah yang diampu termasuk yang belum terjadwal, status preferensi, deadline, serta status draft/final per kelas.
    - Klik Kelas Belum Terjadwal membuka aksi sesuai penyebab: formulir PJ MK untuk masalah dosen/pemetaan, atau detail penyebab untuk ruang, kapasitas, parity, dan MK terkunci.
    - Tidak ada fitur kontak atau usulan ke PJ Prodi/dosen di dalam aplikasi.

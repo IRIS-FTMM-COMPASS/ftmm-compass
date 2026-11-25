@@ -60,8 +60,8 @@ const START_HOURS = Array.from({ length: 10 }, (_, index) => index + 7)
 const TABS = [
   { id: "board", label: "Papan Jadwal" },
   { id: "rooms", label: "Ruangan" },
-  { id: "instructors", label: "Pemetaan Dosen" },
-  { id: "assignments", label: "Assignment Pengajar" },
+  { id: "instructors", label: "Tim Pengajar" },
+  { id: "assignments", label: "Penugasan Kelas" },
   { id: "deadlines", label: "Deadline Preferensi" },
 ] as const
 
@@ -276,12 +276,6 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
       ? board.meta.actor_study_program_id
       : null
 
-  useEffect(() => {
-    if (isPjProdi && actorStudyProgramId) {
-      setSelectedProgramId(actorStudyProgramId)
-    }
-  }, [isPjProdi, actorStudyProgramId])
-
   const scopedProgram = isPjProdi
     ? programs.find(
         (program) => program.study_program_id === actorStudyProgramId,
@@ -342,6 +336,18 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
     : generationTargetProgramId
       ? "program studi terpilih"
       : "semua program studi"
+  const viewScopeLabel =
+    selectedProgramId === LINTAS_PRODI_FILTER
+      ? "Lintas prodi"
+      : selectedProgram
+        ? [
+            programLabels.get(selectedProgramId)?.code ??
+              selectedProgram.study_program_code,
+            programLabels.get(selectedProgramId)?.name,
+          ]
+            .filter(Boolean)
+            .join(" ")
+        : "Semua program studi"
   const periodId = data?.academic_period_id ?? ""
   const scopedClasses = allClasses.filter(
     (item) =>
@@ -886,7 +892,7 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
               aria-labelledby="scheduling-controls-title"
               className="space-y-3 rounded-xl border border-border bg-surface p-4"
             >
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="space-y-1">
                   <h2
                     id="scheduling-controls-title"
@@ -896,53 +902,41 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
                       ? "Kontrol Penjadwalan"
                       : "Tampilan jadwal"}
                   </h2>
-                  <p className="text-xs text-muted">
-                    {canOperateSchedule
-                      ? `Tampilan: ${scopeLabel}. Aksi penjadwalan draf: ${actionScopeLabel}. ${blockingConflictCount} bentrok ruang/dosen, ${scopedUnassigned.length} kelas belum terjadwal.`
-                      : "Pilih program studi atau Kelas Saya. Tampilan ini hanya-baca."}
-                  </p>
                 </div>
                 <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-end">
                   <label className="flex flex-col gap-1 text-xs font-semibold text-navy">
                     Filter program studi
                     <select
                       value={selectedProgramId}
-                      disabled={isPjProdi}
                       onChange={(event) =>
                         setSelectedProgramId(event.target.value)
                       }
                       className="min-h-11 rounded-lg border border-input bg-surface px-3 text-xs font-normal text-navy disabled:cursor-not-allowed disabled:bg-background"
                     >
-                      {isPjProdi ? (
-                        <option value={actorStudyProgramId ?? ""}>
-                          {scopeLabel}
+                      <>
+                        <option value="">Semua program studi</option>
+                        <option value={LINTAS_PRODI_FILTER}>
+                          Lintas prodi
                         </option>
-                      ) : (
-                        <>
-                          <option value="">Semua program studi</option>
-                          <option value={LINTAS_PRODI_FILTER}>
-                            Lintas prodi
-                          </option>
-                          {programs.map((program) => {
-                            const label = programLabels.get(
-                              program.study_program_id,
-                            )
-                            return (
-                              <option
-                                key={program.study_program_id}
-                                value={program.study_program_id}
-                              >
-                                {[
-                                  label?.code ?? program.study_program_code,
-                                  label?.name,
-                                ]
-                                  .filter(Boolean)
-                                  .join(" ") || "Program studi"}
-                              </option>
-                            )
-                          })}
-                        </>
-                      )}
+                        {programs.map((program) => {
+                          const label = programLabels.get(
+                            program.study_program_id,
+                          )
+                          return (
+                            <option
+                              key={program.study_program_id}
+                              value={program.study_program_id}
+                            >
+                              {[
+                                label?.code ?? program.study_program_code,
+                                label?.name,
+                              ]
+                                .filter(Boolean)
+                                .join(" ") || "Program studi"}
+                            </option>
+                          )
+                        })}
+                      </>
                     </select>
                   </label>
                   {isOrdinaryLecturer && (
@@ -962,6 +956,11 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
                   )}
                 </div>
               </div>
+              <p className="mt-2 text-xs text-muted">
+                {canOperateSchedule
+                  ? `Tampilan: ${viewScopeLabel}. Aksi penjadwalan draf: ${actionScopeLabel}. ${blockingConflictCount} bentrok ruang/dosen, ${scopedUnassigned.length} kelas belum terjadwal.`
+                  : "Pilih program studi atau Kelas Saya. Tampilan ini hanya-baca."}
+              </p>
 
               {canOperateSchedule && (
                 <>
@@ -1249,7 +1248,7 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
               <BoardGrid
                 classes={allClasses}
                 conflicts={conflicts}
-                selectedProgramId={effectiveProgramId || null}
+                selectedProgramId={selectedProgramId || null}
                 mineOnly={isOrdinaryLecturer && classScope === "mine"}
                 assignedLecturerId={user?.user_id ?? null}
                 canEditClass={canEditClass}
@@ -1346,6 +1345,18 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
             initialReferenceId={mappingRequest?.referenceId}
             initialRole="pjmk"
             bootstrapKey={mappingRequest?.key ?? 0}
+            onContinueToAssignment={({
+              academicPeriodId,
+              curriculumCourseId,
+            }) => {
+              setAssignmentRequest({
+                key: Date.now(),
+                academicPeriodId,
+                curriculumCourseId,
+                curriculumContexts: assignmentContexts,
+              })
+              setActiveTab("assignments")
+            }}
           />
         )}
       </div>

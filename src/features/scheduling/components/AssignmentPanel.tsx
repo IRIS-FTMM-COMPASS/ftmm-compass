@@ -478,7 +478,7 @@ export default function AssignmentPanel({
             id="assignment-title"
             className="font-heading text-lg font-bold text-navy"
           >
-            Assignment Pengajar
+            Penugasan Kelas
           </h2>
           <p className="max-w-2xl text-sm text-muted">
             Tinjau calon dosen, ubah pilihan, lalu simpan. Preview tidak

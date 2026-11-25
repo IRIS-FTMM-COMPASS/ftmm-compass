@@ -143,7 +143,7 @@ function BoardClassCard({
         isConflict ? `, ${clashText}` : ""
       }`}
       className={cn(
-        "absolute top-1 bottom-1 flex flex-col gap-0.5 rounded-lg border border-l-[3px] px-1.5 py-1 text-left shadow-2xs",
+        "absolute top-1 bottom-1 flex min-h-0 flex-col gap-0.5 overflow-hidden rounded-lg border border-l-[3px] px-1.5 py-1 text-left shadow-2xs",
         positionClass,
         isConflict
           ? "border-danger/50 bg-danger/10 text-navy"
@@ -159,7 +159,7 @@ function BoardClassCard({
         aria-haspopup="dialog"
         aria-label={`${item.course_code} ${item.course_name}, kelas ${item.section_code}. Tampilkan detail kelas`}
         title={`${item.course_code}, ${item.course_name}, ${programNamesFor(item)}`}
-        className="flex min-w-0 flex-1 cursor-pointer flex-col gap-0.5 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold"
+        className="flex min-w-0 flex-1 flex-col gap-0.5 overflow-hidden rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold"
       >
         {compact ? (
           <>
@@ -167,7 +167,7 @@ function BoardClassCard({
               {item.course_name}
             </span>
             <span className="truncate text-[10px] leading-tight">
-              {prodiScope}, Kelas {item.section_code}, {room}
+              {prodiScope}, Kelas {item.section_code}
             </span>
           </>
         ) : (
@@ -420,7 +420,7 @@ export default function BoardGrid({
                       <span
                         aria-label={`${extraClasses.length} kelas lainnya: ${extraCodes}`}
                         title={extraCodes}
-                        className="absolute bottom-1 right-1 z-20 rounded bg-navy/90 px-1.5 py-0.5 text-[9px] font-semibold text-white"
+                        className="absolute bottom-1 right-1 z-20 max-w-[45%] truncate rounded bg-navy/90 px-1.5 py-0.5 text-[9px] font-semibold text-white"
                       >
                         +{extraClasses.length} kelas
                       </span>
