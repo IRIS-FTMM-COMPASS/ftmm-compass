@@ -45,9 +45,22 @@ function formatDeadline(value: string | null): string {
 function SummaryRows({ items }: { items: PreferenceSummaryItem[] }) {
   return (
     <>
-      <div className="hidden overflow-x-auto md:block">
-        <table className="w-full border-collapse text-left text-sm">
+      <div
+        role="region"
+        aria-label="Tabel kelengkapan preferensi dosen"
+        tabIndex={0}
+        className="hidden overflow-x-auto md:block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <table className="w-full table-fixed min-w-[800px] border-collapse text-left text-sm">
           <caption className="sr-only">Kelengkapan preferensi dosen</caption>
+          <colgroup>
+            <col className="w-[24%]" />
+            <col className="w-[12%]" />
+            <col className="w-[16%]" />
+            <col className="w-[13%]" />
+            <col className="w-[15%]" />
+            <col className="w-[20%]" />
+          </colgroup>
           <thead>
             <tr className="border-b border-border text-xs font-semibold text-muted">
               <th scope="col" className="px-3 py-3">
@@ -71,39 +84,48 @@ function SummaryRows({ items }: { items: PreferenceSummaryItem[] }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {items.map((item) => (
-              <tr key={item.user_id}>
-                <th scope="row" className="px-3 py-3 font-medium text-navy">
-                  {item.full_name}
-                </th>
-                <td className="px-3 py-3 text-muted">
-                  {item.study_program_code}
-                </td>
-                <td className="px-3 py-3">
-                  <span
-                    className={cn(
-                      "rounded border px-2 py-1 text-xs font-semibold",
-                      item.status === "filled"
-                        ? "border-teal/40 bg-teal/15 text-navy"
-                        : "border-gold/40 bg-gold/15 text-navy",
-                    )}
-                  >
-                    {item.status === "filled"
-                      ? "Sudah mengisi"
-                      : "Belum mengisi"}
-                  </span>
-                </td>
-                <td className="px-3 py-3 text-right tabular-nums">
-                  {item.preferred_count}
-                </td>
-                <td className="px-3 py-3 text-right tabular-nums">
-                  {item.unavailable_count}
-                </td>
-                <td className="px-3 py-3 text-muted">
-                  {formatDeadline(item.deadline)}
-                </td>
-              </tr>
-            ))}
+            {items.map((item) => {
+              const deadline = formatDeadline(item.deadline)
+              return (
+                <tr key={item.user_id}>
+                  <th scope="row" className="px-3 py-3 font-medium text-navy">
+                    <div className="truncate" title={item.full_name}>
+                      {item.full_name}
+                    </div>
+                  </th>
+                  <td className="px-3 py-3 text-muted">
+                    <div className="truncate" title={item.study_program_code}>
+                      {item.study_program_code}
+                    </div>
+                  </td>
+                  <td className="px-3 py-3">
+                    <span
+                      className={cn(
+                        "rounded border px-2 py-1 text-xs font-semibold",
+                        item.status === "filled"
+                          ? "border-teal/40 bg-teal/15 text-navy"
+                          : "border-gold/40 bg-gold/15 text-navy",
+                      )}
+                    >
+                      {item.status === "filled"
+                        ? "Sudah mengisi"
+                        : "Belum mengisi"}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3 text-right tabular-nums">
+                    {item.preferred_count}
+                  </td>
+                  <td className="px-3 py-3 text-right tabular-nums">
+                    {item.unavailable_count}
+                  </td>
+                  <td className="px-3 py-3 text-muted">
+                    <div className="truncate" title={deadline}>
+                      {deadline}
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>

@@ -26,6 +26,8 @@ export type SearchableComboboxProps = {
   disabled?: boolean
   className?: string
   describeBy?: string
+  invalid?: boolean
+  errorId?: string
 }
 
 export default function SearchableCombobox(
@@ -43,6 +45,8 @@ export default function SearchableCombobox(
     disabled = false,
     className,
     describeBy,
+    invalid = false,
+    errorId,
   } = props
 
   const [open, setOpen] = useState(false)
@@ -165,7 +169,8 @@ export default function SearchableCombobox(
         aria-controls={panelId}
         aria-haspopup="listbox"
         aria-labelledby={label ? labelId : undefined}
-        aria-describedby={describeBy}
+        aria-invalid={invalid || undefined}
+        aria-describedby={cn(describeBy, invalid && errorId) || undefined}
         disabled={disabled}
         onClick={() => (open ? close() : openPanel())}
         onKeyDown={handleTriggerKeyDown}
@@ -173,6 +178,8 @@ export default function SearchableCombobox(
           "flex min-h-10 w-full items-center justify-between gap-2 rounded-lg border border-border bg-white px-3 text-left text-xs text-navy",
           "hover:border-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold",
           "disabled:cursor-not-allowed disabled:opacity-60",
+          invalid &&
+            "border-orange ring-1 ring-orange hover:border-orange focus-visible:ring-orange",
         )}
       >
         <span className={cn("truncate", !selected && "text-navy/60")}>

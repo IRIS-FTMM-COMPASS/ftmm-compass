@@ -292,11 +292,6 @@ export interface InstructorOrderResponse {
   meta: { total: number }
 }
 
-export interface InstructorMappingRequest {
-  user_id: string | null
-  academic_period_id: string
-}
-
 export type InstructorReferenceRole = "pjmk" | "teaching_team" | "lecturer" | "other"
 
 export interface InstructorReferenceListParams {
@@ -550,7 +545,15 @@ export interface ClassCountOverrideResponse {
   created: boolean
 }
 
-function unwrap<T>(payload: T[] | { data: T[] }): T[] {
+async function fetchSchedulingList<T>(
+  path: string,
+  query?: URLSearchParams,
+): Promise<T[]> {
+  const suffix = query?.toString()
+  const payload = await apiFetch<T[] | { data: T[] }>(
+    `${SCHEDULING_BASE}${path}${suffix ? `?${suffix}` : ""}`,
+    { auth: true },
+  )
   return Array.isArray(payload) ? payload : payload.data
 }
 
@@ -567,12 +570,8 @@ export const schedulingService = {
     })
   },
 
-  async getConflicts(): Promise<BoardConflictItem[]> {
-    const payload = await apiFetch<ConflictListResponse | BoardConflictItem[]>(
-      `${SCHEDULING_BASE}/conflicts`,
-      { auth: true },
-    )
-    return unwrap(payload)
+  getConflicts(): Promise<BoardConflictItem[]> {
+    return fetchSchedulingList<BoardConflictItem>("/conflicts")
   },
 
   moveClass(
@@ -599,12 +598,8 @@ export const schedulingService = {
     )
   },
 
-  async listRooms(): Promise<RoomResponse[]> {
-    const payload = await apiFetch<RoomListResponse | RoomResponse[]>(
-      `${SCHEDULING_BASE}/rooms`,
-      { auth: true },
-    )
-    return unwrap(payload)
+  listRooms(): Promise<RoomResponse[]> {
+    return fetchSchedulingList<RoomResponse>("/rooms")
   },
 
   createRoom(request: RoomCreateRequest): Promise<RoomResponse> {
@@ -625,20 +620,17 @@ export const schedulingService = {
     )
   },
 
-  async listInstructorReferences(
+  listInstructorReferences(
     params: InstructorReferenceListParams,
   ): Promise<InstructorReferenceResponse[]> {
     const query = new URLSearchParams({
       academic_period_id: params.academic_period_id,
     })
     if (params.role) query.set("role", params.role)
-    const suffix = query.toString()
-    const payload =
-      await apiFetch<InstructorReferenceListResponse | InstructorReferenceResponse[]>(
-        `${SCHEDULING_BASE}/instructor-references${suffix ? `?${suffix}` : ""}`,
-        { auth: true },
-      )
-    return unwrap(payload)
+    return fetchSchedulingList<InstructorReferenceResponse>(
+      "/instructor-references",
+      query,
+    )
   },
 
   async listInstructorPeriods(): Promise<InstructorPeriodListResponse> {
@@ -736,7 +728,7 @@ export const schedulingService = {
     )
   },
 
-  async listInstructorCandidates(params: {
+  listInstructorCandidates(params: {
     academic_period_id: string
     curriculum_course_id?: string
     search?: string
@@ -754,15 +746,10 @@ export const schedulingService = {
     if (params.page_size !== undefined) {
       query.set("page_size", String(params.page_size))
     }
-    const suffix = query.toString()
-    const payload =
-      await apiFetch<InstructorCandidateListResponse | InstructorCandidateItem[]>(
-        `${SCHEDULING_BASE}/instructor-candidates${suffix ? `?${suffix}` : ""}`,
-        {
-          auth: true,
-        },
-      )
-    return unwrap(payload)
+    return fetchSchedulingList<InstructorCandidateItem>(
+      "/instructor-candidates",
+      query,
+    )
   },
 
   getMyPreferences(academicPeriodId: string): Promise<PreferenceResponse> {
@@ -814,21 +801,6 @@ export const schedulingService = {
     )
   },
 
-  mapInstructor(
-    referenceId: string,
-    userId: string | null,
-    academicPeriodId: string,
-  ): Promise<InstructorReferenceResponse> {
-    const body: InstructorMappingRequest = {
-      user_id: userId,
-      academic_period_id: academicPeriodId,
-    }
-    return apiFetch<InstructorReferenceResponse>(
-      `${SCHEDULING_BASE}/instructor-references/${encodeURIComponent(referenceId)}`,
-      { method: "PATCH", body, auth: true },
-    )
-  },
-
   updateInstructorReference(
     referenceId: string,
     request: InstructorReferenceUpdateRequest,
@@ -861,21 +833,12 @@ export const schedulingService = {
     )
   },
 
-  async listCurriculumCourses(): Promise<CurriculumCourseOption[]> {
-    const payload = await apiFetch<{
-      data: CurriculumCourseOption[]
-    } | CurriculumCourseOption[]>(`${SCHEDULING_BASE}/curriculum-courses`, {
-      auth: true,
-    })
-    return unwrap(payload)
+  listCurriculumCourses(): Promise<CurriculumCourseOption[]> {
+    return fetchSchedulingList<CurriculumCourseOption>("/curriculum-courses")
   },
 
-  async getUnassigned(): Promise<UnassignedItem[]> {
-    const payload = await apiFetch<UnassignedListResponse | UnassignedItem[]>(
-      `${SCHEDULING_BASE}/unassigned`,
-      { auth: true },
-    )
-    return unwrap(payload)
+  getUnassigned(): Promise<UnassignedItem[]> {
+    return fetchSchedulingList<UnassignedItem>("/unassigned")
   },
 
   setClassCountOverride(

@@ -9,11 +9,15 @@ import {
 } from "react"
 import { AlertCircle, RefreshCw } from "lucide-react"
 import { useSession } from "@/features/auth/session"
-import { apiErrorMessage } from "@/shared/api/client"
+import { apiErrorMessage, apiFieldErrors } from "@/shared/api/client"
 import { useDiscardGuard } from "@/shared/hooks/useDiscardGuard"
 import ConfirmDialog, {
   type ConfirmDialogValues,
 } from "@/shared/ui/ConfirmDialog"
+import SearchableCombobox, {
+  type ComboboxOption,
+} from "@/shared/ui/SearchableCombobox"
+import FormFieldError from "@/shared/ui/FormFieldError"
 import { cn } from "@/shared/utils"
 import BoardGrid, {
   LINTAS_PRODI_FILTER,
@@ -136,6 +140,7 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionNotice, setActionNotice] = useState<string | null>(null)
+  const [editRoomError, setEditRoomError] = useState<string | null>(null)
   const [generationResult, setGenerationResult] =
     useState<GenerateResponse | null>(null)
   const [finalizeResult, setFinalizeResult] = useState<FinalizeResponse | null>(
@@ -356,6 +361,18 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
   const assignmentContexts = useMemo(
     () => unassigned.flatMap((item) => item.eligible_curriculum_contexts),
     [unassigned],
+  )
+  const roomOptions = useMemo<ComboboxOption[]>(
+    () => [
+      { value: "", label: "Tanpa ruangan" },
+      ...rooms
+        .filter((room) => room.is_active)
+        .map((room) => ({
+          value: room.room_id,
+          label: `${room.room_code}, ${room.capacity} kursi`,
+        })),
+    ],
+    [rooms],
   )
 
   const boardMeta = board?.meta
@@ -637,6 +654,7 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
   const openEdit = (item: BoardClassItem) => {
     if (!canEditClass(item)) return
     setActionError(null)
+    setEditRoomError(null)
     setActionNotice(null)
     setGenerationResult(null)
     setFinalizeResult(null)
@@ -654,6 +672,7 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
     if (!editDraft || busyAction || !canEditClass(editDraft.item)) return
     setBusyAction("edit")
     setActionError(null)
+    setEditRoomError(null)
     setActionNotice(null)
     setGenerationResult(null)
     setFinalizeResult(null)
@@ -677,6 +696,10 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
       )
       await loadBoard()
     } catch (cause) {
+      const roomIssue = apiFieldErrors(cause).find(
+        (issue) => issue.field === "room_id" || issue.field === "room",
+      )
+      setEditRoomError(roomIssue?.message ?? null)
       setActionError(apiErrorMessage(cause, "Perubahan jadwal gagal disimpan."))
     } finally {
       setBusyAction(null)
@@ -1141,29 +1164,31 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
                       ))}
                     </select>
                   </label>
-                  <label className="flex flex-col gap-1 text-xs font-semibold text-navy">
-                    Ruangan
-                    <select
+                  <div className="flex flex-col gap-1">
+                    <SearchableCombobox
+                      id="class-edit-room"
+                      label="Ruangan"
+                      options={roomOptions}
                       value={editDraft.room_id}
-                      onChange={(event) =>
+                      onChange={(roomId) => {
                         setEditDraft((draft) =>
-                          draft
-                            ? { ...draft, room_id: event.target.value }
-                            : draft,
+                          draft ? { ...draft, room_id: roomId } : draft,
                         )
+                        setEditRoomError(null)
+                      }}
+                      placeholder="Pilih ruangan"
+                      searchPlaceholder="Cari ruangan"
+                      emptyLabel="Tidak ada ruangan yang cocok."
+                      invalid={Boolean(editRoomError)}
+                      errorId={
+                        editRoomError ? "class-edit-room-error" : undefined
                       }
-                      className="min-h-11 rounded-lg border border-input bg-surface px-2 text-xs font-normal"
-                    >
-                      <option value="">Tanpa ruangan</option>
-                      {rooms
-                        .filter((room) => room.is_active)
-                        .map((room) => (
-                          <option key={room.room_id} value={room.room_id}>
-                            {room.room_code}, {room.capacity} kursi
-                          </option>
-                        ))}
-                    </select>
-                  </label>
+                    />
+                    <FormFieldError
+                      id="class-edit-room-error"
+                      message={editRoomError}
+                    />
+                  </div>
                   <label className="flex flex-col gap-1 text-xs font-semibold text-navy">
                     Alasan perubahan *
                     <input
@@ -1178,7 +1203,7 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
                             : draft,
                         )
                       }
-                      placeholder="Contoh: menyesuaikan ketersediaan dosen"
+                      placeholder="Contoh: menyesuaikan Preferensi Jadwal"
                       className="min-h-11 rounded-lg border border-input bg-surface px-3 text-xs font-normal"
                     />
                   </label>

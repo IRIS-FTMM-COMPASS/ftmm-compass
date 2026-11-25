@@ -17,11 +17,17 @@ import {
   X,
 } from "lucide-react"
 import { useSession } from "@/features/auth/session"
-import { apiErrorMessage } from "@/shared/api/client"
+import {
+  apiErrorMessage,
+  apiFieldErrors,
+  ApiError,
+  type ApiFieldIssue,
+} from "@/shared/api/client"
 import SearchableCombobox, {
   type ComboboxOption,
 } from "@/shared/ui/SearchableCombobox"
 import ConfirmDialog from "@/shared/ui/ConfirmDialog"
+import FormFieldError from "@/shared/ui/FormFieldError"
 import { cn } from "@/shared/utils"
 import {
   schedulingService,
@@ -52,6 +58,113 @@ const EMPTY_FORM: ReferenceForm = {
   user_id: "",
   instructor_role: "pjmk",
   external: false,
+}
+
+type FormFieldName = "curriculum_course_id" | "instructor_name" | "user_id" | "instructor_role"
+
+type FormFieldErrors = Record<FormFieldName | "formSummary", string | null>
+
+const FORM_FIELD_NAMES: FormFieldName[] = [
+  "curriculum_course_id",
+  "instructor_name",
+  "user_id",
+  "instructor_role",
+]
+
+const EMPTY_FIELD_ERRORS: FormFieldErrors = {
+  curriculum_course_id: null,
+  instructor_name: null,
+  user_id: null,
+  instructor_role: null,
+  formSummary: null,
+}
+
+const PJMK_ACCOUNT_MESSAGE = "Pilih akun dosen aktif untuk PJ MK."
+const PJMK_EXISTS_MESSAGE =
+  "Mata kuliah ini sudah memiliki PJ MK. Ubah PJ MK yang ada."
+const TEAM_MEMBER_MESSAGE =
+  "Pengajar ini sudah terdaftar dalam Tim Pengajar mata kuliah tersebut."
+
+function teamMemberErrorField(form: ReferenceForm): FormFieldName {
+  return form.user_id && !form.external ? "user_id" : "instructor_name"
+}
+
+function apiIssueMessage(
+  field: FormFieldName | undefined,
+  code: string | undefined,
+): string {
+  if (code === "invalid_position") return "Posisi pengajar tidak valid."
+  if (code === "required" || code === "missing") {
+    if (field === "curriculum_course_id")
+      return "Pilih mata kuliah terlebih dahulu."
+    if (field === "instructor_name") return "Nama pengajar wajib diisi."
+    if (field === "user_id") return "Pilih akun dosen."
+    if (field === "instructor_role") return "Pilih jenis referensi."
+    return "Lengkapi data yang wajib diisi."
+  }
+  if (code === "invalid_name") return "Nama pengajar tidak boleh kosong."
+  if (code === "literal_error") {
+    if (field === "curriculum_course_id") return "Mata kuliah tidak valid."
+    if (field === "instructor_name") return "Nama pengajar tidak valid."
+    if (field === "user_id") return "Akun dosen tidak valid."
+    if (field === "instructor_role") return "Jenis referensi tidak valid."
+    return "Periksa kembali data yang diisi."
+  }
+  if (field === "curriculum_course_id") return "Pilih mata kuliah yang valid."
+  if (field === "instructor_name") return "Periksa nama pengajar."
+  if (field === "user_id") return "Periksa akun dosen yang dipilih."
+  if (field === "instructor_role") return "Pilih jenis referensi yang valid."
+  return "Periksa kembali data yang diisi."
+}
+
+function mapApiFieldIssue(issue: ApiFieldIssue, form: ReferenceForm): {
+  field: FormFieldName | "formSummary"
+  message: string
+} | null {
+  const field = FORM_FIELD_NAMES.find((name) => issue.field.endsWith(name))
+  const code = issue.code
+  if (code === "pjmk_requires_account")
+    return { field: "user_id", message: PJMK_ACCOUNT_MESSAGE }
+  if (code === "pjmk_exists")
+    return { field: "curriculum_course_id", message: PJMK_EXISTS_MESSAGE }
+  if (code === "team_member_exists")
+    return { field: teamMemberErrorField(form), message: TEAM_MEMBER_MESSAGE }
+  if (code === "invalid_position")
+    return { field: "formSummary", message: apiIssueMessage(field, code) }
+  if (code === "invalid_name")
+    return { field: "instructor_name", message: apiIssueMessage(field, code) }
+  if (field) return { field, message: apiIssueMessage(field, code) }
+  return null
+}
+
+function formErrorsFromApi(
+  cause: unknown,
+  form: ReferenceForm,
+): FormFieldErrors {
+  const errors: FormFieldErrors = { ...EMPTY_FIELD_ERRORS }
+  const topCode = cause instanceof ApiError ? cause.code : undefined
+  if (topCode === "pjmk_requires_account") errors.user_id = PJMK_ACCOUNT_MESSAGE
+  if (topCode === "pjmk_exists")
+    errors.curriculum_course_id = PJMK_EXISTS_MESSAGE
+  if (topCode === "team_member_exists")
+    errors[teamMemberErrorField(form)] = TEAM_MEMBER_MESSAGE
+  const issues = apiFieldErrors(cause)
+  for (const issue of issues) {
+    const mapped = mapApiFieldIssue(issue, form)
+    if (!mapped) continue
+    if (mapped.field === "formSummary") {
+      errors.formSummary = mapped.message
+    } else if (!errors[mapped.field]) {
+      errors[mapped.field] = mapped.message
+    }
+  }
+  if (!FORM_FIELD_NAMES.some((field) => errors[field]) && !errors.formSummary) {
+    errors.formSummary =
+      issues.length > 0 || topCode === "validation_error"
+        ? "Periksa kembali data yang diisi."
+        : apiErrorMessage(cause, "Referensi pengajar gagal disimpan.")
+  }
+  return errors
 }
 
 function periodLabel(period: InstructorPeriod): string {
@@ -127,7 +240,8 @@ export default function InstructorMappingPanel({
   const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<ReferenceForm>(EMPTY_FORM)
-  const [formError, setFormError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] =
+    useState<FormFieldErrors>(EMPTY_FIELD_ERRORS)
   const [savingForm, setSavingForm] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -374,7 +488,7 @@ export default function InstructorMappingPanel({
       instructor_role: role,
       curriculum_course_id: courseId,
     })
-    setFormError(null)
+    setFieldErrors(EMPTY_FIELD_ERRORS)
     setActionError(null)
     setFormOpen(true)
   }
@@ -393,7 +507,7 @@ export default function InstructorMappingPanel({
       instructor_role: reference.instructor_role as InstructorReferenceRole,
       external: !reference.user_id,
     })
-    setFormError(null)
+    setFieldErrors(EMPTY_FIELD_ERRORS)
     setActionError(null)
     setFormOpen(true)
   }
@@ -403,6 +517,22 @@ export default function InstructorMappingPanel({
     formOpenerRef.current = null
     window.requestAnimationFrame(() => opener?.focus())
   }, [])
+
+  const focusFirstInvalid = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      const invalid = formRef.current?.querySelector<HTMLElement>(
+        '[aria-invalid="true"]',
+      )
+      if (!invalid) return
+      invalid.focus({ preventScroll: true })
+      invalid.scrollIntoView({ block: "center" })
+    })
+  }, [])
+
+  const updateForm = (update: (current: ReferenceForm) => ReferenceForm) => {
+    setForm(update)
+    setFieldErrors(EMPTY_FIELD_ERRORS)
+  }
 
   const closeForm = useCallback(() => {
     if (savingForm) return
@@ -472,33 +602,32 @@ export default function InstructorMappingPanel({
 
   const submitForm = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    const nextErrors: FormFieldErrors = { ...EMPTY_FIELD_ERRORS }
     if (!form.curriculum_course_id) {
-      setFormError("Pilih mata kuliah terlebih dahulu.")
-      return
+      nextErrors.curriculum_course_id = "Pilih mata kuliah terlebih dahulu."
     }
     if (!form.instructor_name.trim() && (form.external || !form.user_id)) {
-      setFormError("Pilih akun dosen atau tulis nama dosen eksternal.")
-      return
+      nextErrors[form.external ? "instructor_name" : "user_id"] =
+        "Pilih akun dosen atau tulis nama dosen eksternal."
     }
     if (form.instructor_role === "pjmk" && (!form.user_id || form.external)) {
-      setFormError("PJ MK wajib memilih akun dosen aktif.")
-      return
-    }
-    if (
+      nextErrors.user_id = "PJ MK wajib memilih akun dosen aktif."
+    } else if (
       form.instructor_role === "pjmk" &&
       !activeCandidates.some((candidate) => candidate.user_id === form.user_id)
     ) {
-      setFormError("Pilih akun dosen aktif untuk PJ MK.")
-      return
+      nextErrors.user_id = PJMK_ACCOUNT_MESSAGE
     }
     if (
       !editingId &&
       form.instructor_role === "pjmk" &&
       selectedCourseHasPjmk
     ) {
-      setFormError(
-        "Mata kuliah ini sudah memiliki PJ MK. Ubah PJ MK yang ada atau hapus terlebih dahulu.",
-      )
+      nextErrors.curriculum_course_id = PJMK_EXISTS_MESSAGE
+    }
+    if (FORM_FIELD_NAMES.some((field) => nextErrors[field])) {
+      setFieldErrors(nextErrors)
+      focusFirstInvalid()
       return
     }
     const selectedCandidate = candidates.find(
@@ -509,7 +638,7 @@ export default function InstructorMappingPanel({
         ? (selectedCandidate?.full_name ?? form.instructor_name.trim())
         : form.instructor_name.trim()
     setSavingForm(true)
-    setFormError(null)
+    setFieldErrors(EMPTY_FIELD_ERRORS)
     try {
       if (editingId) {
         const updated = await schedulingService.updateInstructorReference(
@@ -551,7 +680,8 @@ export default function InstructorMappingPanel({
       setEditingId(null)
       restoreFormOpener()
     } catch (cause) {
-      setFormError(apiErrorMessage(cause, "Referensi pengajar gagal disimpan."))
+      setFieldErrors(formErrorsFromApi(cause, form))
+      focusFirstInvalid()
     } finally {
       setSavingForm(false)
     }
@@ -832,22 +962,24 @@ export default function InstructorMappingPanel({
               <X className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
-          {formError && (
+          {fieldErrors.formSummary && (
             <p
+              id="mapping-form-summary"
               role="alert"
               className="mt-4 rounded-lg border border-orange/30 bg-orange/10 p-3 text-sm text-navy"
             >
-              {formError}
+              {fieldErrors.formSummary}
             </p>
           )}
           <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <label className="flex flex-col gap-2 text-sm font-semibold">
-              Jenis referensi
+            <div className="flex flex-col gap-2 text-sm font-semibold">
+              <label htmlFor="mapping-role">Jenis referensi</label>
               <select
+                id="mapping-role"
                 value={form.instructor_role}
                 disabled={Boolean(editingId)}
                 onChange={(event) =>
-                  setForm((current) => ({
+                  updateForm((current) => ({
                     ...current,
                     instructor_role: event.target
                       .value as InstructorReferenceRole,
@@ -855,12 +987,20 @@ export default function InstructorMappingPanel({
                     user_id: "",
                   }))
                 }
+                aria-invalid={Boolean(fieldErrors.instructor_role)}
+                aria-describedby={
+                  fieldErrors.instructor_role ? "mapping-role-error" : undefined
+                }
                 className={inputClass}
               >
                 <option value="pjmk">PJ MK</option>
                 <option value="teaching_team">Tim Pengajar</option>
               </select>
-            </label>
+              <FormFieldError
+                id="mapping-role-error"
+                message={fieldErrors.instructor_role}
+              />
+            </div>
             <div className="flex flex-col gap-2">
               <label
                 htmlFor="mapping-course-trigger"
@@ -892,7 +1032,7 @@ export default function InstructorMappingPanel({
                   options={courseOptions}
                   value={form.curriculum_course_id}
                   onChange={(value) =>
-                    setForm((current) => ({
+                    updateForm((current) => ({
                       ...current,
                       curriculum_course_id: value,
                     }))
@@ -900,8 +1040,14 @@ export default function InstructorMappingPanel({
                   placeholder="Pilih mata kuliah"
                   searchPlaceholder="Cari kode atau nama mata kuliah"
                   disabled={Boolean(editingId) || savingForm}
+                  invalid={Boolean(fieldErrors.curriculum_course_id)}
+                  errorId="mapping-course-error"
                 />
               )}
+              <FormFieldError
+                id="mapping-course-error"
+                message={fieldErrors.curriculum_course_id}
+              />
               {selectedCourse &&
                 programNames.get(selectedCourse.study_program_id) && (
                   <p className="text-xs text-muted">
@@ -915,7 +1061,7 @@ export default function InstructorMappingPanel({
                   type="checkbox"
                   checked={form.external}
                   onChange={(event) =>
-                    setForm((current) => ({
+                    updateForm((current) => ({
                       ...current,
                       external: event.target.checked,
                       user_id: event.target.checked ? "" : current.user_id,
@@ -966,7 +1112,7 @@ export default function InstructorMappingPanel({
                       const candidate = activeCandidates.find(
                         (item) => item.user_id === value,
                       )
-                      setForm((current) => ({
+                      updateForm((current) => ({
                         ...current,
                         user_id: value,
                         instructor_name:
@@ -977,29 +1123,48 @@ export default function InstructorMappingPanel({
                     searchPlaceholder="Cari nama dosen"
                     emptyLabel="Akun dosen tidak ditemukan."
                     disabled={savingForm}
+                    invalid={Boolean(fieldErrors.user_id)}
+                    errorId="mapping-lecturer-error"
                   />
                 )}
+                <FormFieldError
+                  id="mapping-lecturer-error"
+                  message={fieldErrors.user_id}
+                />
               </div>
             )}
             {form.external && (
-              <label className="flex flex-col gap-2 text-sm font-semibold md:col-span-2">
-                Nama dosen eksternal
+              <div className="flex flex-col gap-2 text-sm font-semibold md:col-span-2">
+                <label htmlFor="mapping-instructor-name">
+                  Nama dosen eksternal
+                </label>
                 <input
+                  id="mapping-instructor-name"
                   value={form.instructor_name}
                   onChange={(event) =>
-                    setForm((current) => ({
+                    updateForm((current) => ({
                       ...current,
                       instructor_name: event.target.value,
                     }))
                   }
+                  aria-invalid={Boolean(fieldErrors.instructor_name)}
+                  aria-describedby={
+                    fieldErrors.instructor_name
+                      ? "mapping-instructor-name-error"
+                      : undefined
+                  }
                   className={inputClass}
                   placeholder="Nama lengkap"
+                />
+                <FormFieldError
+                  id="mapping-instructor-name-error"
+                  message={fieldErrors.instructor_name}
                 />
                 <span className="text-xs font-normal text-muted">
                   Dosen eksternal dapat dicatat, tetapi belum dapat mendapat
                   auto-assignment sampai memiliki akun dosen.
                 </span>
-              </label>
+              </div>
             )}
           </div>
           <div className="mt-6 flex flex-col-reverse gap-3 border-t border-border pt-4 sm:flex-row sm:justify-end">
