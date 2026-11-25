@@ -1,7 +1,7 @@
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import List, Optional, Dict, Literal, Any, Union
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from settings import ACCESS_TOKEN_EXPIRE_SECONDS
 
 class OllamaHealthDetail(BaseModel):
@@ -892,3 +892,247 @@ class EditLogEntry(BaseModel):
 class EditLogResponse(BaseModel):
     data: List[EditLogEntry] = Field(default_factory=list)
     meta: Dict[str, int] = Field(default_factory=dict)
+
+
+class AssignmentDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    class_section_id: UUID
+    user_id: UUID
+    source: Literal["auto", "manual"]
+    is_pinned: bool
+    curriculum_course_id: UUID | None = None
+
+
+class AssignmentBulkRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decisions: list[AssignmentDecisionRequest] = Field(..., min_length=1, max_length=500)
+
+
+class AssignmentResponse(BaseModel):
+    assignment_id: str
+    class_section_id: str
+    academic_period_id: str
+    curriculum_course_id: str | None
+    user_id: str
+    lecturer_name: str
+    source: Literal["auto", "manual"]
+    is_pinned: bool
+    is_active: bool
+    assigned_by: str
+    assigned_at: str
+
+
+class AssignmentCandidate(BaseModel):
+    user_id: str
+    lecturer_name: str
+    position: int
+    is_pjmk: bool
+    curriculum_course_id: str
+
+
+class AssignmentPoolItem(BaseModel):
+    user_id: str
+    lecturer_name: str
+    position: int
+    is_pjmk: bool
+    curriculum_course_id: str
+
+
+class AssignmentPreviewClass(BaseModel):
+    class_section_id: str
+    section_code: str
+    curriculum_course_id: str
+    can_edit: bool
+    context_required: bool
+    candidate: AssignmentCandidate | None
+    existing_assignment: AssignmentResponse | None
+
+
+class AssignmentPreviewGroup(BaseModel):
+    curriculum_course_id: str
+    study_program_id: str
+    study_program_code: str
+    study_program_name: str
+    programs: list[StudyProgramIdentity]
+    course_code: str
+    course_name: str
+    can_edit: bool
+    pool: list[AssignmentPoolItem]
+    classes: list[AssignmentPreviewClass]
+
+
+class AssignmentPreviewMeta(BaseModel):
+    academic_period_id: str
+    input_revision: int
+
+
+class AssignmentPreviewResponse(BaseModel):
+    data: list[AssignmentPreviewGroup]
+    meta: AssignmentPreviewMeta
+
+
+class AssignmentBulkMeta(BaseModel):
+    academic_period_id: str
+    input_revision: int
+
+
+class AssignmentBulkResponse(BaseModel):
+    data: list[AssignmentResponse]
+    meta: AssignmentBulkMeta
+
+
+class AssignmentEnvelope(BaseModel):
+    data: AssignmentResponse | None
+
+
+class PreferenceSlotRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    day_of_week: int = Field(..., ge=1, le=5)
+    start_time: time
+    end_time: time
+    kind: Literal["preferred", "unavailable"]
+
+    @field_validator("start_time", "end_time")
+    @classmethod
+    def validate_whole_hour(cls, value: time) -> time:
+        if value.tzinfo is not None or value.minute or value.second or value.microsecond:
+            raise ValueError("Jam mulai dan selesai harus berupa jam penuh tanpa zona waktu")
+        return value
+
+    @model_validator(mode="after")
+    def validate_range(self) -> "PreferenceSlotRequest":
+        if not time(7) <= self.start_time < time(17):
+            raise ValueError("Jam mulai harus antara 07:00 dan 17:00")
+        if not time(7) < self.end_time <= time(17):
+            raise ValueError("Jam selesai harus antara 07:00 dan 17:00")
+        if self.end_time <= self.start_time:
+            raise ValueError("Jam selesai harus setelah jam mulai")
+        return self
+
+
+class PreferenceReplaceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    slots: list[PreferenceSlotRequest] = Field(default_factory=list)
+    academic_period_id: UUID | None = None
+
+
+class PreferenceItemResponse(BaseModel):
+    day_of_week: int
+    day_name: str
+    start_time: time
+    end_time: time
+    kind: Literal["preferred", "unavailable"]
+
+
+class PreferenceWarning(BaseModel):
+    code: Literal["assigned_class_overlap"]
+    message: str
+    class_section_id: str
+    course_code: str
+    course_name: str
+    section_code: str
+    day_of_week: int
+    day_name: str
+    unavailable_start_time: time
+    unavailable_end_time: time
+    class_start_time: time
+    class_end_time: time
+    overlap_start_time: time
+    overlap_end_time: time
+
+
+class PreferenceCompleteness(BaseModel):
+    filled: bool
+    preferred_count: int
+    unavailable_count: int
+
+
+class PreferenceMeta(BaseModel):
+    count: int
+    status: Literal["empty", "filled"]
+    preferred_count: int
+    unavailable_count: int
+    completeness: PreferenceCompleteness
+    deadline: datetime | None
+    warnings: list[PreferenceWarning]
+
+
+class PreferenceListResponse(BaseModel):
+    academic_period_id: str
+    user_id: str
+    data: list[PreferenceItemResponse]
+    meta: PreferenceMeta
+
+
+class PreferenceCopyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    from_academic_period_id: UUID
+    academic_period_id: UUID
+    overwrite: bool = False
+
+
+class PreferencePeriodResponse(BaseModel):
+    academic_period_id: str
+    academic_year_start: int
+    semester_number: int | None
+    term: str
+    label: str
+    start_date: date | None
+    end_date: date | None
+    is_active: bool
+    is_current: bool
+
+
+class PreferencePeriodListResponse(BaseModel):
+    data: list[PreferencePeriodResponse]
+    meta: dict[str, Any]
+
+
+class PeriodSettingsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    academic_period_id: UUID
+    study_program_id: UUID | None = None
+    preference_deadline: datetime | None = None
+
+
+class PeriodSettingsResponse(BaseModel):
+    academic_period_id: str
+    study_program_id: str | None
+    study_program_code: str | None
+    study_program_name: str | None
+    preference_deadline: datetime | None
+    input_revision: int
+    finalized_at: datetime | None
+    updated_at: datetime | None
+
+
+class PreferenceSummaryItem(BaseModel):
+    user_id: str
+    full_name: str
+    study_program_id: str
+    study_program_code: str
+    study_program_name: str
+    status: Literal["empty", "filled"]
+    preferred_count: int
+    unavailable_count: int
+    deadline: datetime | None
+
+
+class PreferenceSummaryResponse(BaseModel):
+    data: list[PreferenceSummaryItem]
+    meta: dict[str, int]
+
+
+class AssignmentUpsertRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    academic_period_id: UUID
+    user_id: UUID
+    source: Literal["auto", "manual"] = "manual"
+    is_pinned: bool = False

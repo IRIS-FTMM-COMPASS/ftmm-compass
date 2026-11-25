@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from academics import TOTAL_SKS_FOR_GRADUATION, grade_points
-from features.scheduling.routers.scheduling_board import _program_statuses
+from features.scheduling.services.schedule_reads import ensure_program_statuses
 from auth import get_current_user
 from database import get_db
 from models import (
@@ -492,7 +492,7 @@ async def _schedule_status(db: AsyncSession) -> str:
     period_id = await current_period_id(db)
     if period_id is None:
         return status_label("draft")
-    _, state_by_program = await _program_statuses(db, period_id)
+    _, state_by_program = await ensure_program_statuses(db, period_id)
     all_final = bool(state_by_program) and all(
         state == "final" for state in state_by_program.values()
     )

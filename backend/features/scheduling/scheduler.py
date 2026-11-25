@@ -13,7 +13,6 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, time, timezone
 from math import ceil
-from typing import Literal
 from uuid import UUID
 
 from sqlalchemy import delete, func, or_, select
@@ -51,7 +50,6 @@ from models import (
     User,
 )
 from scheduling_common import (
-    DAY_NAMES,
     END_HOUR_MAX,
     START_HOUR_MIN,
     blocks_overlap,
@@ -59,12 +57,12 @@ from scheduling_common import (
     is_valid_block,
 )
 from schemas import (
-    BoardConflictItem,
     CurriculumContextItem,
     GenerateResponse,
     StudyProgramIdentity,
     UnassignedItem,
 )
+from .conflicts import ConflictBlock, detect_conflicts
 
 REASON_CAPACITY = "room_capacity"
 REASON_LOCKED = "course_locked"
@@ -340,43 +338,6 @@ async def enrich_unassigned_items(
             )
         )
     return items
-
-
-def build_conflict_item(
-    *,
-    kind: Literal["lecturer", "room"],
-    class_section_a_id: UUID,
-    class_section_b_id: UUID,
-    object_id: UUID | str | None,
-    object_name: str,
-    class_section_a_label: str,
-    class_section_b_label: str,
-    day_of_week: int,
-    start_hour: int,
-    end_hour: int,
-) -> BoardConflictItem:
-    object_type = "Dosen" if kind == "lecturer" else "Ruangan"
-    object_label = f"{object_type} {object_name}".strip()
-    day_name = DAY_NAMES.get(day_of_week, str(day_of_week))
-    label = (
-        f"{object_label}: {class_section_a_label} dan {class_section_b_label}, "
-        f"{day_name} {start_hour:02d}.00-{end_hour:02d}.00"
-    )
-    return BoardConflictItem(
-        class_section_a_id=str(class_section_a_id),
-        class_section_b_id=str(class_section_b_id),
-        kind=kind,
-        day_of_week=day_of_week,
-        start_hour=start_hour,
-        end_hour=end_hour,
-        object_id=str(object_id) if object_id is not None else None,
-        object_name=object_name,
-        object_label=object_label,
-        class_section_a_label=class_section_a_label,
-        class_section_b_label=class_section_b_label,
-        day_name=day_name,
-        label=label,
-    )
 
 
 def _schedule_snapshot(schedule: ClassSchedule) -> dict[str, object]:
@@ -707,76 +668,6 @@ def solve(
             placement.preference_score for placement in best.values()
         ),
     )
-
-
-def _detect_conflicts(
-    blocks: list[Block],
-    *,
-    class_labels: dict[UUID, str] | None = None,
-    lecturer_names: dict[UUID, str] | None = None,
-    room_codes: dict[UUID, str] | None = None,
-) -> list[BoardConflictItem]:
-    class_labels = class_labels or {}
-    lecturer_names = lecturer_names or {}
-    room_codes = room_codes or {}
-    conflicts: list[BoardConflictItem] = []
-    for index, first in enumerate(blocks):
-        for second in blocks[index + 1 :]:
-            if first.day != second.day or not blocks_overlap(
-                first.start, first.end, second.start, second.end
-            ):
-                continue
-            shared = {
-                "day_of_week": first.day,
-                "start_hour": max(first.start, second.start),
-                "end_hour": min(first.end, second.end),
-            }
-            if first.room_id is not None and first.room_id == second.room_id:
-                conflicts.append(
-                    build_conflict_item(
-                        kind="room",
-                        class_section_a_id=first.section_id,
-                        class_section_b_id=second.section_id,
-                        object_id=first.room_id,
-                        object_name=room_codes.get(first.room_id, ""),
-                        class_section_a_label=class_labels.get(
-                            first.section_id, str(first.section_id)
-                        ),
-                        class_section_b_label=class_labels.get(
-                            second.section_id, str(second.section_id)
-                        ),
-                        **shared,
-                    )
-                )
-            shared_lecturers = first.lecturers & second.lecturers
-            if shared_lecturers:
-                lecturer_id = sorted(shared_lecturers)[0]
-                conflicts.append(
-                    build_conflict_item(
-                        kind="lecturer",
-                        class_section_a_id=first.section_id,
-                        class_section_b_id=second.section_id,
-                        object_id=lecturer_id,
-                        object_name=lecturer_names.get(lecturer_id, ""),
-                        class_section_a_label=class_labels.get(
-                            first.section_id, str(first.section_id)
-                        ),
-                        class_section_b_label=class_labels.get(
-                            second.section_id, str(second.section_id)
-                        ),
-                        **shared,
-                    )
-                )
-    conflicts.sort(
-        key=lambda item: (
-            item.day_of_week,
-            item.start_hour,
-            item.kind,
-            item.class_section_a_id,
-            item.class_section_b_id,
-        )
-    )
-    return conflicts
 
 
 def _parity_matches(course_term: str | None, period_term: str) -> bool:
@@ -1873,11 +1764,27 @@ async def generate_schedule(
         db, period.academic_period_id, unassigned_entries
     )
 
-    conflicts = _detect_conflicts(
-        [*occupied, *new_blocks],
-        class_labels=class_labels,
-        lecturer_names=lecturer_names,
-        room_codes=room_codes,
+    conflicts = detect_conflicts(
+        [
+            ConflictBlock(
+                section_id=block.section_id,
+                day=block.day,
+                start=block.start,
+                end=block.end,
+                room_id=block.room_id,
+                room_code=(
+                    room_codes.get(block.room_id, "")
+                    if block.room_id is not None
+                    else ""
+                ),
+                lecturer_ids=block.lecturers,
+                lecturer_names=lecturer_names,
+                section_label=class_labels.get(
+                    block.section_id, str(block.section_id)
+                ),
+            )
+            for block in [*occupied, *new_blocks]
+        ]
     )
     run.stats = {
         "assigned": len(result.assignments),

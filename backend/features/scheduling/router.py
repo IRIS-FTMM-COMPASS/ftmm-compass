@@ -7,10 +7,14 @@ kelompok endpoint tanpa prefix agar komposisi di app.py tetap sama.
 from fastapi import APIRouter
 
 from .routers import (
+    scheduling_assignments,
     scheduling_board,
+    scheduling_class_assignment,
     scheduling_edits,
     scheduling_generate,
     scheduling_instructors,
+    scheduling_period_inputs,
+    scheduling_period_settings,
     scheduling_rooms,
 )
 
@@ -21,3 +25,7 @@ router.include_router(scheduling_edits.router)
 router.include_router(scheduling_generate.router)
 router.include_router(scheduling_instructors.router)
 router.include_router(scheduling_rooms.router)
+router.include_router(scheduling_period_inputs.router)
+router.include_router(scheduling_period_settings.router)
+router.include_router(scheduling_class_assignment.router)
+router.include_router(scheduling_assignments.router)
