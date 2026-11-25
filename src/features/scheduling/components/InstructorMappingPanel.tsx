@@ -844,12 +844,6 @@ export default function InstructorMappingPanel({
           </p>
         </div>
         <div className="w-full xl:max-w-sm">
-          <label
-            htmlFor="mapping-period"
-            className="block text-sm font-semibold"
-          >
-            Periode akademik
-          </label>
           {periodsLoading ? (
             <p role="status" className="mt-2 text-sm text-muted">
               Memuat periode...
@@ -873,24 +867,44 @@ export default function InstructorMappingPanel({
               Belum ada periode akademik.
             </p>
           ) : (
-            <select
+            <SearchableCombobox
               id="mapping-period"
+              label="Periode akademik"
+              options={periods.map((period) => ({
+                value: period.academic_period_id,
+                label: periodLabel(period),
+                hint: period.is_active ? "Aktif" : undefined,
+              }))}
               value={periodId}
-              onChange={(event) => setPeriodId(event.target.value)}
-              className={cn(inputClass, "mt-2")}
-            >
-              {periods.map((period) => (
-                <option
-                  key={period.academic_period_id}
-                  value={period.academic_period_id}
-                >
-                  {periodLabel(period)}
-                  {period.is_active ? " (aktif)" : ""}
-                </option>
-              ))}
-            </select>
+              onChange={setPeriodId}
+              placeholder="Pilih periode"
+              searchPlaceholder="Cari tahun atau semester"
+              emptyLabel="Periode tidak ditemukan."
+              className="mt-2"
+            />
           )}
         </div>
+        <button
+          type="button"
+          disabled={courseFilter === "all" || !onContinueToAssignment}
+          title={
+            courseFilter === "all"
+              ? "Pilih mata kuliah terlebih dahulu"
+              : "Buka Penugasan Kelas untuk mata kuliah ini"
+          }
+          onClick={() =>
+            onContinueToAssignment?.({
+              academicPeriodId: periodId,
+              curriculumCourseId: courseFilter,
+            })
+          }
+          className={cn(
+            buttonClass,
+            "mt-3 border border-navy bg-navy text-white hover:bg-navy-light disabled:cursor-not-allowed disabled:opacity-50",
+          )}
+        >
+          Lanjut ke Penugasan Kelas
+        </button>
       </div>
 
       {periodId && (

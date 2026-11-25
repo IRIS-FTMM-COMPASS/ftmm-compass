@@ -55,17 +55,21 @@ def _login_headers(client, email: str, password: str = PASSWORD) -> dict[str, st
 def _periods(client, db_session) -> dict[str, uuid.UUID]:
     async def setup():
         active = (
-            await db_session.execute(
-                select(AcademicPeriod)
-                .where(AcademicPeriod.is_active.is_(True))
-                .order_by(
-                    AcademicPeriod.academic_year_start.desc(),
-                    AcademicPeriod.created_at.desc(),
-                    AcademicPeriod.academic_period_id,
+            (
+                await db_session.execute(
+                    select(AcademicPeriod)
+                    .where(AcademicPeriod.is_active.is_(True))
+                    .order_by(
+                        AcademicPeriod.academic_year_start.desc(),
+                        AcademicPeriod.created_at.desc(),
+                        AcademicPeriod.academic_period_id,
+                    )
+                    .limit(1)
                 )
-                .limit(1)
             )
-        ).scalars().one()
+            .scalars()
+            .one()
+        )
         used_years = set(
             (await db_session.execute(select(AcademicPeriod.academic_year_start)))
             .scalars()
@@ -198,13 +202,16 @@ def test_preferences_require_authentication(client):
     assert client.get(PREFERENCES).status_code == 401
     assert client.put(PREFERENCES, json=[SLOT]).status_code == 401
     assert client.get(PERIODS).status_code == 401
-    assert client.post(
-        COPY,
-        json={
-            "from_academic_period_id": str(uuid.uuid4()),
-            "academic_period_id": str(uuid.uuid4()),
-        },
-    ).status_code == 401
+    assert (
+        client.post(
+            COPY,
+            json={
+                "from_academic_period_id": str(uuid.uuid4()),
+                "academic_period_id": str(uuid.uuid4()),
+            },
+        ).status_code
+        == 401
+    )
 
 
 def test_empty_filled_edit_and_clear_states(client, db_session, lecturer_headers):
@@ -249,11 +256,14 @@ def test_empty_filled_edit_and_clear_states(client, db_session, lecturer_headers
     }
     assert body["meta"]["deadline"] is None
     assert isinstance(body["meta"]["warnings"], list)
-    assert client.get(
-        PREFERENCES,
-        params={"academic_period_id": str(periods["active"])},
-        headers=lecturer_headers,
-    ).json() == body
+    assert (
+        client.get(
+            PREFERENCES,
+            params={"academic_period_id": str(periods["active"])},
+            headers=lecturer_headers,
+        ).json()
+        == body
+    )
 
     edited = client.put(
         PREFERENCES,
@@ -327,11 +337,14 @@ def test_invalid_ranges_and_overlaps_do_not_replace_preferences(
     )
     assert mismatch.status_code == 422, mismatch.text
     assert mismatch.json()["error"]["code"] == "period_mismatch"
-    assert client.get(
-        PREFERENCES,
-        params={"academic_period_id": str(periods["active"])},
-        headers=lecturer_headers,
-    ).json() == saved.json()
+    assert (
+        client.get(
+            PREFERENCES,
+            params={"academic_period_id": str(periods["active"])},
+            headers=lecturer_headers,
+        ).json()
+        == saved.json()
+    )
 
     overlaps = [
         [SLOT, _slot(kind="preferred", start_time="09:00:00", end_time="11:00:00")],
@@ -345,12 +358,18 @@ def test_invalid_ranges_and_overlaps_do_not_replace_preferences(
         assert response.json()["error"]["code"] == "overlapping_preference"
         assert response.json()["error"]["details"][0]["day_of_week"] == 1
 
-    assert client.get(PREFERENCES, params=params, headers=lecturer_headers).json() == saved.json()
+    assert (
+        client.get(PREFERENCES, params=params, headers=lecturer_headers).json()
+        == saved.json()
+    )
 
     adjacent = client.put(
         PREFERENCES,
         params=params,
-        json=[SLOT, _slot(kind="unavailable", start_time="10:00:00", end_time="12:00:00")],
+        json=[
+            SLOT,
+            _slot(kind="unavailable", start_time="10:00:00", end_time="12:00:00"),
+        ],
         headers=lecturer_headers,
     )
     assert adjacent.status_code == 200, adjacent.text
@@ -362,21 +381,32 @@ def test_period_selector_is_authenticated_deterministic_and_marks_current(
 ):
     periods = _periods(client, db_session)
     canonical = client.get(PERIODS, headers=lecturer_headers)
-    legacy = client.get(f"{LEGACY}/scheduling/preferences/periods", headers=lecturer_headers)
+    legacy = client.get(
+        f"{LEGACY}/scheduling/preferences/periods", headers=lecturer_headers
+    )
     assert canonical.status_code == legacy.status_code == 200
     assert canonical.json() == legacy.json()
     body = canonical.json()
     assert body["meta"]["total"] == len(body["data"])
     assert body["meta"]["current_academic_period_id"] == str(periods["active"])
-    assert body["data"][0]["academic_period_id"] == str(periods["active"])
-    assert body["data"][0]["is_active"] is True
-    assert body["data"][0]["is_current"] is True
-    assert body["data"][0]["label"]
-    period_ids = [item["academic_period_id"] for item in body["data"]]
-    assert period_ids.index(str(periods["following"])) < period_ids.index(
-        str(periods["previous"])
+    active = next(
+        item
+        for item in body["data"]
+        if item["academic_period_id"] == str(periods["active"])
     )
-    assert all(item["is_current"] is False for item in body["data"][1:])
+    assert active["is_active"] is True
+    assert active["is_current"] is True
+    assert active["label"] == (
+        f"{active['academic_year_start']}/{active['academic_year_start'] + 1} "
+        f"{active['term'].title()}"
+    )
+    assert all(
+        item["is_current"] is False
+        for item in body["data"]
+        if item["academic_period_id"] != str(periods["active"])
+    )
+    order = [(item["academic_year_start"], item["term"]) for item in body["data"]]
+    assert order == sorted(order)
     assert client.get(PERIODS, headers=lecturer_headers).json() == body
     assert client.get(PERIODS, headers=student_headers).status_code == 200
 
@@ -432,7 +462,12 @@ def test_copy_previous_period_is_idempotent_and_self_scoped(
     other_id = _user_id(client, db_session, SEEDED_STUDENT[0])
     source_slots = [
         SLOT,
-        _slot(day_of_week=2, kind="unavailable", start_time="14:00:00", end_time="16:00:00"),
+        _slot(
+            day_of_week=2,
+            kind="unavailable",
+            start_time="14:00:00",
+            end_time="16:00:00",
+        ),
     ]
 
     async def seed_other_user():
@@ -479,7 +514,9 @@ def test_copy_previous_period_is_idempotent_and_self_scoped(
                         == periods["active"],
                     )
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
         other = (
             await db_session.execute(
@@ -502,14 +539,22 @@ def test_copy_protects_nonempty_target_and_allows_explicit_overwrite(
     periods = _periods(client, db_session)
     source_slots = [SLOT]
     target_slots = [
-        _slot(day_of_week=5, kind="unavailable", start_time="15:00:00", end_time="17:00:00")
+        _slot(
+            day_of_week=5,
+            kind="unavailable",
+            start_time="15:00:00",
+            end_time="17:00:00",
+        )
     ]
-    assert client.put(
-        PREFERENCES,
-        params={"academic_period_id": str(periods["previous"])},
-        json=source_slots,
-        headers=lecturer_headers,
-    ).status_code == 200
+    assert (
+        client.put(
+            PREFERENCES,
+            params={"academic_period_id": str(periods["previous"])},
+            json=source_slots,
+            headers=lecturer_headers,
+        ).status_code
+        == 200
+    )
     target = client.put(
         PREFERENCES,
         params={"academic_period_id": str(periods["active"])},
@@ -544,12 +589,15 @@ def test_copy_protects_nonempty_target_and_allows_explicit_overwrite(
         }
     ]
 
-    assert client.put(
-        PREFERENCES,
-        params={"academic_period_id": str(periods["previous"])},
-        json=[],
-        headers=lecturer_headers,
-    ).status_code == 200
+    assert (
+        client.put(
+            PREFERENCES,
+            params={"academic_period_id": str(periods["previous"])},
+            json=[],
+            headers=lecturer_headers,
+        ).status_code
+        == 200
+    )
     cleared = client.post(
         COPY,
         json=_copy_payload(periods["previous"], periods["active"], overwrite=True),
@@ -619,10 +667,14 @@ def test_preferences_are_self_only_for_all_roles(
 
     async def create_lecturers():
         program = (
-            await db_session.execute(
-                select(StudyProgram).where(StudyProgram.program_code == "TSD")
+            (
+                await db_session.execute(
+                    select(StudyProgram).where(StudyProgram.program_code == "TSD")
+                )
             )
-        ).scalars().one()
+            .scalars()
+            .one()
+        )
         suffix = uuid.uuid4().hex[:8]
         profileless = User(
             email=f"preference.no-profile.{suffix}@ftmm.unair.ac.id",
@@ -650,14 +702,14 @@ def test_preferences_are_self_only_for_all_roles(
         await db_session.commit()
         return profileless.email, ordinary.email, ordinary.user_id
 
-    profileless_email, ordinary_email, ordinary_id = client.portal.call(create_lecturers)
+    profileless_email, ordinary_email, ordinary_id = client.portal.call(
+        create_lecturers
+    )
     profileless_headers = _login_headers(client, profileless_email)
     ordinary_headers = _login_headers(client, ordinary_email)
     payload = _copy_payload(periods["previous"], periods["active"])
     for headers in (student_headers, admin_headers, profileless_headers):
-        assert client.put(
-            PREFERENCES, json=[SLOT], headers=headers
-        ).status_code == 403
+        assert client.put(PREFERENCES, json=[SLOT], headers=headers).status_code == 403
         assert client.post(COPY, json=payload, headers=headers).status_code == 403
 
     ordinary_slot = _slot(
@@ -682,18 +734,25 @@ def test_preferences_are_self_only_for_all_roles(
     )
     assert foreign_identity.status_code == 422
     assert foreign_identity.json()["error"]["code"] == "validation_error"
-    assert client.get(
-        PREFERENCES,
-        params={"academic_period_id": str(periods["active"])},
-        headers=ordinary_headers,
-    ).json() == ordinary_saved.json()
+    assert (
+        client.get(
+            PREFERENCES,
+            params={"academic_period_id": str(periods["active"])},
+            headers=ordinary_headers,
+        ).json()
+        == ordinary_saved.json()
+    )
 
-    assert client.put(
-        PREFERENCES, json=[SLOT], headers=lecturer_headers
-    ).status_code == 200
-    assert client.put(
-        f"{PREFERENCES}/{uuid.uuid4()}", json=[SLOT], headers=lecturer_headers
-    ).status_code == 404
+    assert (
+        client.put(PREFERENCES, json=[SLOT], headers=lecturer_headers).status_code
+        == 200
+    )
+    assert (
+        client.put(
+            f"{PREFERENCES}/{uuid.uuid4()}", json=[SLOT], headers=lecturer_headers
+        ).status_code
+        == 404
+    )
     foreign_query = client.get(
         PREFERENCES,
         params={"user_id": str(uuid.uuid4())},
@@ -725,11 +784,14 @@ def test_preference_canonical_and_legacy_payloads_and_errors_match(
     )
     assert canonical.status_code == legacy.status_code == 200
     assert canonical.json() == legacy.json()
-    assert client.get(
-        f"{prefix}/scheduling/preferences/me",
-        params={"academic_period_id": str(periods["previous"])},
-        headers=lecturer_headers,
-    ).json() == canonical.json()
+    assert (
+        client.get(
+            f"{prefix}/scheduling/preferences/me",
+            params={"academic_period_id": str(periods["previous"])},
+            headers=lecturer_headers,
+        ).json()
+        == canonical.json()
+    )
 
     copied = client.post(
         f"{prefix}/scheduling/preferences/me/copy",
@@ -739,10 +801,11 @@ def test_preference_canonical_and_legacy_payloads_and_errors_match(
     assert copied.status_code == 200, copied.text
     assert copied.json()["data"] == canonical.json()["data"]
 
-    overlap = [SLOT, _slot(kind="unavailable", start_time="09:00:00", end_time="11:00:00")]
-    canonical_error = client.put(
-        PREFERENCES, json=overlap, headers=lecturer_headers
-    )
+    overlap = [
+        SLOT,
+        _slot(kind="unavailable", start_time="09:00:00", end_time="11:00:00"),
+    ]
+    canonical_error = client.put(PREFERENCES, json=overlap, headers=lecturer_headers)
     legacy_error = client.put(
         f"{prefix}/scheduling/preferences/me", json=overlap, headers=lecturer_headers
     )
@@ -756,22 +819,30 @@ def _assigned_class_case(
     async def setup():
         suffix = uuid.uuid4().hex[:8]
         active = (
-            await db_session.execute(
-                select(AcademicPeriod)
-                .where(AcademicPeriod.is_active.is_(True))
-                .order_by(
-                    AcademicPeriod.academic_year_start.desc(),
-                    AcademicPeriod.created_at.desc(),
-                    AcademicPeriod.academic_period_id,
+            (
+                await db_session.execute(
+                    select(AcademicPeriod)
+                    .where(AcademicPeriod.is_active.is_(True))
+                    .order_by(
+                        AcademicPeriod.academic_year_start.desc(),
+                        AcademicPeriod.created_at.desc(),
+                        AcademicPeriod.academic_period_id,
+                    )
+                    .limit(1)
                 )
-                .limit(1)
             )
-        ).scalars().one()
+            .scalars()
+            .one()
+        )
         program = (
-            await db_session.execute(
-                select(StudyProgram).where(StudyProgram.program_code == "TSD")
+            (
+                await db_session.execute(
+                    select(StudyProgram).where(StudyProgram.program_code == "TSD")
+                )
             )
-        ).scalars().one()
+            .scalars()
+            .one()
+        )
         other_lecturer_id = (
             await db_session.execute(
                 select(User.user_id)
@@ -939,9 +1010,7 @@ def test_unavailable_assigned_class_overlap_warns_without_rejecting_save(
     for candidate in warnings:
         _assert_valid_overlap_warning(candidate)
     warning = next(
-        item
-        for item in warnings
-        if item["class_section_id"] == str(case["class_a"])
+        item for item in warnings if item["class_section_id"] == str(case["class_a"])
     )
     assert warning["code"] == "assigned_class_overlap"
     assert warning["class_section_id"] == str(case["class_a"])
@@ -956,11 +1025,14 @@ def test_unavailable_assigned_class_overlap_warns_without_rejecting_save(
     assert warning["class_end_time"] == "10:00:00"
     assert warning["overlap_start_time"] == "08:00:00"
     assert warning["overlap_end_time"] == "10:00:00"
-    assert client.get(
-        PREFERENCES,
-        params={"academic_period_id": str(case["active"])},
-        headers=lecturer_headers,
-    ).json() == body
+    assert (
+        client.get(
+            PREFERENCES,
+            params={"academic_period_id": str(case["active"])},
+            headers=lecturer_headers,
+        ).json()
+        == body
+    )
 
     async def deactivate_assignment():
         await db_session.execute(
@@ -991,8 +1063,7 @@ def test_unavailable_assigned_class_overlap_warns_without_rejecting_save(
     for candidate in remaining_warnings:
         _assert_valid_overlap_warning(candidate)
     assert all(
-        item["class_section_id"]
-        not in {str(case["class_a"]), str(case["class_b"])}
+        item["class_section_id"] not in {str(case["class_a"]), str(case["class_b"])}
         for item in remaining_warnings
     )
     assert len(without_active_assignment.json()["data"]) == 2
@@ -1020,11 +1091,15 @@ def test_class_assignment_rejects_global_only_reference_on_canonical_and_legacy(
 
     async def assignments_for_class():
         return (
-            await db_session.execute(
-                select(ClassInstructorAssignment.user_id).where(
-                    ClassInstructorAssignment.class_section_id == case["class_a"]
+            (
+                await db_session.execute(
+                    select(ClassInstructorAssignment.user_id).where(
+                        ClassInstructorAssignment.class_section_id == case["class_a"]
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
     assert client.portal.call(assignments_for_class) == [lecturer_id]

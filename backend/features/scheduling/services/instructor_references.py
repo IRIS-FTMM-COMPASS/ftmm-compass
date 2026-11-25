@@ -184,9 +184,7 @@ async def _record_mapping_change(
     )
 
 
-async def _curriculum_program_id(
-    db: AsyncSession, curriculum_course_id: UUID
-) -> UUID:
+async def _curriculum_program_id(db: AsyncSession, curriculum_course_id: UUID) -> UUID:
     return (
         await db.execute(
             select(Curriculum.study_program_id).where(
@@ -203,9 +201,7 @@ def _pjmk_conflict() -> ServiceError:
 
 
 def _pjmk_is_team_conflict() -> ServiceError:
-    message = (
-        "PJMK sudah menjadi anggota Tim Pengajar mata kuliah ini dan tidak dapat diduplikasi."
-    )
+    message = "PJMK sudah menjadi anggota Tim Pengajar mata kuliah ini dan tidak dapat diduplikasi."
     return ServiceError(409, "pjmk_is_team", message)
 
 
@@ -265,9 +261,7 @@ def _position_map(references: list[CourseInstructorReference]) -> dict[UUID, int
         grouped.setdefault(reference.curriculum_course_id, []).append(reference)
     positions: dict[UUID, int] = {}
     for course_references in grouped.values():
-        used = {
-            row.position for row in course_references if row.position is not None
-        }
+        used = {row.position for row in course_references if row.position is not None}
         next_position = 1
         for row in _pool_order(course_references):
             if row.position is not None:
@@ -361,7 +355,9 @@ async def _pool_rows(
                 )
                 .with_for_update()
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
 
 
@@ -376,12 +372,16 @@ async def _resolve_lecturer(
         return _field_error("user_id", "ID akun dosen tidak valid.", "invalid_uuid")
 
     target = (
-        await db.execute(
-            select(User)
-            .options(selectinload(User.lecturer_profile))
-            .where(User.user_id == user_id)
+        (
+            await db.execute(
+                select(User)
+                .options(selectinload(User.lecturer_profile))
+                .where(User.user_id == user_id)
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if target is None or target.lecturer_profile is None:
         return _field_error("user_id", "Akun yang dipilih bukan dosen.", "not_lecturer")
     if scope is not None and target.lecturer_profile.study_program_id != scope:
@@ -528,9 +528,7 @@ async def _set_pjmk_first(
     await db.flush()
     if pjmk_reference is not None:
         pjmk_reference.position = 1
-    members = _pool_order(
-        [row for row in references if row is not pjmk_reference]
-    )
+    members = _pool_order([row for row in references if row is not pjmk_reference])
     for position, reference in enumerate(members, start=2):
         reference.position = position
     return [
@@ -552,15 +550,15 @@ def _period_order(period: AcademicPeriod) -> tuple[int, int, date]:
 
 
 async def list_periods(db: AsyncSession) -> list[dict[str, Any]]:
-    periods = (
-        await db.execute(
-            select(AcademicPeriod).order_by(
-                AcademicPeriod.academic_year_start.desc(),
-                AcademicPeriod.semester_number.desc(),
-                AcademicPeriod.created_at.desc(),
-            )
+    periods = list((await db.execute(select(AcademicPeriod))).scalars().all())
+    term_order = {"ganjil": 0, "genap": 1, "pendek": 2}
+    periods.sort(
+        key=lambda period: (
+            period.academic_year_start,
+            term_order.get(period.term, 3),
+            str(period.academic_period_id),
         )
-    ).scalars().all()
+    )
     return [
         {
             "academic_period_id": str(period.academic_period_id),
@@ -591,9 +589,7 @@ async def list_references(
         normalized_role = role.strip()
         if normalized_role not in _ROLE_VALUES:
             return _field_error("role", "Peran pengajar tidak valid.", "invalid_role")
-        stmt = stmt.where(
-            CourseInstructorReference.instructor_role == normalized_role
-        )
+        stmt = stmt.where(CourseInstructorReference.instructor_role == normalized_role)
     rows = (
         await db.execute(
             stmt.order_by(
@@ -662,7 +658,9 @@ async def create_reference(
             return denied
         if payload.position is not None and payload.position != 1:
             return _field_error(
-                "position", "PJ MK harus berada pada posisi pertama.", "invalid_position"
+                "position",
+                "PJ MK harus berada pada posisi pertama.",
+                "invalid_position",
             )
 
     pool = await _pool_rows(db, curriculum_course_id, period_id)
@@ -687,13 +685,13 @@ async def create_reference(
         shifted = await _set_pjmk_first(db, pool, None)
         position = 1
     elif position is None:
-        position = max(
-            max((row.position or 0 for row in pool), default=0), len(pool)
-        ) + 1
-    elif any(
-        row.instructor_role == _PJMK_ROLE and row.position == 1
-        for row in pool
-    ) and position == 1:
+        position = (
+            max(max((row.position or 0 for row in pool), default=0), len(pool)) + 1
+        )
+    elif (
+        any(row.instructor_role == _PJMK_ROLE and row.position == 1 for row in pool)
+        and position == 1
+    ):
         return _field_error(
             "position",
             "Posisi pertama dicadangkan untuk PJ MK.",
@@ -711,13 +709,13 @@ async def create_reference(
     db.add(reference)
     try:
         await db.flush()
-        row = await _find_reference(db, reference.instructor_reference_id, scope, period_id)
+        row = await _find_reference(
+            db, reference.instructor_reference_id, scope, period_id
+        )
         if isinstance(row, ServiceError):
             return row
         for shifted_reference, before, after in shifted:
-            await _record_mapping_change(
-                db, actor, "position", before, after
-            )
+            await _record_mapping_change(db, actor, "position", before, after)
         await _record_mapping_change(
             db, actor, "create", None, _reference_snapshot(reference)
         )
@@ -833,9 +831,10 @@ async def map_reference(
         position = 1
     elif position_changed:
         if payload.position is None:
-            position = max(
-                max((item.position or 0 for item in pool), default=0), len(pool)
-            ) + 1
+            position = (
+                max(max((item.position or 0 for item in pool), default=0), len(pool))
+                + 1
+            )
         else:
             position = payload.position
             if any(item.position == position for item in pool):
@@ -852,9 +851,9 @@ async def map_reference(
         curriculum_course_id != reference.curriculum_course_id
         or target_role != reference.instructor_role
     ):
-        position = max(
-            max((item.position or 0 for item in pool), default=0), len(pool)
-        ) + 1
+        position = (
+            max(max((item.position or 0 for item in pool), default=0), len(pool)) + 1
+        )
 
     reference.instructor_name = target_name
     reference.instructor_role = target_role
@@ -883,10 +882,7 @@ async def map_reference(
             await _record_mapping_change(db, actor, "update", before, after)
         if updated.study_program_id is not None:
             await bump_input_revisions(db, period_id, {updated.study_program_id})
-        if (
-            old_program_id != updated.study_program_id
-            and old_program_id is not None
-        ):
+        if old_program_id != updated.study_program_id and old_program_id is not None:
             await bump_input_revisions(db, period_id, {old_program_id})
         await db.commit()
     except IntegrityError:
@@ -966,8 +962,7 @@ async def copy_references(
         return _deny(409, code, message)
 
     stmt = _REFERENCE_SELECT.where(
-        CourseInstructorReference.academic_period_id
-        == payload.from_academic_period_id
+        CourseInstructorReference.academic_period_id == payload.from_academic_period_id
     )
     if scope is not None:
         stmt = stmt.where(Curriculum.study_program_id == scope)
@@ -1074,8 +1069,7 @@ async def copy_references(
                 continue
             if source.instructor_role == _PJMK_ROLE:
                 if any(
-                    target.instructor_role == _PJMK_ROLE
-                    for target in target_references
+                    target.instructor_role == _PJMK_ROLE for target in target_references
                 ):
                     skipped_count += 1
                     continue
@@ -1086,10 +1080,13 @@ async def copy_references(
                 if target_was_empty and source.instructor_role in _POOL_ROLES:
                     position = source_positions[source.instructor_reference_id]
                 else:
-                    position = max(
-                        max((item.position or 0 for item in pool), default=0),
-                        len(pool),
-                    ) + 1
+                    position = (
+                        max(
+                            max((item.position or 0 for item in pool), default=0),
+                            len(pool),
+                        )
+                        + 1
+                    )
             reference = CourseInstructorReference(
                 curriculum_course_id=curriculum_course_id,
                 academic_period_id=payload.academic_period_id,
@@ -1117,9 +1114,7 @@ async def copy_references(
             affected_programs.add(copied_row.study_program_id)
             copied_count += 1
         for shifted_reference, before, after in shifted:
-            await _record_mapping_change(
-                db, actor, "position", before, after
-            )
+            await _record_mapping_change(db, actor, "position", before, after)
         for item in copied_items:
             if item["curriculum_course_id"] != str(curriculum_course_id):
                 continue
@@ -1178,9 +1173,7 @@ async def order_references(
         )
     by_id = {row.instructor_reference_id: row for row in pool}
     pjmk = [
-        by_id[item]
-        for item in ordered_ids
-        if by_id[item].instructor_role == _PJMK_ROLE
+        by_id[item] for item in ordered_ids if by_id[item].instructor_role == _PJMK_ROLE
     ]
     if pjmk and ordered_ids[0] != pjmk[0].instructor_reference_id:
         return _field_error(
@@ -1193,9 +1186,7 @@ async def order_references(
         if denied is not None:
             return denied
 
-    before = {
-        row.instructor_reference_id: _reference_snapshot(row) for row in pool
-    }
+    before = {row.instructor_reference_id: _reference_snapshot(row) for row in pool}
     for row in pool:
         row.position = None
     await db.flush()
@@ -1228,15 +1219,12 @@ async def order_references(
                 _reference_snapshot(row),
             )
         if program_id is not None:
-            await bump_input_revisions(
-                db, payload.academic_period_id, {program_id}
-            )
+            await bump_input_revisions(db, payload.academic_period_id, {program_id})
     await db.commit()
     rows = (
         await db.execute(
             _REFERENCE_SELECT.where(
-                CourseInstructorReference.curriculum_course_id
-                == curriculum_course_id,
+                CourseInstructorReference.curriculum_course_id == curriculum_course_id,
                 CourseInstructorReference.academic_period_id
                 == payload.academic_period_id,
                 CourseInstructorReference.instructor_role.in_(_POOL_ROLES),

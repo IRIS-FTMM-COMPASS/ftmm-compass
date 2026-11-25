@@ -491,25 +491,22 @@ export default function AssignmentPanel({
               : "Cakupan PJ Prodi: program studi sesuai sesi Anda."}
           </p>
         </div>
-        <label className="flex w-full flex-col gap-1 text-xs font-semibold text-navy lg:w-80">
-          Periode akademik
-          <select
-            value={periodId}
-            disabled={periodsLoading || saving || deleting}
-            onChange={(event) => changePeriod(event.target.value)}
-            className={inputClass}
-          >
-            {periods.map((period) => (
-              <option
-                key={period.academic_period_id}
-                value={period.academic_period_id}
-              >
-                {period.label}
-                {period.is_current ? " (aktif)" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
+        <SearchableCombobox
+          id="assignment-period"
+          label="Periode akademik"
+          options={periods.map((period) => ({
+            value: period.academic_period_id,
+            label: period.label,
+            hint: period.is_current ? "Aktif" : undefined,
+          }))}
+          value={periodId}
+          onChange={changePeriod}
+          placeholder="Pilih periode"
+          searchPlaceholder="Cari tahun atau semester"
+          emptyLabel="Periode tidak ditemukan."
+          disabled={periodsLoading || saving || deleting}
+          className="w-full lg:w-80"
+        />
         {(contextOptions.length > 1 || contextFilter) && (
           <div className="flex w-full flex-col gap-1 lg:w-80">
             <SearchableCombobox

@@ -8,8 +8,8 @@ Kalendar akademik FTMM memakai tahun ajaran `Y/Y+1` dengan dua periode tetap, Ga
 
 1. Satu baris `academic_periods` adalah kombinasi `academic_year_start` dan `term` (`ganjil` atau `genap`). Tepat satu periode berstatus aktif, ditentukan oleh `current_period()` di `backend/academics.py`.
 2. Seeder membuat enam periode bergulir: tiga tahun ajaran terakhir, masing-masing Ganjil dan Genap. Hanya periode berjalan yang `is_active = true`.
-3. Label kanonik UI penjadwalan adalah `YYYY/YYYY+1 Ganjil` atau `YYYY/YYYY+1 Genap`. Panel preferensi boleh menambahkan awalan `Semester N`, tetapi tahun ajaran dan term tetap tampil lengkap.
-4. Urutan daftar periode memakai tahun ajaran menurun, lalu Ganjil sebelum Genap dalam tahun yang sama.
+3. Label kanonik untuk semua panel penjadwalan adalah `YYYY/YYYY+1 Ganjil` atau `YYYY/YYYY+1 Genap`, tanpa awalan `Semester N`. Penanda aktif memakai teks `Aktif` atau field `is_current`.
+4. Urutan daftar periode memakai tahun ajaran menaik, lalu Ganjil sebelum Genap dalam tahun yang sama. Penanda aktif mengikuti `is_current`, bukan posisi pertama.
 5. Seeder memperbarui `start_date`, `end_date`, dan `is_active` pada baris yang sudah ada. Periode lama tidak dihapus.
 
 **Considered Options**: satu entitas per tahun ajaran tanpa term (ditolak: solver dan preferensi memakai term), hanya periode aktif (ditolak: perlu salin preferensi dan histori), label `2026 ganjil` (ditolak: tahun ajaran tidak lengkap), menambah kolom skema baru (ditolak: `academic_year_start` dan `term` sudah cukup).

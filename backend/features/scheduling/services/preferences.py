@@ -39,7 +39,13 @@ class PreferenceSlot:
     kind: Literal["preferred", "unavailable"]
 
 
-def _deny(status_code: int, code: str, message: str, *, details: list[dict[str, Any]] | None = None) -> ServiceError:
+def _deny(
+    status_code: int,
+    code: str,
+    message: str,
+    *,
+    details: list[dict[str, Any]] | None = None,
+) -> ServiceError:
     return ServiceError(status_code, code, message, details=details or [])
 
 
@@ -53,7 +59,9 @@ async def _period_deadlines(
                     SchedulePeriodSettings.academic_period_id == period_id
                 )
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     global_deadline = None
     program_deadlines: dict[UUID, datetime] = {}
@@ -82,7 +90,9 @@ def _preference_response(
     warnings: list[dict[str, Any]] | None = None,
     deadline: datetime | None = None,
 ) -> dict[str, Any]:
-    ordered = sorted(slots, key=lambda slot: (slot.day_of_week, slot.start_time, slot.kind))
+    ordered = sorted(
+        slots, key=lambda slot: (slot.day_of_week, slot.start_time, slot.kind)
+    )
     preferred_count = sum(slot.kind == "preferred" for slot in ordered)
     unavailable_count = sum(slot.kind == "unavailable" for slot in ordered)
     filled = bool(ordered)
@@ -257,7 +267,9 @@ async def _load_slots(
                     LecturerSchedulePreference.kind,
                 )
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     return _slots_from_rows(rows)
 
@@ -265,13 +277,11 @@ async def _load_slots(
 async def list_periods(db: AsyncSession) -> dict[str, Any]:
     current_id = await current_period_id(db)
     periods = list((await db.execute(select(AcademicPeriod))).scalars().all())
+    term_order = {"ganjil": 0, "genap": 1, "pendek": 2}
     periods.sort(
         key=lambda period: (
-            period.academic_period_id != current_id,
-            not period.is_active,
-            -period.academic_year_start,
-            -(period.semester_number or 0),
-            period.term,
+            period.academic_year_start,
+            term_order.get(period.term, 3),
             str(period.academic_period_id),
         )
     )
@@ -283,14 +293,10 @@ async def list_periods(db: AsyncSession) -> dict[str, Any]:
                 "academic_year_start": period.academic_year_start,
                 "semester_number": period.semester_number,
                 "term": period.term,
-                "label": period_payload(
-                    period.academic_year_start,
-                    period.term,
-                    period.start_date,
-                    period.end_date,
-                    today,
-                    semester_number=period.semester_number,
-                )["label"],
+                "label": (
+                    f"{period.academic_year_start}/{period.academic_year_start + 1} "
+                    f"{(period.term or '').title()}"
+                ),
                 "start_date": period.start_date,
                 "end_date": period.end_date,
                 "is_active": period.is_active,
@@ -331,13 +337,9 @@ async def preference_summary(
         )
     )
     if scope is not None:
-        lecturer_query = lecturer_query.where(
-            LecturerProfile.study_program_id == scope
-        )
+        lecturer_query = lecturer_query.where(LecturerProfile.study_program_id == scope)
     lecturers = (await db.execute(lecturer_query)).all()
-    counts: dict[UUID, list[int]] = {
-        row.user_id: [0, 0] for row in lecturers
-    }
+    counts: dict[UUID, list[int]] = {row.user_id: [0, 0] for row in lecturers}
     if counts:
         preference_rows = (
             await db.execute(
@@ -424,19 +426,21 @@ async def replace_preferences(
         )
 
     previous_rows = (
-        await db.execute(
-            select(LecturerSchedulePreference).where(
-                LecturerSchedulePreference.user_id == user_id,
-                LecturerSchedulePreference.academic_period_id == period_id,
+        (
+            await db.execute(
+                select(LecturerSchedulePreference).where(
+                    LecturerSchedulePreference.user_id == user_id,
+                    LecturerSchedulePreference.academic_period_id == period_id,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     previous_slots = _slots_from_rows(previous_rows)
     changed = sorted(previous_slots, key=_slot_key) != sorted(slots, key=_slot_key)
     await db.execute(
-        select(User.user_id)
-        .where(User.user_id == user_id)
-        .with_for_update()
+        select(User.user_id).where(User.user_id == user_id).with_for_update()
     )
     await db.execute(
         delete(LecturerSchedulePreference).where(
@@ -483,17 +487,13 @@ async def copy_preferences(
     study_program_id: UUID | None,
     overwrite: bool,
 ) -> dict[str, Any] | ServiceError:
-    locked = await scheduling_input_lock(
-        db, target_period_id, {study_program_id}
-    )
+    locked = await scheduling_input_lock(db, target_period_id, {study_program_id})
     if locked is not None:
         code, message = locked
         return _deny(409, code, message)
 
     await db.execute(
-        select(User.user_id)
-        .where(User.user_id == user_id)
-        .with_for_update()
+        select(User.user_id).where(User.user_id == user_id).with_for_update()
     )
     source_slots = await _load_slots(db, source_period_id, user_id)
     target_slots = await _load_slots(db, target_period_id, user_id)
@@ -513,9 +513,7 @@ async def copy_preferences(
             warnings=await _assignment_warnings(
                 db, user_id, target_period_id, target_slots
             ),
-            deadline=await _effective_deadline(
-                db, target_period_id, study_program_id
-            ),
+            deadline=await _effective_deadline(db, target_period_id, study_program_id),
         )
     if target_slots and not overwrite:
         return _deny(
@@ -555,9 +553,7 @@ async def copy_preferences(
         warnings = await _assignment_warnings(
             db, user_id, target_period_id, source_slots
         )
-        deadline = await _effective_deadline(
-            db, target_period_id, study_program_id
-        )
+        deadline = await _effective_deadline(db, target_period_id, study_program_id)
         await db.commit()
     except IntegrityError:
         await db.rollback()

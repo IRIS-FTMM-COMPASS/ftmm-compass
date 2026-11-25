@@ -11,6 +11,7 @@ import { apiErrorMessage } from "@/shared/api/client"
 import { useSession } from "@/features/auth/session"
 import ConfirmDialog from "@/shared/ui/ConfirmDialog"
 import { cn } from "@/shared/utils"
+import SearchableCombobox from "@/shared/ui/SearchableCombobox"
 import {
   schedulingService,
   type PreferencePeriod,
@@ -382,12 +383,6 @@ export default function PreferencePanel() {
       </header>
 
       <div className="rounded-xl border border-border bg-surface p-4">
-        <label
-          htmlFor="preference-period"
-          className="block text-sm font-semibold text-foreground"
-        >
-          Periode akademik
-        </label>
         {periodsLoading ? (
           <p role="status" className="mt-2 text-sm text-muted">
             Memuat periode akademik...
@@ -411,23 +406,22 @@ export default function PreferencePanel() {
             Belum ada periode akademik. Hubungi admin untuk menyiapkan periode.
           </p>
         ) : (
-          <select
+          <SearchableCombobox
             id="preference-period"
+            label="Periode akademik"
+            options={periods.map((period) => ({
+              value: period.academic_period_id,
+              label: period.label,
+              hint: period.is_current ? "Aktif" : undefined,
+            }))}
             value={periodId}
+            onChange={setPeriodId}
+            placeholder="Pilih periode"
+            searchPlaceholder="Cari tahun atau semester"
+            emptyLabel="Periode tidak ditemukan."
             disabled={editing || saving}
-            onChange={(event) => setPeriodId(event.target.value)}
-            className={cn(inputClass, "mt-2 max-w-md")}
-          >
-            {periods.map((period) => (
-              <option
-                key={period.academic_period_id}
-                value={period.academic_period_id}
-              >
-                {period.label}
-                {period.is_current ? " (aktif)" : ""}
-              </option>
-            ))}
-          </select>
+            className="mt-2 max-w-md"
+          />
         )}
       </div>
 

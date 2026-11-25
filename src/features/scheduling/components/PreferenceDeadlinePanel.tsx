@@ -10,6 +10,7 @@ import { RefreshCw, Save } from "lucide-react"
 import { apiErrorMessage } from "@/shared/api/client"
 import { useSession } from "@/features/auth/session"
 import { cn } from "@/shared/utils"
+import SearchableCombobox from "@/shared/ui/SearchableCombobox"
 import {
   schedulingService,
   type BoardProgramStatus,
@@ -407,28 +408,25 @@ export default function PreferenceDeadlinePanel() {
       </div>
 
       <div className="grid gap-3 rounded-xl border border-border bg-surface p-4 md:grid-cols-2">
-        <label className="flex flex-col gap-1 text-xs font-semibold text-navy">
-          Periode akademik
-          <select
-            value={periodId}
-            disabled={periodsLoading || saving}
-            onChange={(event) => {
-              setPeriodId(event.target.value)
-              setSummary(null)
-            }}
-            className={inputClass}
-          >
-            {periods.map((period) => (
-              <option
-                key={period.academic_period_id}
-                value={period.academic_period_id}
-              >
-                {period.label}
-                {period.is_current ? " (aktif)" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
+        <SearchableCombobox
+          id="deadline-period"
+          label="Periode akademik"
+          options={periods.map((period) => ({
+            value: period.academic_period_id,
+            label: period.label,
+            hint: period.is_current ? "Aktif" : undefined,
+          }))}
+          value={periodId}
+          onChange={(value) => {
+            setPeriodId(value)
+            setSummary(null)
+          }}
+          placeholder="Pilih periode"
+          searchPlaceholder="Cari tahun atau semester"
+          emptyLabel="Periode tidak ditemukan."
+          disabled={periodsLoading || saving}
+          className="w-full"
+        />
         {isAdmin ? (
           <label className="flex flex-col gap-1 text-xs font-semibold text-navy">
             Cakupan deadline

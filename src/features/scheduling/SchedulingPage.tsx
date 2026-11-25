@@ -25,8 +25,6 @@ import BoardGrid, {
 } from "./components/BoardGrid"
 import SchedulingLifecycleStatus from "./components/SchedulingLifecycleStatus"
 import RoomAdminPanel from "./components/RoomAdminPanel"
-import InstructorMappingPanel from "./components/InstructorMappingPanel"
-import AssignmentPanel from "./components/AssignmentPanel"
 import PreferenceDeadlinePanel from "./components/PreferenceDeadlinePanel"
 import UnassignedClassList from "./components/UnassignedClassList"
 import UnassignedDiagnosticDialog from "./components/UnassignedDiagnosticDialog"
@@ -36,7 +34,6 @@ import {
   type BoardClassItem,
   type BoardResponse,
   type ClassMoveRequest,
-  type EligibleCurriculumContext,
   type FinalizeResponse,
   type GenerateResponse,
   type RoomResponse,
@@ -60,8 +57,6 @@ const START_HOURS = Array.from({ length: 10 }, (_, index) => index + 7)
 const TABS = [
   { id: "board", label: "Papan Jadwal" },
   { id: "rooms", label: "Ruangan" },
-  { id: "instructors", label: "Tim Pengajar" },
-  { id: "assignments", label: "Penugasan Kelas" },
   { id: "deadlines", label: "Deadline Preferensi" },
 ] as const
 
@@ -70,7 +65,14 @@ type BusyAction = "regenerate" | "full_reset" | "finalize" | "unlock" | "edit"
 type ConfirmAction = "reset" | "unlock" | null
 
 interface SchedulingPageProps {
-  onNavigate?: (page: string) => void
+  onOpenPanel?: (
+    target: "teaching-team" | "class-assignment",
+    params: {
+      period?: string | null
+      course?: string | null
+      reference?: string | null
+    },
+  ) => void
 }
 
 interface EditDraft {
@@ -84,20 +86,6 @@ interface EditDraft {
 interface ProgramLabel {
   code: string
   name: string
-}
-
-interface MappingRequest {
-  key: number
-  academicPeriodId: string
-  curriculumCourseId: string
-  referenceId: string | null
-}
-
-interface AssignmentRequest {
-  key: number
-  academicPeriodId: string
-  curriculumCourseId: string | null
-  curriculumContexts: EligibleCurriculumContext[]
 }
 
 function formatHour(hour: number): string {
@@ -122,7 +110,7 @@ function matchesProgram(item: BoardClassItem, programId: string): boolean {
     : item.study_program_id === programId
 }
 
-export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
+export default function SchedulingPage({ onOpenPanel }: SchedulingPageProps) {
   const { user } = useSession()
   const isAdmin = user?.role === "admin"
   const isPjProdi =
@@ -149,25 +137,17 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
   const [busyAction, setBusyAction] = useState<BusyAction | null>(null)
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null)
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null)
-  const [mappingRequest, setMappingRequest] = useState<MappingRequest | null>(
-    null,
-  )
-  const [assignmentRequest, setAssignmentRequest] =
-    useState<AssignmentRequest | null>(null)
   const [diagnosticItem, setDiagnosticItem] = useState<UnassignedItem | null>(
     null,
   )
   const [reloadKey, setReloadKey] = useState(0)
   const boardLoadCount = useRef(0)
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
-  const panelRequestCount = useRef(0)
   const visibleTabs = useMemo(
     () =>
       TABS.filter((tab) => {
         if (!canOperateSchedule) return tab.id === "board"
         if (tab.id === "rooms") return isAdmin
-        if (tab.id === "instructors") return isAdmin || isPjProdi
-        if (tab.id === "assignments") return isAdmin || isPjProdi
         if (tab.id === "deadlines") return isAdmin || isPjProdi
         return true
       }),
@@ -364,10 +344,6 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
         (program) => program.study_program_id === effectiveProgramId,
       ),
   )
-  const assignmentContexts = useMemo(
-    () => unassigned.flatMap((item) => item.eligible_curriculum_contexts),
-    [unassigned],
-  )
   const roomOptions = useMemo<ComboboxOption[]>(
     () => [
       { value: "", label: "Tanpa ruangan" },
@@ -546,12 +522,10 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
       setDiagnosticItem(item)
       return
     }
-    setActiveTab("instructors")
-    setMappingRequest({
-      key: ++panelRequestCount.current,
-      academicPeriodId: periodId,
-      curriculumCourseId: context.curriculum_course_id,
-      referenceId: item.pjmk_reference_id,
+    onOpenPanel?.("teaching-team", {
+      period: periodId,
+      course: context.curriculum_course_id,
+      reference: item.pjmk_reference_id,
     })
   }
 
@@ -560,15 +534,12 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
       setDiagnosticItem(item)
       return
     }
-    setActiveTab("assignments")
-    setAssignmentRequest({
-      key: ++panelRequestCount.current,
-      academicPeriodId: periodId,
-      curriculumCourseId:
+    onOpenPanel?.("class-assignment", {
+      period: periodId,
+      course:
         item.eligible_curriculum_contexts.length === 1
           ? item.eligible_curriculum_contexts[0].curriculum_course_id
           : null,
-      curriculumContexts: item.eligible_curriculum_contexts,
     })
   }
 
@@ -766,24 +737,6 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
             <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
             Muat ulang
           </button>
-          {onNavigate && user?.role === "lecturer" && (
-            <button
-              type="button"
-              onClick={() => onNavigate("preferences")}
-              className="inline-flex min-h-11 items-center rounded-lg border border-navy bg-navy px-3 text-xs font-semibold text-white transition-colors hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold cursor-pointer"
-            >
-              Preferensi Jadwal
-            </button>
-          )}
-          {onNavigate && (
-            <button
-              type="button"
-              onClick={() => onNavigate("dashboard")}
-              className="inline-flex min-h-11 items-center rounded-lg border border-border bg-surface px-3 text-xs font-semibold text-navy transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold cursor-pointer"
-            >
-              Dashboard
-            </button>
-          )}
         </div>
       </header>
 
@@ -1330,53 +1283,6 @@ export default function SchedulingPage({ onNavigate }: SchedulingPageProps) {
         className="rounded-xl border border-border bg-surface p-4"
       >
         {activeTab === "rooms" && isAdmin && <RoomAdminPanel />}
-      </div>
-      <div
-        role="tabpanel"
-        id="scheduling-panel-instructors"
-        aria-labelledby="scheduling-tab-instructors"
-        hidden={activeTab !== "instructors"}
-        className="rounded-xl border border-border bg-surface p-4"
-      >
-        {activeTab === "instructors" && (isAdmin || isPjProdi) && (
-          <InstructorMappingPanel
-            initialAcademicPeriodId={mappingRequest?.academicPeriodId}
-            initialCurriculumCourseId={mappingRequest?.curriculumCourseId}
-            initialReferenceId={mappingRequest?.referenceId}
-            initialRole="pjmk"
-            bootstrapKey={mappingRequest?.key ?? 0}
-            onContinueToAssignment={({
-              academicPeriodId,
-              curriculumCourseId,
-            }) => {
-              setAssignmentRequest({
-                key: Date.now(),
-                academicPeriodId,
-                curriculumCourseId,
-                curriculumContexts: assignmentContexts,
-              })
-              setActiveTab("assignments")
-            }}
-          />
-        )}
-      </div>
-      <div
-        role="tabpanel"
-        id="scheduling-panel-assignments"
-        aria-labelledby="scheduling-tab-assignments"
-        hidden={activeTab !== "assignments"}
-        className="rounded-xl border border-border bg-surface p-4"
-      >
-        {activeTab === "assignments" && (isAdmin || isPjProdi) && (
-          <AssignmentPanel
-            initialAcademicPeriodId={assignmentRequest?.academicPeriodId}
-            initialCurriculumCourseId={assignmentRequest?.curriculumCourseId}
-            curriculumContexts={
-              assignmentRequest?.curriculumContexts ?? assignmentContexts
-            }
-            bootstrapKey={assignmentRequest?.key ?? 0}
-          />
-        )}
       </div>
       <div
         role="tabpanel"

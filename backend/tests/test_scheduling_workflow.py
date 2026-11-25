@@ -43,7 +43,9 @@ def workflow_case(client, db_session) -> dict[str, Any]:
     async def setup():
         label = uuid.uuid4().hex[:8]
         max_year = (
-            await db_session.execute(select(func.max(AcademicPeriod.academic_year_start)))
+            await db_session.execute(
+                select(func.max(AcademicPeriod.academic_year_start))
+            )
         ).scalar()
         year = int(max_year or 2026) + 50
 
@@ -63,12 +65,16 @@ def workflow_case(client, db_session) -> dict[str, Any]:
         await db_session.flush()
 
         pj = (
-            await db_session.execute(
-                select(User)
-                .options(selectinload(User.lecturer_profile))
-                .where(User.email == SEEDED_PJ[0])
+            (
+                await db_session.execute(
+                    select(User)
+                    .options(selectinload(User.lecturer_profile))
+                    .where(User.email == SEEDED_PJ[0])
+                )
             )
-        ).scalars().one()
+            .scalars()
+            .one()
+        )
         assert pj.lecturer_profile is not None
         program_id = pj.lecturer_profile.study_program_id
         program_code = (
@@ -243,12 +249,18 @@ def workflow_case(client, db_session) -> dict[str, Any]:
 async def _workflow_state(db_session, case: dict[str, Any], run_id=None):
     section_ids = [*case["section_ids"], case["other_section_id"]]
     assignments = (
-        await db_session.execute(
-            select(ClassInstructorAssignment)
-            .where(ClassInstructorAssignment.class_section_id.in_(case["section_ids"]))
-            .order_by(ClassInstructorAssignment.class_section_id)
+        (
+            await db_session.execute(
+                select(ClassInstructorAssignment)
+                .where(
+                    ClassInstructorAssignment.class_section_id.in_(case["section_ids"])
+                )
+                .order_by(ClassInstructorAssignment.class_section_id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     other_schedule = await db_session.get(ClassSchedule, case["other_schedule_id"])
     run = (
         await db_session.get(ScheduleRun, uuid.UUID(str(run_id)))
@@ -256,12 +268,16 @@ async def _workflow_state(db_session, case: dict[str, Any], run_id=None):
         else None
     )
     logs = (
-        await db_session.execute(
-            select(ScheduleEditLog)
-            .where(ScheduleEditLog.class_section_id.in_(section_ids))
-            .order_by(ScheduleEditLog.created_at, ScheduleEditLog.id)
+        (
+            await db_session.execute(
+                select(ScheduleEditLog)
+                .where(ScheduleEditLog.class_section_id.in_(section_ids))
+                .order_by(ScheduleEditLog.created_at, ScheduleEditLog.id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     status = await db_session.get(
         ScheduleProgramStatus, (case["period_id"], case["program_id"])
     )
@@ -326,21 +342,25 @@ async def _workflow_state(db_session, case: dict[str, Any], run_id=None):
 
 async def _authority_audit(db_session, actor_id, field_name, action_prefix):
     rows = (
-        await db_session.execute(
-            text(
-                "SELECT action, actor_user_id, field_name, old_value, new_value "
-                "FROM admin_authority_traces "
-                "WHERE actor_user_id = CAST(:actor_id AS uuid) "
-                "AND field_name = :field_name AND action LIKE :action_prefix "
-                "ORDER BY created_at, action"
-            ),
-            {
-                "actor_id": str(actor_id),
-                "field_name": field_name,
-                "action_prefix": action_prefix,
-            },
+        (
+            await db_session.execute(
+                text(
+                    "SELECT action, actor_user_id, field_name, old_value, new_value "
+                    "FROM admin_authority_traces "
+                    "WHERE actor_user_id = CAST(:actor_id AS uuid) "
+                    "AND field_name = :field_name AND action LIKE :action_prefix "
+                    "ORDER BY created_at, action"
+                ),
+                {
+                    "actor_id": str(actor_id),
+                    "field_name": field_name,
+                    "action_prefix": action_prefix,
+                },
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     return [dict(row) for row in rows]
 
 
@@ -364,7 +384,13 @@ def test_scheduling_workflow_from_preferences_to_admin_unlock(
     periods = client.get(f"{BASE}/preferences/periods", headers=pj_headers)
     assert periods.status_code == 200, periods.text
     assert periods.json()["meta"]["current_academic_period_id"] == period_id
-    assert periods.json()["data"][0]["academic_period_id"] == period_id
+    active = next(
+        item
+        for item in periods.json()["data"]
+        if item["academic_period_id"] == str(period_id)
+    )
+    assert active["is_active"] is True
+    assert active["is_current"] is True
 
     preference_payload = [
         {
@@ -621,7 +647,9 @@ def test_scheduling_workflow_from_preferences_to_admin_unlock(
         f"{BASE}/board", params={"period_id": period_id}, headers=pj_headers
     )
     legacy_board = client.get(
-        f"{LEGACY}/scheduling/board", params={"period_id": period_id}, headers=pj_headers
+        f"{LEGACY}/scheduling/board",
+        params={"period_id": period_id},
+        headers=pj_headers,
     )
     assert board.status_code == legacy_board.status_code == 200
     assert board.json() == legacy_board.json()
@@ -657,9 +685,9 @@ def test_scheduling_workflow_from_preferences_to_admin_unlock(
     assert dashboard.status_code == 200, dashboard.text
     dashboard_body = dashboard.json()
     assert dashboard_body["academic_period_id"] == period_id
-    assert {item["class_section_id"] for item in dashboard_body["assigned_classes"]} == (
-        section_ids
-    )
+    assert {
+        item["class_section_id"] for item in dashboard_body["assigned_classes"]
+    } == (section_ids)
     assert dashboard_body["unscheduled_classes"] == []
     assert dashboard_body["stats"] == {
         "type": "lecturer",
@@ -747,8 +775,7 @@ def test_scheduling_workflow_from_preferences_to_admin_unlock(
     final_dashboard = client.get(f"{V1}/dashboard/me", headers=pj_headers)
     assert final_dashboard.status_code == 200, final_dashboard.text
     assert all(
-        item["schedule_state"] == "final"
-        for item in final_dashboard.json()["schedule"]
+        item["schedule_state"] == "final" for item in final_dashboard.json()["schedule"]
     )
 
     pj_unlock = client.post(
@@ -782,7 +809,9 @@ def test_scheduling_workflow_from_preferences_to_admin_unlock(
     assert state_unlocked["status"]["finalized_at"] is None
     assert state_unlocked["lock"]["krs_open"] is False
     assert state_unlocked["lock"]["locked_by"] == uuid.UUID(admin_id)
-    unlock_logs = [row for row in state_unlocked["logs"] if row["reason"] == unlock_reason]
+    unlock_logs = [
+        row for row in state_unlocked["logs"] if row["reason"] == unlock_reason
+    ]
     assert len(unlock_logs) == 3
     assert all(row["changed_by"] == uuid.UUID(admin_id) for row in unlock_logs)
     assert all(
