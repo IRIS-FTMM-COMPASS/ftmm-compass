@@ -101,7 +101,6 @@ function ProdiScopeBadge({ item }: { item: BoardClassItem }) {
 
 interface BoardClassCardProps {
   item: BoardClassItem
-  compact: boolean
   positionClass: string
   conflicts: BoardConflictItem[]
   isConflict: boolean
@@ -111,7 +110,6 @@ interface BoardClassCardProps {
 
 function BoardClassCard({
   item,
-  compact,
   positionClass,
   conflicts,
   isConflict,
@@ -127,14 +125,8 @@ function BoardClassCard({
   const room = item.room_code ?? "Ruangan belum ditentukan"
   const blockMinutes = (item.end_hour - item.start_hour) * 60
   const programs = programsFor(item)
-  const prodiScope =
-    programs.length > 1
-      ? `${programs.length} prodi`
-      : programs[0]?.study_program_code || "Prodi"
   const conflictDetails = conflicts.map(conflictMarkerLabel)
   const clashText = conflictDetails.join(", ")
-  const firstConflict = conflicts[0]
-  const extraConflictCount = Math.max(conflicts.length - 1, 0)
 
   return (
     <div
@@ -161,40 +153,15 @@ function BoardClassCard({
         title={`${item.course_code}, ${item.course_name}, ${programNamesFor(item)}`}
         className="flex min-w-0 flex-1 flex-col gap-0.5 overflow-hidden rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold"
       >
-        {compact ? (
-          <>
-            <span className="truncate text-[10px] font-semibold leading-tight">
-              {item.course_name}
-            </span>
-            <span className="truncate text-[10px] leading-tight">
-              {prodiScope}, Kelas {item.section_code}
-            </span>
-          </>
-        ) : (
-          <>
-            <span className="flex items-center justify-between gap-1">
-              <span className="truncate font-mono text-[10px] font-semibold leading-tight">
-                {item.course_code}
-              </span>
-              <ProdiScopeBadge item={item} />
-            </span>
-            <span className="truncate text-xs font-semibold leading-tight">
-              {item.course_name}
-            </span>
-            <span className="truncate text-[10px] leading-tight">
-              {item.section_code}, {lecturers}
-            </span>
-            <span className="truncate text-[10px] leading-tight">
-              {room}, Tatap muka {item.face_to_face_minutes} menit
-            </span>
-            {isConflict && firstConflict && (
-              <span className="mt-auto min-w-0 truncate rounded bg-danger/20 px-1.5 py-0.5 text-[10px] font-semibold text-danger">
-                {conflictMarkerLabel(firstConflict)}
-                {extraConflictCount > 0 ? ` +${extraConflictCount}` : ""}
-              </span>
-            )}
-          </>
-        )}
+        <span className="flex items-center justify-between gap-1">
+          <span className="truncate font-mono text-[10px] font-semibold leading-tight">
+            {item.course_code}
+          </span>
+          <ProdiScopeBadge item={item} />
+        </span>
+        <span className="truncate text-[10px] font-semibold leading-tight">
+          {item.course_name}
+        </span>
       </button>
 
       {detailsOpen && (
@@ -407,7 +374,6 @@ export default function BoardGrid({
                         <BoardClassCard
                           key={item.class_section_id}
                           item={item}
-                          compact={isCompact}
                           positionClass={positionClass}
                           conflicts={sectionConflicts}
                           isConflict={sectionConflicts.length > 0}
