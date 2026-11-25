@@ -470,6 +470,8 @@ class ClassSection(Base):
         nullable=False,
     )
     section_code: Mapped[str] = mapped_column(String(30), nullable=False)
+    # Dipertahankan agar downgrade migrasi bisa memulihkan kode semula.
+    legacy_section_code: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     capacity: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
     enrollment_status: Mapped[str] = mapped_column(String(30), nullable=False, default="open")
 

@@ -13,6 +13,7 @@ from auth import get_password_hash
 from catalog import get_all_courses, prodi_code, refresh_from_db
 from database import AsyncSessionLocal
 from features.scheduling.scheduler import generate_schedule
+from section_codes import format_section_code, section_prefix
 from models import (
     StudyProgram,
     LecturerSchedulePreference,
@@ -490,6 +491,8 @@ async def _seed_demo_sections(session, period) -> int:
                 CourseOffering.course_offering_id,
                 CourseOffering.offering_code,
                 StudyProgram.study_program_id,
+                StudyProgram.program_code,
+                CurriculumCourse.course_scope,
                 Course.course_code,
             )
             .join(
@@ -546,6 +549,11 @@ async def _seed_demo_sections(session, period) -> int:
         offerings = offerings_by_course.setdefault(row.course_id, [])
         if row.course_offering_id not in {item.course_offering_id for item in offerings}:
             offerings.append(row)
+    programs_by_course: dict[object, set[str]] = {}
+    scopes_by_course: dict[object, set[str]] = {}
+    for row in rows:
+        programs_by_course.setdefault(row.course_id, set()).add(row.program_code)
+        scopes_by_course.setdefault(row.course_id, set()).add(row.course_scope)
     created = 0
     for course_id, offerings in offerings_by_course.items():
         target = max(
@@ -582,21 +590,23 @@ async def _seed_demo_sections(session, period) -> int:
             .all()
         )
         codes = {section.section_code for section in sections}
-        for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
-            if len(codes) >= target:
-                break
-            if letter in codes:
-                continue
+        prefix = section_prefix(
+            programs_by_course[course_id], scopes_by_course[course_id]
+        )
+        ordinal = len(codes) + 1
+        while len(codes) < target:
+            section_code = format_section_code(prefix, ordinal)
             session.add(
                 ClassSection(
                     offering_component_id=component.offering_component_id,
-                    section_code=letter,
+                    section_code=section_code,
                     capacity=40,
                     enrollment_status="open",
                 )
             )
-            codes.add(letter)
+            codes.add(section_code)
             created += 1
+            ordinal += 1
     await session.flush()
     return created
 
@@ -1269,15 +1279,19 @@ async def seed_data():
                 session.add(comp)
                 await session.flush()
 
+            prefix = section_prefix({tsd_prodi.program_code}, {cc_obj.course_scope})
+            section_code = format_section_code(
+                prefix, ord(scfg["section"]) - ord("A") + 1
+            )
             stmt_sec = select(ClassSection).where(
                 ClassSection.offering_component_id == comp.offering_component_id,
-                ClassSection.section_code == scfg["section"],
+                ClassSection.section_code == section_code,
             )
             sec = (await session.execute(stmt_sec)).scalars().first()
             if not sec:
                 sec = ClassSection(
                     offering_component_id=comp.offering_component_id,
-                    section_code=scfg["section"],
+                    section_code=section_code,
                     capacity=40,
                     enrollment_status="open",
                 )
@@ -1325,9 +1339,12 @@ async def seed_data():
         # agar timetable lolos trg_timetable_items_validate. Penjadwalan seksi
         # diserahkan ke solver setelah data penawaran dan dosen lengkap.
         stmt_mandatory = (
-            select(CurriculumCourse, Course.course_code)
+            select(CurriculumCourse, Course.course_code, StudyProgram.program_code)
             .join(Course, Course.course_id == CurriculumCourse.course_id)
             .join(Curriculum, Curriculum.curriculum_id == CurriculumCourse.curriculum_id)
+            .join(
+                StudyProgram, StudyProgram.study_program_id == Curriculum.study_program_id
+            )
             .where(
                 Curriculum.is_active.is_(True),
                 CurriculumCourse.is_active.is_(True),
@@ -1343,9 +1360,14 @@ async def seed_data():
             )
         )
         mandatory_rows = (await session.execute(stmt_mandatory)).all()
+        programs_by_course: dict[object, set[str]] = {}
+        scopes_by_course: dict[object, set[str]] = {}
+        for cc_obj, _, program_code in mandatory_rows:
+            programs_by_course.setdefault(cc_obj.course_id, set()).add(program_code)
+            scopes_by_course.setdefault(cc_obj.course_id, set()).add(cc_obj.course_scope)
 
         offerings_by_course: dict[object, CourseOffering] = {}
-        for cc_obj, code in mandatory_rows:
+        for cc_obj, code, _ in mandatory_rows:
             course_id = cc_obj.course_id
             offering = offerings_by_course.get(course_id)
             first_for_course = offering is None
@@ -1384,6 +1406,9 @@ async def seed_data():
             if not first_for_course:
                 continue
 
+            prefix = section_prefix(
+                programs_by_course[course_id], scopes_by_course[course_id]
+            )
             stmt_comp = select(OfferingComponent).where(
                 OfferingComponent.course_offering_id == offering.course_offering_id,
                 OfferingComponent.component_code == "KULIAH",
@@ -1398,9 +1423,9 @@ async def seed_data():
                 session.add(comp)
                 await session.flush()
 
-            # Penawaran kanonik memakai seksi yang sudah ada; kode milik
-            # pengguna tidak diubah. Seksi tambahan disiapkan helper demo.
-            canonical_section_code = "Z"
+            # Seksi kanonik memakai seksi yang sudah ada; kode baru mengikuti
+            # aturan penamaan section per prodi atau UM untuk MK bersama.
+            canonical_section_code = format_section_code(prefix, 1)
             stmt_sec = select(ClassSection).where(
                 ClassSection.offering_component_id == comp.offering_component_id,
             )

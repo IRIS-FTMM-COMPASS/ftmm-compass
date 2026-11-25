@@ -18,6 +18,7 @@ from uuid import UUID
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from section_codes import format_section_code, section_prefix
 from audit import record_admin_action
 from models import (
     AcademicPeriod,
@@ -78,7 +79,6 @@ REASON_MANUAL_NO_SLOT = "manual_no_slot"
 REASON_POOL_EXHAUSTED = "pool_exhausted"
 REASON_CURRICULUM_CONTEXT = "curriculum_context_required"
 DEFAULT_SECTION_CAPACITY = 40
-SECTION_LETTERS = ("A", "B", "C")
 MAX_SEARCH_NODES = 30_000
 
 REASON_LABELS = {
@@ -1006,23 +1006,27 @@ async def _create_override_sections(
             ).scalars().all()
         )
         needed = target_count - len(existing_codes)
-        for _ in range(max(needed, 0)):
-            letter = next(
-                (code for code in SECTION_LETTERS if code not in existing_codes),
-                None,
-            )
-            if letter is None:
-                break
+        if needed <= 0:
+            continue
+        eligibility_rows = eligible_by_offering[matching_offering]
+        prefix = section_prefix(
+            {row.program.program_code for row in eligibility_rows},
+            {row.course.course_scope for row in eligibility_rows},
+        )
+        ordinal = len(existing_codes) + 1
+        for _ in range(needed):
+            section_code = format_section_code(prefix, ordinal)
             db.add(
                 ClassSection(
                     offering_component_id=component.offering_component_id,
-                    section_code=letter,
+                    section_code=section_code,
                     capacity=DEFAULT_SECTION_CAPACITY,
                     enrollment_status="open",
                 )
             )
-            existing_codes.add(letter)
+            existing_codes.add(section_code)
             created += 1
+            ordinal += 1
     if created:
         await db.flush()
     return created

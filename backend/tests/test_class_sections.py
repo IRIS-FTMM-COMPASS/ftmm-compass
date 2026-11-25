@@ -30,7 +30,7 @@ def test_sections_for_active_period(client, student_headers):
     body = response.json()
     assert body["meta"]["total"] == len(body["data"])
 
-    section = next((s for s in body["data"] if s["section_code"] == "A"), None)
+    section = next((s for s in body["data"] if s["section_code"] == "SD-A1"), None)
     assert section is not None
     assert section["section_id"]
     assert section["schedules"]

@@ -408,6 +408,7 @@ def _make_case(
 
         return {
             "period_id": str(period.academic_period_id),
+            "program_code": program.program_code,
             "program_id": str(program.study_program_id),
             "course_id": str(course.course_id),
             "section_id": str(section.class_section_id),
@@ -565,14 +566,14 @@ def test_generate_uses_shared_room_when_no_owned_room(client, db_session, admin_
 def test_demand_sets_one_two_and_three_class_sections(
     client, db_session, admin_headers
 ):
-    for votes, expected_codes in (
-        (0, {"A"}),
-        (41, {"A", "B"}),
-        (81, {"A", "B", "C"}),
-    ):
+    for votes, count in ((0, 1), (41, 2), (81, 3)):
         case = _make_case(
             client, db_session, course_type="pilihan", demand_votes=votes
         )
+        prefix = case["program_code"]
+        expected_codes = {"A"} | {
+            f"{prefix}-A{ordinal}" for ordinal in range(2, count + 1)
+        }
         response = _generate(
             client,
             admin_headers,
@@ -827,7 +828,8 @@ def test_class_count_override_bounds_idempotency_and_generation(
         )
 
     rows = client.portal.call(section_codes)
-    assert {code for code, _ in rows} == {"A", "B", "C"}, rows
+    prefix = case["program_code"]
+    assert {code for code, _ in rows} == {"A", f"{prefix}-A2", f"{prefix}-A3"}, rows
     schedules = _schedules(client, db_session, [str(section_id) for _, section_id in rows])
     assert len(schedules) == 1, schedules
     generated_ids = {str(section_id) for _, section_id in rows}

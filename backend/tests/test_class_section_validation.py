@@ -86,13 +86,18 @@ def _parallel_sections(client):
                 )
             )
         await session.flush()
+        seeded_ids: dict[str, dict[str, str]] = {}
         for code, section_code, day, start, end in (
             ("TSD201", "A", 1, "09:00", "10:00"),
             ("TSD301", "B", 1, "08:00", "09:00"),
         ):
-            section_ids = (
+            candidates = (
                 await session.execute(
-                    select(ClassSection.class_section_id)
+                    select(
+                        ClassSection.class_section_id,
+                        ClassSection.section_code,
+                        ClassSection.legacy_section_code,
+                    )
                     .join(
                         OfferingComponent,
                         OfferingComponent.offering_component_id
@@ -106,13 +111,21 @@ def _parallel_sections(client):
                     .join(Course, Course.course_id == CourseOffering.course_id)
                     .where(
                         Course.course_code == code,
-                        ClassSection.section_code == section_code,
                         CourseOffering.academic_period_id
                         == period.academic_period_id,
                     )
                 )
-            ).scalars().all()
-            assert section_ids
+            ).all()
+            legacy_match = [
+                row for row in candidates if row.legacy_section_code == section_code
+            ]
+            generated_match = [
+                row for row in candidates if (row.section_code or "").startswith("SD-A")
+            ]
+            chosen = legacy_match or generated_match
+            assert chosen
+            section_ids = [chosen[0].class_section_id]
+            seeded_ids.setdefault(code, {})[section_code] = str(section_ids[0])
             await session.execute(
                 delete(ClassSchedule).where(
                     ClassSchedule.class_section_id.in_(section_ids)
@@ -136,7 +149,11 @@ def _parallel_sections(client):
         for code in ("TSD201", "TSD301"):
             rows = (
                 await session.execute(
-                    select(ClassSection.section_code, ClassSection.class_section_id)
+                    select(
+                        ClassSection.section_code,
+                        ClassSection.legacy_section_code,
+                        ClassSection.class_section_id,
+                    )
                     .join(
                         OfferingComponent,
                         OfferingComponent.offering_component_id
@@ -155,7 +172,14 @@ def _parallel_sections(client):
                     )
                 )
             ).all()
-            ids[code] = {str(code_): str(uuid) for code_, uuid in rows}
+            ids[code] = {
+                str(section_code): str(uuid) for section_code, _, uuid in rows
+            }
+            for section_code, legacy_code, uuid in rows:
+                if legacy_code:
+                    ids[code][f"legacy-{legacy_code}"] = str(uuid)
+            for legacy_code, section_id in seeded_ids.get(code, {}).items():
+                ids[code][f"seeded-{legacy_code}"] = section_id
         return ids
 
     return client.portal.call(insert)
@@ -167,7 +191,7 @@ def test_validation_detects_overlap_and_filters_alternatives(client, student_hea
         PATH,
         json={
             "selections": [
-                {"course_code": "TSD201", "section_id": ids["TSD201"]["A"]},
+                {"course_code": "TSD201", "section_id": ids["TSD201"]["seeded-A"]},
                 {"course_code": "TSD301", "section_id": ids["TSD301"]["A"]},
             ]
         },
@@ -219,8 +243,8 @@ def test_validation_without_overlap_has_empty_conflicts(client, student_headers)
         PATH,
         json={
             "selections": [
-                {"course_code": "TSD201", "section_id": ids["TSD201"]["A"]},
-                {"course_code": "TSD301", "section_id": ids["TSD301"]["B"]},
+                {"course_code": "TSD201", "section_id": ids["TSD201"]["seeded-A"]},
+                {"course_code": "TSD301", "section_id": ids["TSD301"]["seeded-B"]},
             ]
         },
         headers=student_headers,
@@ -265,7 +289,7 @@ def test_legacy_validation_alias_matches_canonical(client, student_headers):
     ids = _parallel_sections(client)
     payload = {
         "selections": [
-            {"course_code": "TSD201", "section_id": ids["TSD201"]["A"]},
+            {"course_code": "TSD201", "section_id": ids["TSD201"]["seeded-A"]},
             {"course_code": "TSD301", "section_id": ids["TSD301"]["A"]},
         ]
     }
