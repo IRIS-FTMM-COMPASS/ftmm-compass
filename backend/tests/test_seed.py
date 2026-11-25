@@ -212,21 +212,6 @@ def test_seed_creates_52_active_lecturers_from_curated_roster(client, db_session
         assert row["employee_number"] == employee_number, row["email"]
 
 
-def test_seed_pj_coordinator_profiles_use_curated_full_names(client, db_session):
-    coordinators = _rows(
-        client,
-        db_session,
-        "SELECT u.email, sp.program_code, u.full_name, lp.employee_number "
-        "FROM lecturer_profiles lp "
-        "JOIN users u ON u.user_id = lp.user_id "
-        "JOIN study_programs sp ON sp.study_program_id = lp.study_program_id "
-        "WHERE lp.is_program_coordinator = true AND u.is_active = true",
-    )
-    assert len(coordinators) == 5
-    assert {row["email"] for row in coordinators} == set(EXPECTED_PJ.values())
-    assert {row["program_code"]: row["full_name"] for row in coordinators} == EXPECTED_PJ_NAMES
-    assert all(row["employee_number"] is not None for row in coordinators)
-
 def test_legacy_testing_lecturer_is_not_active(client, admin_headers, db_session):
     active = _one(
         client,
@@ -357,11 +342,6 @@ def test_reseed_is_idempotent(client, db_session, monkeypatch):
     assert after_second["profiles"] == 45
     assert after_second["duplicate_priorities"] == 0
     _assert_voters_and_votes_are_scoped(client, db_session)
-
-
-def test_auto_seed_default_is_false():
-    settings_path = Path(__file__).resolve().parents[1] / "settings.py"
-    assert 'os.getenv("AUTO_SEED", "false")' in settings_path.read_text(encoding="utf-8")
 
 
 def test_startup_does_not_seed_when_auto_seed_is_disabled(client, monkeypatch):

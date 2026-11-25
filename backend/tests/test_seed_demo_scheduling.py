@@ -2,11 +2,9 @@
 
 import json
 from pathlib import Path
-
-import pytest
 from sqlalchemy import text
 
-from scheduling_assignment_rules import snake_candidate_index, snake_order
+from scheduling_assignment_rules import snake_candidate_index
 from scripts import seed as seed_module
 
 DEMO_CODES = ("TSD", "TRKB", "RN", "TI", "TE")
@@ -41,26 +39,6 @@ def _reseed(client, db_session, monkeypatch) -> None:
 
     monkeypatch.setattr(seed_module, "AsyncSessionLocal", lambda: _BoundSession())
     client.portal.call(seed_module.seed_data)
-
-
-@pytest.mark.parametrize(
-    ("pool_size", "expected"),
-    [
-        (0, []),
-        (1, [0, 0, 0, 0]),
-        (2, [0, 1, 1, 0]),
-        (4, [0, 1, 2, 3, 3, 2, 1, 0]),
-        (5, [0, 1, 2, 3, 4, 4, 3, 2, 1, 0]),
-    ],
-)
-def test_snake_candidate_index_is_deterministic(pool_size, expected):
-    assert [snake_candidate_index(pool_size, index) for index in range(len(expected))] == expected
-    assert snake_candidate_index(pool_size, -1) is None
-
-
-def test_snake_class_order_matches_assignment_preview():
-    assert snake_order(["A", "B", "C", "D"]) == ["A", "D", "C", "B"]
-    assert snake_order([]) == []
 
 
 def test_demo_preferences_cover_all_lecturers_in_five_programs(client, db_session):

@@ -258,16 +258,7 @@ async def _blocks(
         select(ScheduleEditLog.id)
         .where(
             ScheduleEditLog.class_section_id == ClassSection.class_section_id,
-            ScheduleEditLog.reason.not_in(
-                (
-                    "generate",
-                    "regenerate",
-                    "normalisasi blok",
-                    "perbaikan jadwal tanpa ruang maupun nama ruang",
-                    "full_reset",
-                    "finalize",
-                )
-            ),
+            ScheduleEditLog.is_manual_edit.is_(True),
             ScheduleEditLog.before_state.has_key("day_of_week"),
         )
         .exists()

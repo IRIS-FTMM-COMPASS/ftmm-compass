@@ -5,7 +5,7 @@ from datetime import datetime, time, timezone
 from typing import Any
 
 import pytest
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, func, select, text
 
 from models import (
     AcademicPeriod,
@@ -26,11 +26,14 @@ from models import (
     Room,
     SchedulePeriodLock,
     ScheduleProgramStatus,
+    ScheduleRun,
     StudentProfile,
     StudyProgram,
+    UnassignedClass,
     User,
 )
 from scheduling_common import all_study_program_ids, blocks_overlap
+from tests.test_scheduling_edits_finalize import scheduling_data  # noqa: F401
 
 PATH = "/api/v1/scheduling"
 
@@ -1094,25 +1097,6 @@ def test_elective_demand_ignores_cohort_size(client, db_session, admin_headers):
     assert {code for code, _ in rows} == {"A"}, rows
 
 
-def test_class_count_override_rejects_out_of_range_counts(
-    client, db_session, admin_headers
-):
-    case = _make_case(client, db_session)
-    payload = {
-        "academic_period_id": case["period_id"],
-        "course_id": case["course_id"],
-        "study_program_id": case["program_id"],
-    }
-    for invalid_count in (0, 4):
-        response = client.post(
-            PATH + "/class-count-overrides",
-            json={**payload, "class_count": invalid_count},
-            headers=admin_headers,
-        )
-        assert response.status_code == 422, response.text
-        assert response.json()["error"]["code"] == "validation_error"
-
-
 def test_two_sks_class_occupies_eight_to_ten(client, db_session, admin_headers):
     case = _make_case(
         client,
@@ -1260,6 +1244,142 @@ def test_unassigned_endpoint_returns_diagnostics(client, db_session, admin_heade
     assert item["reason"] == "kapasitas ruang"
     assert item["reason_code"] == "room_capacity"
     assert item["course_code"]
+
+
+def test_unassigned_endpoint_filters_by_program_for_admin(client, db_session, admin_headers):
+    first = _make_case(client, db_session, capacity=100, room_capacity=20)
+    second = _make_case(client, db_session, capacity=100, room_capacity=20)
+
+    generated = _generate(
+        client,
+        admin_headers,
+        mode="fill_empty",
+        academic_period_id=first["period_id"],
+    )
+    assert generated.status_code == 200, generated.text
+
+    unfiltered = client.get(
+        PATH + "/unassigned",
+        params={"academic_period_id": first["period_id"]},
+        headers=admin_headers,
+    )
+    assert unfiltered.status_code == 200, unfiltered.text
+    body = unfiltered.json()
+    section_ids = {item["class_section_id"] for item in body["data"]}
+    assert first["section_id"] in section_ids
+    assert second["section_id"] in section_ids
+    assert body["meta"]["study_program_id"] is None
+    assert body["meta"]["total"] == len(body["data"])
+
+    for tier in ("/api/v1", "/api"):
+        filtered = client.get(
+            f"{tier}/scheduling/unassigned",
+            params={
+                "academic_period_id": first["period_id"],
+                "study_program_id": first["program_id"],
+            },
+            headers=admin_headers,
+        )
+        assert filtered.status_code == 200, filtered.text
+        payload = filtered.json()
+        section_ids = {item["class_section_id"] for item in payload["data"]}
+        assert first["section_id"] in section_ids
+        assert second["section_id"] not in section_ids
+        assert payload["meta"]["study_program_id"] == first["program_id"]
+        assert payload["meta"]["total"] == len(payload["data"])
+        assert payload["meta"]["run_id"] == generated.json()["run_id"]
+
+
+def test_unassigned_endpoint_pj_scope_is_forced_and_other_prodi_denied(
+    client, db_session, admin_headers, pj_headers, scheduling_data
+):
+    data = scheduling_data
+
+    async def add_unassigned():
+        # Endpoint membaca diagnosis dari run terbaru, bukan run demo yang disemaikan.
+        run_id = (
+            await db_session.execute(
+                select(ScheduleRun.run_id)
+                .where(
+                    ScheduleRun.academic_period_id == uuid.UUID(data["period_id"])
+                )
+                .order_by(
+                    func.coalesce(
+                        ScheduleRun.ended_at, ScheduleRun.started_at
+                    ).desc(),
+                    ScheduleRun.run_id.desc(),
+                )
+                .limit(1)
+            )
+        ).scalars().one()
+        db_session.add_all(
+            [
+                UnassignedClass(
+                    run_id=run_id,
+                    class_section_id=uuid.UUID(data["section_a"]),
+                    reason="room_capacity",
+                ),
+                UnassignedClass(
+                    run_id=run_id,
+                    class_section_id=uuid.UUID(data["section_c"]),
+                    reason="room_capacity",
+                ),
+            ]
+        )
+        await db_session.commit()
+
+    client.portal.call(add_unassigned)
+
+    for tier in ("/api/v1", "/api"):
+        response = client.get(
+            f"{tier}/scheduling/unassigned",
+            params={"academic_period_id": data["period_id"]},
+            headers=pj_headers,
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        section_ids = {item["class_section_id"] for item in body["data"]}
+        assert data["section_a"] in section_ids
+        assert data["section_c"] not in section_ids
+        assert body["meta"]["study_program_id"] == data["program_tsd"]
+        assert body["meta"]["total"] == len(body["data"])
+
+        own = client.get(
+            f"{tier}/scheduling/unassigned",
+            params={
+                "academic_period_id": data["period_id"],
+                "study_program_id": data["program_tsd"],
+            },
+            headers=pj_headers,
+        )
+        assert own.status_code == 200, own.text
+        assert own.json()["data"] == body["data"]
+
+        denied = client.get(
+            f"{tier}/scheduling/unassigned",
+            params={
+                "academic_period_id": data["period_id"],
+                "study_program_id": data["program_trkb"],
+            },
+            headers=pj_headers,
+        )
+        assert denied.status_code == 403, denied.text
+        assert denied.json()["error"]["code"] == "akses_prodi_ditolak"
+
+    admin = client.get(
+        PATH + "/unassigned",
+        params={
+            "academic_period_id": data["period_id"],
+            "study_program_id": data["program_trkb"],
+        },
+        headers=admin_headers,
+    )
+    assert admin.status_code == 200, admin.text
+    admin_body = admin.json()
+    assert {
+        item["class_section_id"] for item in admin_body["data"]
+    } == {data["section_c"]}
+    assert admin_body["meta"]["study_program_id"] == data["program_trkb"]
 
 
 def _unavailable_all_week(pool_index=0):

@@ -976,3 +976,110 @@ def test_preview_selected_period_and_missing_class_validation(client, db_session
     missing = {"class_section_id": str(uuid.uuid4()), "user_id": str(case["lead_id"]), "source": "auto", "is_pinned": False}
     assert _save(client, admin_headers, [missing]).json()["error"]["code"] == "class_not_found"
     assert client.delete(f"{SAVE}/{uuid.uuid4()}", headers=admin_headers).json()["error"]["code"] == "class_not_found"
+
+
+def _single_assignment(
+    client,
+    headers,
+    case: dict[str, Any],
+    user_id: uuid.UUID,
+    *,
+    prefix: str = V1,
+) -> Any:
+    return client.put(
+        f"{prefix}/scheduling/classes/{case['classes']['A']}/assignment",
+        headers=headers,
+        json={
+            "academic_period_id": str(case["period_id"]),
+            "user_id": str(user_id),
+            "source": "manual",
+            "is_pinned": False,
+        },
+    )
+
+
+def test_single_class_assignment_rejects_outsider_on_canonical_and_legacy(
+    client, db_session, admin_headers
+):
+    case = _case(client, db_session)
+    for user_id, code in (
+        (case["inactive_id"], "invalid_lecturer"),
+        (case["no_profile_id"], "invalid_lecturer"),
+        (case["student_id"], "invalid_lecturer"),
+    ):
+        response = _single_assignment(client, admin_headers, case, user_id)
+        assert response.status_code == 422, response.text
+        assert response.json()["error"]["code"] == code
+    for prefix in (V1, LEGACY):
+        response = _single_assignment(
+            client, admin_headers, case, case["outsider_id"], prefix=prefix
+        )
+        assert response.status_code == 422, response.text
+        error = response.json()["error"]
+        assert error["code"] == "lecturer_not_in_pool"
+        assert any(
+            detail.get("field") == "user_id"
+            and detail.get("code") == "lecturer_not_in_pool"
+            for detail in error["details"]
+        )
+    assert _state(client, db_session, case)["assignments"] == []
+
+
+def test_single_class_assignment_rejects_previous_period_only_reference(
+    client, db_session, admin_headers
+):
+    case = _case(client, db_session)
+
+    async def add_previous_reference():
+        max_year = (
+            await db_session.execute(
+                select(func.max(AcademicPeriod.academic_year_start))
+            )
+        ).scalar()
+        previous = AcademicPeriod(
+            academic_year_start=int(max_year) + 1,
+            semester_number=2,
+            term="genap",
+            is_active=False,
+        )
+        db_session.add(previous)
+        await db_session.flush()
+        db_session.add(
+            CourseInstructorReference(
+                curriculum_course_id=case["curriculum_course_id"],
+                academic_period_id=previous.academic_period_id,
+                instructor_name="Dosen Periode Sebelumnya",
+                instructor_role="teaching_team",
+                user_id=case["outsider_id"],
+            )
+        )
+        await db_session.commit()
+
+    client.portal.call(add_previous_reference)
+    single = _single_assignment(client, admin_headers, case, case["outsider_id"])
+    bulk = _save(client, admin_headers, [_decision(case, "A", case["outsider_id"])])
+    assert single.status_code == bulk.status_code == 422
+    assert single.json() == bulk.json()
+    assert single.json()["error"]["code"] == "lecturer_not_in_pool"
+    assert _state(client, db_session, case)["assignments"] == []
+
+
+def test_single_class_assignment_accepts_pool_member_on_canonical_and_legacy(
+    client, db_session, admin_headers
+):
+    case = _case(client, db_session)
+    canonical = _single_assignment(client, admin_headers, case, case["lead_id"])
+    assert canonical.status_code == 200, canonical.text
+    assert canonical.json()["data"]["user_id"] == str(case["lead_id"])
+    legacy = _single_assignment(
+        client, admin_headers, case, case["lead_id"], prefix=LEGACY
+    )
+    assert legacy.status_code == 200, legacy.text
+    assert legacy.json() == canonical.json()
+    read_back = client.get(
+        f"{V1}/scheduling/classes/{case['classes']['A']}/assignment",
+        headers=admin_headers,
+    )
+    assert read_back.json() == canonical.json()
+    state = _state(client, db_session, case)
+    assert len([row for row in state["assignments"] if row[5]]) == 1

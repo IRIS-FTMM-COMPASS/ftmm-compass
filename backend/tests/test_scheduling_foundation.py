@@ -27,18 +27,10 @@ from models import (
     User,
 )
 from rate_limit import limiter
-from tests.conftest import SEEDED_LECTURER
 
 V1 = "/api/v1"
 LEGACY = "/api"
-PREFERENCES = f"{V1}/scheduling/preferences/me"
 PASSWORD = "FoundationUji2026!"
-SLOT = {
-    "day_of_week": 1,
-    "start_time": "08:00:00",
-    "end_time": "10:00:00",
-    "kind": "preferred",
-}
 
 
 def _login_headers(
@@ -77,15 +69,6 @@ def _period_pair(client, db_session) -> dict[str, Any]:
         }
 
     return client.portal.call(setup)
-
-
-def _user_id(client, db_session, email: str) -> uuid.UUID:
-    async def read():
-        return (
-            await db_session.execute(select(User.user_id).where(User.email == email))
-        ).scalar_one()
-
-    return client.portal.call(read)
 
 
 def _assignment_case(client, db_session, *, with_schedule: bool = True) -> dict[str, Any]:
@@ -211,6 +194,26 @@ def _assignment_case(client, db_session, *, with_schedule: bool = True) -> dict[
         )
         db_session.add(curriculum_course)
         await db_session.flush()
+        db_session.add_all(
+            [
+                CourseInstructorReference(
+                    curriculum_course_id=curriculum_course.curriculum_course_id,
+                    academic_period_id=active.academic_period_id,
+                    instructor_name=lecturer.full_name,
+                    instructor_role="teaching_team",
+                    user_id=lecturer.user_id,
+                    position=1,
+                ),
+                CourseInstructorReference(
+                    curriculum_course_id=curriculum_course.curriculum_course_id,
+                    academic_period_id=active.academic_period_id,
+                    instructor_name=second.full_name,
+                    instructor_role="teaching_team",
+                    user_id=second.user_id,
+                    position=2,
+                ),
+            ]
+        )
         offering = CourseOffering(
             academic_period_id=active.academic_period_id,
             course_id=course.course_id,
@@ -319,165 +322,6 @@ def _assignment_payload(case: dict[str, Any], **overrides) -> dict[str, Any]:
 
 def _assignment_url(case: dict[str, Any], prefix: str = V1) -> str:
     return f"{prefix}/scheduling/classes/{case['class_id']}/assignment"
-
-
-def test_preferences_require_authentication(client):
-    assert client.get(PREFERENCES).status_code == 401
-    assert client.put(PREFERENCES, json=[SLOT]).status_code == 401
-    assert client.get(f"{LEGACY}/scheduling/preferences/me").status_code == 401
-
-
-def test_preference_replace_is_idempotent_and_legacy_matches(client, db_session, lecturer_headers):
-    periods = _period_pair(client, db_session)
-    lecturer_id = _user_id(client, db_session, SEEDED_LECTURER[0])
-    slots = [
-        SLOT,
-        {
-            "day_of_week": 2,
-            "start_time": "13:00:00",
-            "end_time": "15:00:00",
-            "kind": "unavailable",
-        },
-    ]
-
-    first = client.put(PREFERENCES, json=slots, headers=lecturer_headers)
-    assert first.status_code == 200, first.text
-    body = first.json()
-    assert body["academic_period_id"] == str(periods["active_id"])
-    assert body["user_id"] == str(lecturer_id)
-    assert body["meta"]["count"] == 2
-    assert body["meta"]["status"] == "filled"
-    assert body["meta"]["preferred_count"] == 1
-    assert body["meta"]["unavailable_count"] == 1
-    assert body["meta"]["completeness"] == {
-        "filled": True,
-        "preferred_count": 1,
-        "unavailable_count": 1,
-    }
-    assert body["meta"]["deadline"] is None
-    assert [item["day_name"] for item in body["data"]] == ["Senin", "Selasa"]
-
-    repeated = client.put(PREFERENCES, json={"slots": slots}, headers=lecturer_headers)
-    assert repeated.status_code == 200, repeated.text
-    assert repeated.json() == body
-
-    canonical = client.get(PREFERENCES, headers=lecturer_headers)
-    legacy = client.get(
-        f"{LEGACY}/scheduling/preferences/me",
-        params={"academic_period_id": str(periods["active_id"])},
-        headers=lecturer_headers,
-    )
-    assert canonical.status_code == legacy.status_code == 200
-    assert canonical.json() == legacy.json() == body
-
-
-def test_preference_validation_rejects_ranges_kinds_and_overlap(client, lecturer_headers):
-    invalid_slots = [
-        [{**SLOT, "day_of_week": 0}],
-        [{**SLOT, "day_of_week": 6}],
-        [{**SLOT, "start_time": "06:00:00"}],
-        [{**SLOT, "end_time": "18:00:00"}],
-        [{**SLOT, "start_time": "08:30:00", "end_time": "10:30:00"}],
-        [{**SLOT, "start_time": "10:00:00", "end_time": "10:00:00"}],
-        [{**SLOT, "start_time": "11:00:00", "end_time": "10:00:00"}],
-        [{**SLOT, "kind": "blocked"}],
-        [{**SLOT, "user_id": str(uuid.uuid4())}],
-    ]
-    for slots in invalid_slots:
-        response = client.put(PREFERENCES, json=slots, headers=lecturer_headers)
-        assert response.status_code == 422, response.text
-        assert response.json()["error"]["code"] == "validation_error"
-
-    overlap = client.put(
-        PREFERENCES,
-        json=[
-            SLOT,
-            {
-                "day_of_week": 1,
-                "start_time": "09:00:00",
-                "end_time": "11:00:00",
-                "kind": "unavailable",
-            },
-        ],
-        headers=lecturer_headers,
-    )
-    assert overlap.status_code == 422, overlap.text
-    assert overlap.json()["error"]["code"] == "overlapping_preference"
-
-
-def test_preference_period_isolation_and_empty_replacement(client, db_session, lecturer_headers):
-    periods = _period_pair(client, db_session)
-    active_slot = SLOT
-    other_slot = {
-        "day_of_week": 1,
-        "start_time": "13:00:00",
-        "end_time": "15:00:00",
-        "kind": "unavailable",
-    }
-    assert client.put(
-        PREFERENCES,
-        params={"academic_period_id": str(periods["active_id"])},
-        json=[active_slot],
-        headers=lecturer_headers,
-    ).status_code == 200
-    assert client.put(
-        PREFERENCES,
-        params={"academic_period_id": str(periods["other_id"])},
-        json=[other_slot],
-        headers=lecturer_headers,
-    ).status_code == 200
-
-    default_period = client.get(PREFERENCES, headers=lecturer_headers)
-    other_period = client.get(
-        PREFERENCES,
-        params={"academic_period_id": str(periods["other_id"])},
-        headers=lecturer_headers,
-    )
-    assert default_period.json()["academic_period_id"] == str(periods["active_id"])
-    assert default_period.json()["data"] == [
-        {
-            "day_of_week": 1,
-            "day_name": "Senin",
-            "start_time": "08:00:00",
-            "end_time": "10:00:00",
-            "kind": "preferred",
-        }
-    ]
-    assert other_period.json()["data"][0]["kind"] == "unavailable"
-
-    cleared = client.put(
-        PREFERENCES,
-        params={"academic_period_id": str(periods["active_id"])},
-        json=[],
-        headers=lecturer_headers,
-    )
-    assert cleared.status_code == 200
-    assert cleared.json()["data"] == []
-    assert cleared.json()["meta"]["count"] == 0
-    assert cleared.json()["meta"]["status"] == "empty"
-    assert cleared.json()["meta"]["completeness"]["filled"] is False
-    assert client.get(
-        PREFERENCES,
-        params={"academic_period_id": str(periods["other_id"])},
-        headers=lecturer_headers,
-    ).json()["meta"]["count"] == 1
-    assert (
-        client.get(
-            PREFERENCES,
-            params={"academic_period_id": str(periods["other_id"])},
-            headers=lecturer_headers,
-        ).json()["meta"]["status"]
-        == "filled"
-    )
-
-
-def test_preferences_are_self_only(client, lecturer_headers, student_headers, admin_headers):
-    forbidden = client.put(PREFERENCES, json=[SLOT], headers=student_headers)
-    assert forbidden.status_code == 403
-    assert forbidden.json()["error"]["code"] == "forbidden"
-    assert client.put(PREFERENCES, json=[SLOT], headers=admin_headers).status_code == 403
-    assert client.put(f"{PREFERENCES}/{uuid.uuid4()}", json=[SLOT], headers=lecturer_headers).status_code == 404
-
 
 
 def test_assignment_requires_authentication(client):

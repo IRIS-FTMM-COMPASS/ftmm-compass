@@ -21,7 +21,6 @@ from models import (
     AcademicPeriod,
     ClassInstructorAssignment,
     ClassSection,
-    CourseInstructorReference,
     CourseOffering,
     LecturerProfile,
     OfferingComponent,
@@ -30,6 +29,7 @@ from models import (
 from scheduling_assignment_rules import snake_candidate_index, snake_order
 from scheduling_common import current_period_id
 from schemas import StudyProgramIdentity
+from ..assignment_pool import AssignmentPoolItem, class_assignment_pools
 from ..scheduler import (
     CurriculumContext,
     bump_input_revisions,
@@ -41,7 +41,6 @@ from ..scheduler import (
 router = APIRouter()
 
 _UNPROCESSABLE = getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", 422)
-_POOL_ROLES = ("pjmk", "teaching_team")
 
 
 class AssignmentDecisionRequest(BaseModel):
@@ -58,14 +57,6 @@ class AssignmentBulkRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     decisions: list[AssignmentDecisionRequest] = Field(..., min_length=1, max_length=500)
-
-
-class AssignmentPoolItem(BaseModel):
-    user_id: str
-    lecturer_name: str
-    position: int
-    is_pjmk: bool
-    curriculum_course_id: str
 
 
 class AssignmentResponse(BaseModel):
@@ -244,81 +235,6 @@ async def _record_assignment_change(
     )
 
 
-def _combined_pool(
-    contexts: list[CurriculumContext],
-    pools: dict[UUID, list[AssignmentPoolItem]],
-) -> list[AssignmentPoolItem]:
-    combined: list[AssignmentPoolItem] = []
-    seen: set[str] = set()
-    for context in contexts:
-        for item in pools.get(context.curriculum_course_id, []):
-            if item.user_id in seen:
-                continue
-            seen.add(item.user_id)
-            combined.append(
-                item.model_copy(update={"position": len(combined) + 1})
-            )
-    return combined
-
-
-async def _pools(
-    db: AsyncSession, period_id: UUID, curriculum_course_ids: set[UUID]
-) -> dict[UUID, list[AssignmentPoolItem]]:
-    if not curriculum_course_ids:
-        return {}
-    rows = (
-        await db.execute(
-            select(
-                CourseInstructorReference.curriculum_course_id,
-                CourseInstructorReference.instructor_role,
-                CourseInstructorReference.position,
-                CourseInstructorReference.instructor_reference_id,
-                User.user_id,
-                User.full_name,
-            )
-            .join(User, User.user_id == CourseInstructorReference.user_id)
-            .join(LecturerProfile, LecturerProfile.user_id == User.user_id)
-            .where(
-                CourseInstructorReference.curriculum_course_id.in_(
-                    curriculum_course_ids
-                ),
-                CourseInstructorReference.academic_period_id == period_id,
-                CourseInstructorReference.instructor_role.in_(_POOL_ROLES),
-                User.role == "lecturer",
-                User.is_active.is_(True),
-            )
-            .order_by(
-                CourseInstructorReference.curriculum_course_id,
-                CourseInstructorReference.instructor_role != "pjmk",
-                CourseInstructorReference.position.is_(None),
-                CourseInstructorReference.position,
-                CourseInstructorReference.instructor_reference_id,
-            )
-        )
-    ).all()
-    pools: dict[UUID, list[AssignmentPoolItem]] = {
-        curriculum_course_id: [] for curriculum_course_id in curriculum_course_ids
-    }
-    seen: dict[UUID, set[UUID]] = {
-        curriculum_course_id: set() for curriculum_course_id in curriculum_course_ids
-    }
-    for row in rows:
-        if row.user_id in seen[row.curriculum_course_id]:
-            continue
-        seen[row.curriculum_course_id].add(row.user_id)
-        pool = pools[row.curriculum_course_id]
-        pool.append(
-            AssignmentPoolItem(
-                user_id=str(row.user_id),
-                lecturer_name=row.full_name,
-                position=len(pool) + 1,
-                is_pjmk=row.instructor_role == "pjmk",
-                curriculum_course_id=str(row.curriculum_course_id),
-            )
-        )
-    return pools
-
-
 def _program_identities(
     contexts: list[CurriculumContext],
 ) -> list[StudyProgramIdentity]:
@@ -390,16 +306,14 @@ async def preview_assignments(
         if scope is None
         or any(context.study_program_id == scope for context in contexts)
     }
-    curriculum_course_ids = {
-        context.curriculum_course_id
-        for class_section_id in visible_class_ids
-        for context in contexts_by_class[class_section_id]
-    }
-    pools = await _pools(db, period.academic_period_id, curriculum_course_ids)
-    class_pools = {
-        class_section_id: _combined_pool(contexts_by_class[class_section_id], pools)
-        for class_section_id in visible_class_ids
-    }
+    class_pools = await class_assignment_pools(
+        db,
+        period.academic_period_id,
+        {
+            class_section_id: contexts_by_class[class_section_id]
+            for class_section_id in visible_class_ids
+        },
+    )
     existing = await _existing_assignments(db, visible_class_ids)
     groups: dict[UUID, list[CurriculumContext]] = defaultdict(list)
     for class_section_id in visible_class_ids:
@@ -533,16 +447,7 @@ async def _decision_contexts(
             )
         selected_by_class[decision.class_section_id] = selected
 
-    curriculum_course_ids = {
-        context.curriculum_course_id
-        for contexts in contexts_by_class.values()
-        for context in contexts
-    }
-    pools = await _pools(db, period_id, curriculum_course_ids)
-    class_pools = {
-        class_section_id: _combined_pool(contexts, pools)
-        for class_section_id, contexts in contexts_by_class.items()
-    }
+    class_pools = await class_assignment_pools(db, period_id, contexts_by_class)
     eligible = set(
         (
             await db.execute(

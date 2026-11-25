@@ -1106,6 +1106,9 @@ class ScheduleEditLog(Base):
         nullable=False,
     )
     reason: Mapped[str] = mapped_column(String(500), nullable=False)
+    is_manual_edit: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     before_state: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     after_state: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

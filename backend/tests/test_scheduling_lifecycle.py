@@ -7,9 +7,12 @@ from sqlalchemy import delete, select, update
 
 from models import (
     ClassInstructorAssignment,
+    ClassSection,
     ClassSchedule,
     CourseInstructorReference,
+    CourseOfferingEligibility,
     LecturerSchedulePreference,
+    OfferingComponent,
     ScheduleEditLog,
     SchedulePeriodSettings,
     ScheduleProgramStatus,
@@ -45,6 +48,59 @@ def _schedule_map(client, db_session, section_ids):
         row["section_id"]: row
         for row in _schedules(client, db_session, section_ids)
     }
+
+
+def _ensure_pool_reference(client, db_session, period_id, section_id, user_id):
+    """Pastikan dosen yang di-assign menjadi anggota pool periode berjalan."""
+
+    async def add():
+        curriculum_course_id = (
+            await db_session.execute(
+                select(CourseOfferingEligibility.curriculum_course_id)
+                .join(
+                    OfferingComponent,
+                    OfferingComponent.course_offering_id
+                    == CourseOfferingEligibility.course_offering_id,
+                )
+                .join(
+                    ClassSection,
+                    ClassSection.offering_component_id
+                    == OfferingComponent.offering_component_id,
+                )
+                .where(ClassSection.class_section_id == uuid.UUID(section_id))
+                .order_by(CourseOfferingEligibility.curriculum_course_id)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        assert curriculum_course_id is not None
+        existing = (
+            await db_session.execute(
+                select(CourseInstructorReference.instructor_reference_id).where(
+                    CourseInstructorReference.curriculum_course_id
+                    == curriculum_course_id,
+                    CourseInstructorReference.academic_period_id
+                    == uuid.UUID(period_id),
+                    CourseInstructorReference.user_id == uuid.UUID(user_id),
+                    CourseInstructorReference.instructor_role.in_(
+                        ("pjmk", "teaching_team")
+                    ),
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is None:
+            db_session.add(
+                CourseInstructorReference(
+                    curriculum_course_id=curriculum_course_id,
+                    academic_period_id=uuid.UUID(period_id),
+                    instructor_name="Dosen Pool Uji",
+                    instructor_role="teaching_team",
+                    user_id=uuid.UUID(user_id),
+                    position=2,
+                )
+            )
+            await db_session.commit()
+
+    client.portal.call(add)
 
 
 def test_generation_persists_revision_and_room_change_stales_board(
@@ -156,6 +212,9 @@ def test_preference_class_count_and_legacy_assignment_changes_bump_revisions(
     assert state.get("None", 0) == 0
     assert state[case["program_id"]] == 1
 
+    _ensure_pool_reference(
+        client, db_session, case["period_id"], case["section_id"], case["lecturer_id"]
+    )
     assignment = client.put(
         f"{BASE}/classes/{case['section_id']}/assignment",
         json={
@@ -318,7 +377,7 @@ def test_finalize_rejects_stale_and_unassigned_classes(
 
 
 def test_finalize_warns_audits_and_locks_period_inputs(
-    client, db_session, pj_headers, scheduling_data
+    client, db_session, admin_headers, pj_headers, scheduling_data
 ):
     data = scheduling_data
 
@@ -388,6 +447,9 @@ def test_finalize_warns_audits_and_locks_period_inputs(
     assert preference.status_code == 409, preference.text
     assert preference.json()["error"]["code"] == "schedule_final"
 
+    _ensure_pool_reference(
+        client, db_session, data["period_id"], data["section_a"], lecturer_id
+    )
     assignment = client.put(
         f"{BASE}/classes/{data['section_a']}/assignment",
         json={
@@ -429,7 +491,7 @@ def test_finalize_warns_audits_and_locks_period_inputs(
     room = client.patch(
         f"{BASE}/rooms/{data['room_a']}",
         json={"capacity": 61},
-        headers=pj_headers,
+        headers=admin_headers,
     )
     assert room.status_code == 409, room.text
     assert room.json()["error"]["code"] == "schedule_final"

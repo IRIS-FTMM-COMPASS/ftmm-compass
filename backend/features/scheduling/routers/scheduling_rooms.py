@@ -1,8 +1,8 @@
 """Master ruang untuk penjadwalan lintas program studi.
 
 Admin mengelola semua ruang, termasuk kode, kapasitas, kepemilikan prodi, dan
-status aktif. PJ Prodi mengelola ruang milik prodinya sendiri (kapasitas selalu
-berasal dari data ruang, bukan tebakan solver).
+status aktif. PJ Prodi hanya membaca ruang milik prodinya dan ruang bersama;
+kapasitas selalu berasal dari data ruang, bukan tebakan solver.
 """
 
 import uuid
@@ -39,24 +39,14 @@ def _field_error(field: str, message: str, code: str) -> JSONResponse:
     )
 
 
-def _write_scope(current_user: User) -> uuid.UUID | None | JSONResponse:
-    """None berarti admin; UUID membatasi PJ Prodi pada prodinya sendiri."""
-    if current_user.role == "admin":
-        return None
-
-    profile = current_user.lecturer_profile
-    if (
-        current_user.role == "lecturer"
-        and profile is not None
-        and profile.is_program_coordinator
-        and profile.study_program_id is not None
-    ):
-        return profile.study_program_id
-    return _deny(
-        status.HTTP_403_FORBIDDEN,
-        "forbidden",
-        "Manajemen master ruang hanya tersedia untuk admin dan PJ Prodi.",
-    )
+def _require_admin(current_user: User) -> JSONResponse | None:
+    if current_user.role != "admin":
+        return _deny(
+            status.HTTP_403_FORBIDDEN,
+            "forbidden",
+            "Manajemen master ruang hanya tersedia untuk admin.",
+        )
+    return None
 
 
 async def _active_period_guard(
@@ -70,14 +60,6 @@ async def _active_period_guard(
         code, message = locked
         return None, _deny(409, code, message)
     return period_id, None
-
-
-def _program_scope_denied() -> JSONResponse:
-    return _deny(
-        status.HTTP_403_FORBIDDEN,
-        "akses_prodi_ditolak",
-        "Ruang berada di luar program studi Anda.",
-    )
 
 
 def _read_scope(current_user: User) -> uuid.UUID | None | JSONResponse:
@@ -177,9 +159,9 @@ async def create_room(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    scope = _write_scope(current_user)
-    if isinstance(scope, JSONResponse):
-        return scope
+    denied = _require_admin(current_user)
+    if denied is not None:
+        return denied
 
     code = payload.room_code.strip()
     duplicate = await db.execute(
@@ -197,10 +179,6 @@ async def create_room(
     )
     if isinstance(owner_id, JSONResponse):
         return owner_id
-    if scope is not None:
-        if owner_id is not None and owner_id != scope:
-            return _program_scope_denied()
-        owner_id = scope
     period_id, denied = await _active_period_guard(
         db, {owner_id} if owner_id is not None else None
     )
@@ -235,9 +213,9 @@ async def update_room(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    scope = _write_scope(current_user)
-    if isinstance(scope, JSONResponse):
-        return scope
+    denied = _require_admin(current_user)
+    if denied is not None:
+        return denied
 
     room = (
         await db.execute(select(Room).where(Room.room_id == room_id))
@@ -248,8 +226,6 @@ async def update_room(
             "room_not_found",
             "Ruang tidak ditemukan.",
         )
-    if scope is not None and room.owner_study_program_id != scope:
-        return _program_scope_denied()
 
     owner_present = await _owner_key_present(request)
     owner_id = room.owner_study_program_id
@@ -259,8 +235,6 @@ async def update_room(
         )
         if isinstance(owner_id, JSONResponse):
             return owner_id
-        if scope is not None and owner_id != scope:
-            return _program_scope_denied()
 
     room_program_ids = {
         program_id

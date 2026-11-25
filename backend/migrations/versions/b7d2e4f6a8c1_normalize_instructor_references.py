@@ -26,6 +26,7 @@ Downgrade mengembalikan seluruh baris pjmk ke teaching_team. Ini kehilangan
 informasi PJ MK asli (termasuk baris pjmk yang sudah ada sebelum migrasi);
 catatan kehilangan data ini disengaja karena status pjmk tidak dapat dipulihkan
 tanpa sumber eksternal.
+Baris yang sudah dihapus oleh normalisasi historis memerlukan dump eksternal untuk dipulihkan.
 """
 
 from collections.abc import Sequence

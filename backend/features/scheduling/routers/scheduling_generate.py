@@ -402,12 +402,40 @@ async def put_class_count_override(
 @router.get("/scheduling/unassigned")
 async def list_unassigned(
     academic_period_id: str | None = None,
+    study_program_id: str | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     denied = _require_scheduler(current_user)
     if denied is not None:
         return denied
+
+    requested = None
+    if study_program_id is not None:
+        requested = _parse_id(study_program_id, "study_program_id")
+        if not isinstance(requested, UUID):
+            return requested
+
+    if current_user.role == "admin":
+        scope = requested
+    else:
+        profile = current_user.lecturer_profile
+        scope = profile.study_program_id if profile is not None else None
+        if scope is None:
+            return error_response(
+                status.HTTP_403_FORBIDDEN,
+                "forbidden",
+                "PJ Prodi belum memiliki program studi.",
+                detail="PJ Prodi belum memiliki program studi.",
+            )
+        if requested is not None and requested != scope:
+            return error_response(
+                status.HTTP_403_FORBIDDEN,
+                "akses_prodi_ditolak",
+                "PJ hanya dapat melihat diagnosis prodinya sendiri.",
+                detail="PJ hanya dapat melihat diagnosis prodinya sendiri.",
+            )
+    scope_value = str(scope) if scope is not None else None
 
     period = await _resolve_period(db, academic_period_id)
     if not isinstance(period, AcademicPeriod):
@@ -430,6 +458,7 @@ async def list_unassigned(
             "meta": {
                 "total": 0,
                 "academic_period_id": str(period.academic_period_id),
+                "study_program_id": scope_value,
                 "run_id": None,
             },
         }
@@ -467,12 +496,22 @@ async def list_unassigned(
             db, period.academic_period_id, entries
         )
     ]
+    if scope_value is not None:
+        data = [
+            item
+            for item in data
+            if any(
+                context["study_program_id"] == scope_value
+                for context in item["eligible_curriculum_contexts"]
+            )
+        ]
 
     return {
         "data": data,
         "meta": {
             "total": len(data),
             "academic_period_id": str(period.academic_period_id),
+            "study_program_id": scope_value,
             "run_id": str(latest_run.run_id),
             "mode": latest_run.mode,
             "stats": latest_run.stats,

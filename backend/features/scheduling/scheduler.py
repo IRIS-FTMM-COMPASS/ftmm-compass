@@ -1188,6 +1188,7 @@ async def generate_schedule(
                         class_section_id=schedule.class_section_id,
                         changed_by=triggered_by,
                         reason="full_reset",
+                        is_manual_edit=False,
                         before_state=_schedule_snapshot(schedule),
                         after_state=None,
                     )
@@ -1584,16 +1585,7 @@ async def generate_schedule(
             await db.execute(
                 select(ScheduleEditLog.class_section_id).where(
                     ScheduleEditLog.class_section_id.in_(section_ids),
-                    ScheduleEditLog.reason.not_in(
-                        (
-                            "generate",
-                            "regenerate",
-                            "normalisasi blok",
-                            "perbaikan jadwal tanpa ruang maupun nama ruang",
-                            "full_reset",
-                            "finalize",
-                        )
-                    ),
+                    ScheduleEditLog.is_manual_edit.is_(True),
                     ScheduleEditLog.before_state.has_key("day_of_week"),
                 )
             )
@@ -1679,6 +1671,7 @@ async def generate_schedule(
                         class_section_id=section_id,
                         changed_by=triggered_by,
                         reason="regenerate",
+                        is_manual_edit=False,
                         before_state=_schedule_snapshot(schedule),
                         after_state=None,
                     )
@@ -1694,6 +1687,7 @@ async def generate_schedule(
                             class_section_id=section_id,
                             changed_by=triggered_by,
                             reason="full_reset",
+                            is_manual_edit=False,
                             before_state=_schedule_snapshot(schedule),
                             after_state=None,
                         )
@@ -1713,6 +1707,7 @@ async def generate_schedule(
                         class_section_id=section_id,
                         changed_by=triggered_by,
                         reason="perbaikan jadwal tanpa ruang maupun nama ruang",
+                        is_manual_edit=False,
                         before_state=_schedule_snapshot(schedule),
                         after_state=None,
                     )
@@ -1736,6 +1731,7 @@ async def generate_schedule(
                         class_section_id=section_id,
                         changed_by=triggered_by,
                         reason="normalisasi blok",
+                        is_manual_edit=False,
                         before_state=before_state,
                         after_state=_schedule_snapshot(schedule),
                     )
@@ -1836,6 +1832,7 @@ async def generate_schedule(
                 class_section_id=section_id,
                 changed_by=triggered_by,
                 reason="regenerate" if mode == "regenerate" else "generate",
+                is_manual_edit=False,
                 before_state=None,
                 after_state=_schedule_snapshot(schedule),
             )

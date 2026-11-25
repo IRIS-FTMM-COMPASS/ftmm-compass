@@ -660,6 +660,7 @@ async def move_class(
             class_section_id=section_id,
             changed_by=current_user.user_id,
             reason=reason,
+            is_manual_edit=True,
             before_state=before,
             after_state=after,
         )
@@ -820,6 +821,7 @@ async def finalize_period(
                 class_section_id=section_id,
                 changed_by=current_user.user_id,
                 reason="finalize",
+                is_manual_edit=False,
                 before_state=_snapshot(block),
                 after_state={
                     "state": "final",
@@ -926,6 +928,7 @@ async def unlock_period(
                 class_section_id=section_id,
                 changed_by=current_user.user_id,
                 reason=reason,
+                is_manual_edit=False,
                 before_state={
                     "krs_open": was_open,
                     "state": state_before.get(state_by_section.get(section_id), "draft"),

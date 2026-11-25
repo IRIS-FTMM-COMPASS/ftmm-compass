@@ -33,7 +33,12 @@ from models import (
     User,
 )
 from scheduling_common import DAY_NAMES, current_period_id
-from ..scheduler import bump_input_revisions, scheduling_input_lock
+from ..assignment_pool import class_assignment_pools
+from ..scheduler import (
+    bump_input_revisions,
+    load_curriculum_contexts,
+    scheduling_input_lock,
+)
 
 router = APIRouter()
 
@@ -1287,6 +1292,23 @@ async def upsert_class_assignment(
             "user_id",
             "Dosen harus memiliki akun dosen aktif.",
             "invalid_lecturer",
+        )
+
+    contexts = await load_curriculum_contexts(
+        db, class_period_id, {class_section_id}
+    )
+    class_pool = await class_assignment_pools(db, class_period_id, contexts)
+    if str(payload.user_id) not in {
+        item.user_id for item in class_pool.get(class_section_id, [])
+    }:
+        message = "Dosen harus aktif, berakun, dan menjadi anggota Tim Pengajar kelas MK."
+        return _error(
+            _UNPROCESSABLE,
+            "lecturer_not_in_pool",
+            message,
+            details=[
+                {"field": "user_id", "message": message, "code": "lecturer_not_in_pool"}
+            ],
         )
 
     assignment = (

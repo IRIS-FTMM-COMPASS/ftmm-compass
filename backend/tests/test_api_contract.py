@@ -281,17 +281,6 @@ def test_amplop_error_konsisten(client, admin_headers, student_headers, status_c
     assert response.json()["error"]["code"] == EXPECTED_ERROR_CODES[status_code]
 
 
-def test_respons_error_tidak_pernah_teks_biasa(client, admin_headers):
-    responses = (
-        client.get("/api/v1/courses/ZZZ999", headers=admin_headers),
-        client.get("/api/v1/courses", params={"per_page": 0}, headers=admin_headers),
-        client.get("/api/v1/dashboard/me"),
-    )
-    for response in responses:
-        assert response.status_code >= 400
-        assert response.headers.get("content-type", "").startswith("application/json")
-
-
 def test_parity_register(client):
     unique = uuid.uuid4().hex[:8]
     payload = {

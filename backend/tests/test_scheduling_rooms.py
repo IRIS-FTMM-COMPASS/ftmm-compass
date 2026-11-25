@@ -171,7 +171,7 @@ def test_capacity_below_one_is_rejected(client, admin_headers, db_session):
         assert response.json()["error"]["code"] == "validation_error"
 
 
-def test_pj_prodi_sees_owned_and_shared_rooms_and_manages_own(
+def test_pj_prodi_sees_owned_and_shared_rooms_but_cannot_manage(
     client, admin_headers, pj_headers, student_headers, db_session
 ):
     tsd = _program_id(client, db_session, "TSD")
@@ -201,38 +201,26 @@ def test_pj_prodi_sees_owned_and_shared_rooms_and_manages_own(
     lecturer = client.get(PATH, headers=_non_coordinator_headers(client, db_session))
     assert lecturer.status_code == 403, lecturer.text
 
-    write = client.post(
-        PATH,
-        headers=pj_headers,
-        json={
-            "room_code": _code(),
-            "capacity": 20,
-            "building": "NANO",
-            "owner_study_program_id": tsd,
-        },
-    )
-    assert write.status_code == 201, write.text
-    assert write.json()["owner_study_program_id"] == tsd
+    payload = {
+        "room_code": _code(),
+        "capacity": 20,
+        "building": "NANO",
+        "owner_study_program_id": tsd,
+    }
+    for tier in (V1, "/api"):
+        write = client.post(f"{tier}/scheduling/rooms", headers=pj_headers, json=payload)
+        assert write.status_code == 403, write.text
+        assert write.json()["error"]["code"] == "forbidden"
+        patch = client.patch(
+            f"{tier}/scheduling/rooms/{own['room_id']}",
+            headers=pj_headers,
+            json={"capacity": 99},
+        )
+        assert patch.status_code == 403, patch.text
+        assert patch.json()["error"]["code"] == "forbidden"
 
-    foreign_write = client.post(
-        PATH,
-        headers=pj_headers,
-        json={
-            "room_code": _code(),
-            "capacity": 20,
-            "building": "NANO",
-            "owner_study_program_id": other,
-        },
-    )
-    assert foreign_write.status_code == 403, foreign_write.text
-    assert foreign_write.json()["error"]["code"] == "akses_prodi_ditolak"
-
-    patch = client.patch(
-        f"{PATH}/{own['room_id']}",
-        headers=student_headers,
-        json={"capacity": 99},
-    )
-    assert patch.status_code == 403, patch.text
+    after = client.get(PATH, headers=admin_headers).json()["data"]
+    assert after == admin_body["data"]
 
 
 def test_unknown_room_and_unknown_owner_are_rejected(
@@ -296,11 +284,12 @@ def test_owner_can_be_omitted_or_cleared_for_shared_rooms(client, admin_headers,
     assert cleared.json()["owner_study_program_id"] is None
 
 
-def test_pj_create_forces_own_program_owner(client, admin_headers, pj_headers, db_session):
+def test_pj_cannot_create_rooms(client, admin_headers, pj_headers, db_session):
     tsd = _program_id(client, db_session, "TSD")
     other = _program_id(client, db_session, "TRKB")
+    before = client.get(PATH, headers=admin_headers).json()["data"]
 
-    for owner in (None, "", "  ", tsd):
+    for owner in (None, "", "  ", tsd, other):
         payload = {
             "room_code": _code(),
             "building": "NANO",
@@ -308,22 +297,12 @@ def test_pj_create_forces_own_program_owner(client, admin_headers, pj_headers, d
         }
         if owner is not None:
             payload["owner_study_program_id"] = owner
-        response = client.post(PATH, headers=pj_headers, json=payload)
-        assert response.status_code == 201, response.text
-        assert response.json()["owner_study_program_id"] == tsd
-
-    denied = client.post(
-        PATH,
-        headers=pj_headers,
-        json={
-            "room_code": _code(),
-            "building": "NANO",
-            "capacity": 24,
-            "owner_study_program_id": other,
-        },
-    )
-    assert denied.status_code == 403, denied.text
-    assert denied.json()["error"]["code"] == "akses_prodi_ditolak"
+        for tier in (V1, "/api"):
+            denied = client.post(
+                f"{tier}/scheduling/rooms", headers=pj_headers, json=payload
+            )
+            assert denied.status_code == 403, denied.text
+            assert denied.json()["error"]["code"] == "forbidden"
 
     admin_foreign = client.post(
         PATH,
@@ -337,65 +316,57 @@ def test_pj_create_forces_own_program_owner(client, admin_headers, pj_headers, d
     )
     assert admin_foreign.status_code == 201, admin_foreign.text
     assert admin_foreign.json()["owner_study_program_id"] == other
+    after = client.get(PATH, headers=admin_headers).json()["data"]
+    assert len(after) == len(before) + 1
 
 
-def test_pj_cannot_update_shared_or_foreign_room(client, admin_headers, pj_headers, db_session):
+def test_pj_cannot_update_any_room(client, admin_headers, pj_headers, db_session):
+    tsd = _program_id(client, db_session, "TSD")
     other = _program_id(client, db_session, "TRKB")
+    own = _create_room(client, admin_headers, db_session, owner_study_program_id=tsd)
     shared = _create_room(client, admin_headers, db_session, owner_study_program_id=None)
     foreign = _create_room(
         client, admin_headers, db_session, owner_study_program_id=other
     )
 
-    for room in (shared, foreign):
-        denied = client.patch(
-            f"{PATH}/{room['room_id']}",
-            headers=pj_headers,
-            json={"capacity": 55},
-        )
-        assert denied.status_code == 403, denied.text
-        assert denied.json()["error"]["code"] == "akses_prodi_ditolak"
+    for room in (own, shared, foreign):
+        for tier in (V1, "/api"):
+            denied = client.patch(
+                f"{tier}/scheduling/rooms/{room['room_id']}",
+                headers=pj_headers,
+                json={"capacity": 55},
+            )
+            assert denied.status_code == 403, denied.text
+            assert denied.json()["error"]["code"] == "forbidden"
 
     listed = client.get(PATH, headers=admin_headers).json()
-    assert _by_id(listed, shared["room_id"])["capacity"] == shared["capacity"]
-    assert _by_id(listed, foreign["room_id"])["capacity"] == foreign["capacity"]
+    for room in (own, shared, foreign):
+        assert _by_id(listed, room["room_id"])["capacity"] == room["capacity"]
 
 
-def test_pj_updates_own_room_without_changing_owner(client, admin_headers, pj_headers, db_session):
+def test_pj_cannot_update_own_room_fields(client, admin_headers, pj_headers, db_session):
     tsd = _program_id(client, db_session, "TSD")
     other = _program_id(client, db_session, "TRKB")
     room = _create_room(client, admin_headers, db_session, owner_study_program_id=tsd)
+    before = _by_id(client.get(PATH, headers=admin_headers).json(), room["room_id"])
 
-    updated = client.patch(
-        f"{PATH}/{room['room_id']}",
-        headers=pj_headers,
-        json={"capacity": 72, "is_active": False, "building": "NANO-B"},
-    )
-    assert updated.status_code == 200, updated.text
-    assert updated.json()["capacity"] == 72
-    assert updated.json()["is_active"] is False
-    assert updated.json()["owner_study_program_id"] == tsd
+    for payload in (
+        {"capacity": 72, "is_active": False, "building": "NANO-B"},
+        {"owner_study_program_id": tsd, "floor": "2"},
+        {"capacity": 99, "owner_study_program_id": other},
+        {"capacity": 99, "owner_study_program_id": None},
+    ):
+        for tier in (V1, "/api"):
+            denied = client.patch(
+                f"{tier}/scheduling/rooms/{room['room_id']}",
+                headers=pj_headers,
+                json=payload,
+            )
+            assert denied.status_code == 403, denied.text
+            assert denied.json()["error"]["code"] == "forbidden"
 
-    same_owner = client.patch(
-        f"{PATH}/{room['room_id']}",
-        headers=pj_headers,
-        json={"owner_study_program_id": tsd, "floor": "2"},
-    )
-    assert same_owner.status_code == 200, same_owner.text
-    assert same_owner.json()["owner_study_program_id"] == tsd
-
-    for owner in (other, None):
-        denied = client.patch(
-            f"{PATH}/{room['room_id']}",
-            headers=pj_headers,
-            json={"capacity": 99, "owner_study_program_id": owner},
-        )
-        assert denied.status_code == 403, denied.text
-        assert denied.json()["error"]["code"] == "akses_prodi_ditolak"
-
-    listed = client.get(PATH, headers=admin_headers).json()
-    unchanged = _by_id(listed, room["room_id"])
-    assert unchanged["capacity"] == 72
-    assert unchanged["owner_study_program_id"] == tsd
+    after = _by_id(client.get(PATH, headers=admin_headers).json(), room["room_id"])
+    assert after == before
 
 
 def test_non_pj_lecturer_cannot_write_rooms(client, db_session):

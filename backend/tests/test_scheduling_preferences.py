@@ -996,3 +996,35 @@ def test_unavailable_assigned_class_overlap_warns_without_rejecting_save(
         for item in remaining_warnings
     )
     assert len(without_active_assignment.json()["data"]) == 2
+
+
+def test_class_assignment_rejects_global_only_reference_on_canonical_and_legacy(
+    client, db_session, admin_headers
+):
+    periods = _periods(client, db_session)
+    lecturer_id = _user_id(client, db_session, SEEDED_LECTURER[0])
+    case = _assigned_class_case(client, db_session, lecturer_id, periods["following"])
+    for prefix in (V1, LEGACY):
+        response = client.put(
+            f"{prefix}/scheduling/classes/{case['class_a']}/assignment",
+            headers=admin_headers,
+            json={
+                "academic_period_id": str(case["active"]),
+                "user_id": str(case["other_lecturer_id"]),
+                "source": "manual",
+                "is_pinned": False,
+            },
+        )
+        assert response.status_code == 422, response.text
+        assert response.json()["error"]["code"] == "lecturer_not_in_pool"
+
+    async def assignments_for_class():
+        return (
+            await db_session.execute(
+                select(ClassInstructorAssignment.user_id).where(
+                    ClassInstructorAssignment.class_section_id == case["class_a"]
+                )
+            )
+        ).scalars().all()
+
+    assert client.portal.call(assignments_for_class) == [lecturer_id]

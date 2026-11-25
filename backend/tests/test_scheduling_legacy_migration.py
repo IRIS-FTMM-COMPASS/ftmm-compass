@@ -1,5 +1,6 @@
 """Transactional integration tests for the legacy scheduling data migration."""
 
+from importlib import import_module
 from datetime import time
 import uuid
 
@@ -740,5 +741,166 @@ def test_seed_recreation_cascades_stale_provenance_and_recopies(client, db_sessi
         assert mapping["instructor_reference_id"] == recreated.instructor_reference_id
         assert mapping["target_reference_id"] == references[0].instructor_reference_id
         assert result.academic_period_id == case["active_id"]
+
+    client.portal.call(scenario)
+
+
+def test_reference_snapshot_ddl_is_idempotent_and_reversible(monkeypatch):
+    ddl = import_module(
+        "migrations.versions.d4a6e8b0c2f1_create_instructor_reference_snapshot"
+    )
+    statements: list[str] = []
+
+    def execute(statement):
+        statements.append(str(statement))
+
+    monkeypatch.setattr(ddl.op, "execute", execute)
+    ddl.upgrade()
+    ddl.upgrade()
+    ddl.downgrade()
+    ddl.downgrade()
+
+    assert ddl.revision == "d4a6e8b0c2f1"
+    assert ddl.down_revision == "c9d0e1f2a3b4"
+    creates = [item for item in statements if "CREATE TABLE" in item]
+    drops = [item for item in statements if "DROP TABLE" in item]
+    assert len(creates) == len(drops) == 4
+    assert all("IF NOT EXISTS" in item for item in creates)
+    assert all("IF EXISTS" in item for item in drops)
+    assert any("instructor_reference_merge_snapshot" in item for item in creates)
+    assert any("instructor_reference_restore_map" in item for item in creates)
+    assert not any(
+        item.lstrip().upper().startswith(("INSERT ", "UPDATE ", "DELETE "))
+        for item in statements
+    )
+
+
+def test_snapshot_backfill_is_idempotent_and_restorable(
+    client, db_session, migration_case, monkeypatch
+):
+    case = migration_case
+    backfill = import_module(
+        "migrations.versions.e5b7f9c1d3a2_backfill_instructor_reference_snapshot"
+    )
+
+    async def scenario():
+        await db_session.execute(text("DELETE FROM instructor_reference_merge_snapshot"))
+        await db_session.execute(text("DELETE FROM instructor_reference_restore_map"))
+        seeded = await _seed_legacy(
+            db_session,
+            case,
+            availability=[],
+            references=[(0, "Dr. Dosen Satu, Ph.D.", "pjmk", 0)],
+        )
+        reference_id = seeded["reference_ids"][0]
+        snapshot_columns = (
+            "instructor_reference_id, curriculum_course_id, academic_period_id, "
+            "source_document_id, instructor_name, instructor_role, user_id"
+        )
+        connection = await db_session.connection()
+
+        def run(operation):
+            def with_bind(sync_connection):
+                monkeypatch.setattr(backfill.op, "get_bind", lambda: sync_connection)
+                operation()
+
+            return connection.run_sync(with_bind)
+
+        await run(backfill.upgrade)
+        await run(backfill.upgrade)
+
+        live = (
+            await db_session.execute(
+                text(
+                    f"SELECT {snapshot_columns} FROM course_instructor_references "
+                    "WHERE instructor_reference_id = :id"
+                ),
+                {"id": reference_id},
+            )
+        ).mappings().one()
+        snapshot = (
+            await db_session.execute(
+                text(
+                    f"SELECT {snapshot_columns} FROM instructor_reference_merge_snapshot "
+                    "WHERE instructor_reference_id = :id"
+                ),
+                {"id": reference_id},
+            )
+        ).mappings().one()
+        assert dict(live) == dict(snapshot)
+        assert (
+            await db_session.execute(
+                text(
+                    "SELECT count(*) FROM course_instructor_references "
+                    "WHERE instructor_reference_id = :id"
+                ),
+                {"id": reference_id},
+            )
+        ).scalar_one() == 1
+        assert (
+            await db_session.execute(
+                text("SELECT count(*) FROM instructor_reference_merge_snapshot")
+            )
+        ).scalar_one() == 1
+        restore_map = (
+            await db_session.execute(
+                text(
+                    "SELECT archived_reference_id, retained_reference_id "
+                    "FROM instructor_reference_restore_map"
+                )
+            )
+        ).mappings().one()
+        assert (
+            restore_map["archived_reference_id"]
+            == restore_map["retained_reference_id"]
+            == reference_id
+        )
+
+        # Snapshot survives deletion of the live row, which is what a merge does.
+        await db_session.execute(
+            text(
+                "DELETE FROM course_instructor_references "
+                "WHERE instructor_reference_id = :id"
+            ),
+            {"id": reference_id},
+        )
+        await db_session.execute(
+            text(
+                "INSERT INTO course_instructor_references ("
+                "instructor_reference_id, curriculum_course_id, academic_period_id, "
+                "source_document_id, instructor_name, instructor_role, user_id, "
+                "position, source_reference_id"
+                ") SELECT instructor_reference_id, curriculum_course_id, "
+                "academic_period_id, source_document_id, instructor_name, "
+                "instructor_role, user_id, position, source_reference_id "
+                "FROM instructor_reference_merge_snapshot "
+                "WHERE instructor_reference_id = :id"
+            ),
+            {"id": reference_id},
+        )
+        restored = (
+            await db_session.execute(
+                text(
+                    f"SELECT {snapshot_columns} FROM course_instructor_references "
+                    "WHERE instructor_reference_id = :id"
+                ),
+                {"id": reference_id},
+            )
+        ).mappings().one()
+        assert dict(restored) == dict(live)
+
+        await run(backfill.downgrade)
+        assert (
+            await db_session.execute(
+                text("SELECT count(*) FROM instructor_reference_merge_snapshot")
+            )
+        ).scalar_one() == 0
+        assert (
+            await db_session.execute(
+                text("SELECT count(*) FROM instructor_reference_restore_map")
+            )
+        ).scalar_one() == 0
+        assert backfill.revision == "e5b7f9c1d3a2"
+        assert backfill.down_revision == "d4a6e8b0c2f1"
 
     client.portal.call(scenario)

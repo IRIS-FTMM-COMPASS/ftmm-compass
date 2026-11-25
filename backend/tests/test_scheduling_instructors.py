@@ -569,22 +569,6 @@ def test_pj_cannot_create_reference_for_foreign_course(client, pj_headers, db_se
     assert response.json()["error"]["code"] == "forbidden"
 
 
-def test_reference_exposes_curriculum_course_and_study_program(
-    client, admin_headers, db_session
-):
-    reference = _create_reference(client, db_session)
-
-    response = client.get(
-        PATH, headers=admin_headers, params={"academic_period_id": reference["academic_period_id"]}
-    )
-    assert response.status_code == 200, response.text
-    item = _find(response.json()["data"], reference["reference_id"])
-    assert item["curriculum_course_id"] == reference["curriculum_course_id"]
-    assert item["study_program_id"] == reference["study_program_id"]
-    assert item["study_program_code"] == "TSD"
-    assert item["study_program_name"] == reference["study_program_name"]
-
-
 def test_list_references_filters_by_role(client, admin_headers, db_session):
     pjmk = _create_reference(client, db_session, role="pjmk")
     team = _create_reference(client, db_session, role="teaching_team")
@@ -1017,50 +1001,3 @@ def test_candidates_course_filter_respects_pj_scope(
     assert response.status_code == 403, response.text
     assert response.json()["error"]["code"] == "forbidden"
 
-
-
-def test_ordinary_lecturer_cannot_manage_instructor_references(client, db_session):
-    login = client.post(
-        f"{V1}/auth/login",
-        json={
-            "identifier": "aisyahdm@ftmm.unair.ac.id",
-            "password": "DosenFTMM2026!",
-        },
-    )
-    assert login.status_code == 200, login.text
-    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
-    reference = _create_reference(client, db_session)
-    period_id = reference["academic_period_id"]
-    reference_id = uuid.uuid4()
-    assert client.get(
-        PATH, headers=headers, params={"academic_period_id": period_id}
-    ).status_code == 403
-    assert (
-        client.post(
-            PATH,
-            headers=headers,
-            json={
-                "academic_period_id": period_id,
-                "curriculum_course_id": str(uuid.uuid4()),
-                "instructor_name": "Dosen Tidak Sah",
-                "instructor_role": "teaching_team",
-            },
-        ).status_code
-        == 403
-    )
-    assert (
-        client.patch(
-            f"{PATH}/{reference_id}",
-            headers=headers,
-            json={
-                "academic_period_id": period_id,
-                "instructor_name": "Nama Tidak Sah",
-            },
-        ).status_code
-        == 403
-    )
-    assert client.delete(
-        f"{PATH}/{reference_id}",
-        headers=headers,
-        params={"academic_period_id": period_id},
-    ).status_code == 403

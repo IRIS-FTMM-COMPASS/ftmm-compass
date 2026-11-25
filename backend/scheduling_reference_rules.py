@@ -1,9 +1,10 @@
-"""Aturan referensi dosen: normalisasi nama, merger duplikat, backfill PJ MK.
+"""Aturan referensi dosen: normalisasi nama dan backfill PJ MK.
 
 SQL di sini adalah salinan beku dari migrasi b7d2e4f6a8c1. Seed memakainya ulang
 agar hasil seeding konsisten dengan hasil migrasi: nama orang dinormalisasi ke
-akun dosen, baris identik digabung, dan setiap mata kuliah yang punya referensi
-berformat orang mendapat tepat satu PJ MK.
+akun dosen dan setiap mata kuliah yang punya referensi berformat orang mendapat
+tepat satu PJ MK. Penggabungan duplikat tidak dijalankan di sini karena baris
+yang dihapus oleh normalisasi historis hanya bisa dipulihkan dari dump eksternal.
 """
 
 from sqlalchemy import text
@@ -99,26 +100,6 @@ WHERE r.instructor_reference_id = m.instructor_reference_id
   )
 """
 
-MERGE_DUPLICATES_SQL = f"""
-WITH ranked AS (
-    SELECT
-        instructor_reference_id,
-        row_number() OVER (
-            PARTITION BY
-                curriculum_course_id,
-                academic_period_id,
-                {_NORMALIZED_NAME_SQL.format(source='instructor_name')},
-                instructor_role
-            ORDER BY (user_id IS NULL), position NULLS LAST, instructor_reference_id
-        ) AS position
-    FROM course_instructor_references
-)
-DELETE FROM course_instructor_references r
-USING ranked k
-WHERE r.instructor_reference_id = k.instructor_reference_id
-  AND k.position > 1
-"""
-
 BACKFILL_PJMK_SQL = """
 WITH candidates AS (
     SELECT
@@ -159,5 +140,4 @@ WHERE r.instructor_reference_id = c.instructor_reference_id
 
 async def apply_instructor_reference_rules(session: AsyncSession) -> None:
     await session.execute(text(MAP_REFERENCES_SQL.format(titles=_TITLES_SQL)))
-    await session.execute(text(MERGE_DUPLICATES_SQL))
     await session.execute(text(BACKFILL_PJMK_SQL))
