@@ -103,7 +103,7 @@ export interface TablePagerProps {
   from: number
   to: number
   onPage: (page: number) => void
-  onPageSize: (pageSize: number) => void
+  onPageSize?: (pageSize: number) => void
   idPrefix: string
 }
 
@@ -130,23 +130,28 @@ export function TablePager({
       </p>
 
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2">
-          <label htmlFor={selectId} className="text-xs font-medium text-muted">
-            Baris per halaman
-          </label>
-          <select
-            id={selectId}
-            value={pageSize}
-            onChange={(event) => onPageSize(Number(event.target.value))}
-            className="h-11 rounded-lg border border-border bg-surface px-2 text-sm text-foreground focus:border-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 cursor-pointer"
-          >
-            {PAGE_SIZE_OPTIONS.map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </select>
-        </div>
+        {onPageSize && (
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor={selectId}
+              className="text-xs font-medium text-muted"
+            >
+              Baris per halaman
+            </label>
+            <select
+              id={selectId}
+              value={pageSize}
+              onChange={(event) => onPageSize(Number(event.target.value))}
+              className="h-11 rounded-lg border border-border bg-surface px-2 text-sm text-foreground focus:border-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 cursor-pointer"
+            >
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div className="flex items-center gap-1">
           <button

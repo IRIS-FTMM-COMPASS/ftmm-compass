@@ -28,6 +28,7 @@ import SearchableCombobox, {
 } from "@/shared/ui/SearchableCombobox"
 import ConfirmDialog from "@/shared/ui/ConfirmDialog"
 import FormFieldError from "@/shared/ui/FormFieldError"
+import { TablePager } from "@/shared/ui/TableControls"
 import { cn } from "@/shared/utils"
 import {
   schedulingService,
@@ -43,6 +44,8 @@ const inputClass =
   "min-h-11 w-full rounded-lg border border-input bg-surface px-3 text-sm text-foreground placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 const buttonClass =
   "inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
+
+const CARD_PAGE_SIZE = 10
 
 interface ReferenceForm {
   curriculum_course_id: string
@@ -210,6 +213,10 @@ export interface InstructorMappingPanelProps {
     academicPeriodId: string
     curriculumCourseId: string
   }) => void
+  page: number
+  onPageChange: (page: number) => void
+  courseFilter: string
+  onCourseFilterChange: (value: string) => void
 }
 
 export default function InstructorMappingPanel({
@@ -219,6 +226,10 @@ export default function InstructorMappingPanel({
   initialRole = "pjmk",
   bootstrapKey = 0,
   onContinueToAssignment,
+  page,
+  onPageChange,
+  courseFilter,
+  onCourseFilterChange,
 }: InstructorMappingPanelProps) {
   const { user } = useSession()
   const canManage =
@@ -247,7 +258,6 @@ export default function InstructorMappingPanel({
   const [coursesLoading, setCoursesLoading] = useState(false)
   const [coursesError, setCoursesError] = useState<string | null>(null)
   const [courseReloadKey, setCourseReloadKey] = useState(0)
-  const [courseFilter, setCourseFilter] = useState("all")
   const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<ReferenceForm>(EMPTY_FORM)
@@ -468,6 +478,15 @@ export default function InstructorMappingPanel({
         ),
       )
   }, [references, courses, courseFilter])
+
+  const pageCount = Math.max(1, Math.ceil(groups.length / CARD_PAGE_SIZE))
+  const safePage = Math.min(page, pageCount)
+  const pageGroups = groups.slice(
+    (safePage - 1) * CARD_PAGE_SIZE,
+    safePage * CARD_PAGE_SIZE,
+  )
+  const from = groups.length ? (safePage - 1) * CARD_PAGE_SIZE + 1 : 0
+  const to = Math.min(safePage * CARD_PAGE_SIZE, groups.length)
 
   const selectedCourse = courses.find(
     (course) => course.curriculum_course_id === form.curriculum_course_id,
@@ -1281,7 +1300,7 @@ export default function InstructorMappingPanel({
                 ...courseOptions,
               ]}
               value={courseFilter}
-              onChange={setCourseFilter}
+              onChange={onCourseFilterChange}
               placeholder="Semua mata kuliah"
               searchPlaceholder="Cari mata kuliah"
             />
@@ -1297,157 +1316,178 @@ export default function InstructorMappingPanel({
               </p>
             </div>
           ) : (
-            <div className="flex flex-col gap-4">
-              {groups.map((group) => {
-                const pjmk = group.references.find(
-                  (item) => item.instructor_role === "pjmk",
-                )
-                return (
-                  <article
-                    key={group.courseId}
-                    className="rounded-xl border border-border bg-surface p-4 sm:p-6"
-                  >
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                      <div>
-                        <h3 className="font-heading text-lg font-bold text-navy">
-                          {group.course?.course_code ?? "Mata kuliah"}{" "}
-                          {group.course?.course_name ?? ""}
-                        </h3>
-                        <p className="mt-1 text-sm text-muted">
-                          {pjmk
-                            ? `PJ MK: ${pjmk.lecturer_name ?? pjmk.instructor_name}`
-                            : "PJ MK belum ditentukan. Mata kuliah belum siap dijadwalkan."}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {!pjmk && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                {pageGroups.map((group) => {
+                  const pjmk = group.references.find(
+                    (item) => item.instructor_role === "pjmk",
+                  )
+                  return (
+                    <article
+                      key={group.courseId}
+                      className="rounded-xl border border-border bg-surface p-4 sm:p-6"
+                    >
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                          <h3 className="font-heading text-lg font-bold text-navy">
+                            {group.course?.course_code ?? "Mata kuliah"}{" "}
+                            {group.course?.course_name ?? ""}
+                          </h3>
+                          <p className="mt-1 text-sm text-muted">
+                            {pjmk
+                              ? `PJ MK: ${pjmk.lecturer_name ?? pjmk.instructor_name}`
+                              : "PJ MK belum ditentukan. Mata kuliah belum siap dijadwalkan."}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {!pjmk && (
+                            <button
+                              type="button"
+                              onClick={() => openCreate("pjmk", group.courseId)}
+                              className={cn(
+                                buttonClass,
+                                "border border-navy text-navy",
+                              )}
+                            >
+                              <Plus className="h-4 w-4" aria-hidden="true" />{" "}
+                              Tambah PJ MK
+                            </button>
+                          )}
                           <button
                             type="button"
-                            onClick={() => openCreate("pjmk", group.courseId)}
+                            onClick={() =>
+                              openCreate("teaching_team", group.courseId)
+                            }
                             className={cn(
                               buttonClass,
-                              "border border-navy text-navy",
+                              "border border-border text-navy",
                             )}
                           >
                             <Plus className="h-4 w-4" aria-hidden="true" />{" "}
-                            Tambah PJ MK
+                            Tambah anggota
                           </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            openCreate("teaching_team", group.courseId)
-                          }
-                          className={cn(
-                            buttonClass,
-                            "border border-border text-navy",
-                          )}
-                        >
-                          <Plus className="h-4 w-4" aria-hidden="true" /> Tambah
-                          anggota
-                        </button>
+                        </div>
                       </div>
-                    </div>
-                    <h4 className="mt-6 text-sm font-bold">
-                      Urutan Tim Pengajar
-                    </h4>
-                    <ol className="mt-3 flex flex-col gap-2">
-                      {group.references.map((reference, index) => (
-                        <li
-                          key={reference.reference_id}
-                          className="flex flex-col gap-3 rounded-lg border border-border p-3 sm:flex-row sm:items-center sm:justify-between"
-                        >
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-navy">
-                              {index + 1}.{" "}
-                              {reference.instructor_role === "pjmk"
-                                ? "PJ MK"
-                                : "Tim Pengajar"}
-                              :{" "}
-                              {reference.lecturer_name ??
-                                reference.instructor_name}
-                            </p>
-                            <p className="mt-1 text-xs text-muted">
-                              {eligibilityLabel(reference)}
-                            </p>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              aria-label={`Naikkan ${reference.instructor_name}`}
-                              disabled={
-                                busyId === group.courseId ||
-                                index === 0 ||
-                                reference.instructor_role === "pjmk"
-                              }
-                              onClick={() =>
-                                moveReference(group.courseId, index, -1)
-                              }
-                              className={cn(
-                                buttonClass,
-                                "min-w-11 border border-border text-navy",
-                              )}
-                            >
-                              <ArrowUp className="h-4 w-4" aria-hidden="true" />
-                            </button>
-                            <button
-                              type="button"
-                              aria-label={`Turunkan ${reference.instructor_name}`}
-                              disabled={
-                                busyId === group.courseId ||
-                                index === group.references.length - 1 ||
-                                reference.instructor_role === "pjmk"
-                              }
-                              onClick={() =>
-                                moveReference(group.courseId, index, 1)
-                              }
-                              className={cn(
-                                buttonClass,
-                                "min-w-11 border border-border text-navy",
-                              )}
-                            >
-                              <ArrowDown
-                                className="h-4 w-4"
-                                aria-hidden="true"
-                              />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => openEdit(reference)}
-                              className={cn(
-                                buttonClass,
-                                "border border-border text-navy",
-                              )}
-                            >
-                              <Pencil className="h-4 w-4" aria-hidden="true" />{" "}
-                              Ubah
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setDeleteError(null)
-                                setDeleteTarget(reference)
-                              }}
-                              className={cn(
-                                buttonClass,
-                                "border border-orange/40 text-orange",
-                              )}
-                            >
-                              <Trash2 className="h-4 w-4" aria-hidden="true" />{" "}
-                              Hapus
-                            </button>
-                          </div>
-                        </li>
-                      ))}
-                    </ol>
-                    <p className="mt-3 text-xs text-muted">
-                      PJ MK tetap pada posisi pertama. Urutan dipakai untuk
-                      auto-assignment kelas paralel dan bukan jadwal mengajar
-                      tetap.
-                    </p>
-                  </article>
-                )
-              })}
+                      <h4 className="mt-6 text-sm font-bold">
+                        Urutan Tim Pengajar
+                      </h4>
+                      <ol className="mt-3 flex flex-col gap-2">
+                        {group.references.map((reference, index) => (
+                          <li
+                            key={reference.reference_id}
+                            className="flex flex-col gap-3 rounded-lg border border-border p-3 sm:flex-row sm:items-center sm:justify-between"
+                          >
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-navy">
+                                {index + 1}.{" "}
+                                {reference.instructor_role === "pjmk"
+                                  ? "PJ MK"
+                                  : "Tim Pengajar"}
+                                :{" "}
+                                {reference.lecturer_name ??
+                                  reference.instructor_name}
+                              </p>
+                              <p className="mt-1 text-xs text-muted">
+                                {eligibilityLabel(reference)}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                aria-label={`Naikkan ${reference.instructor_name}`}
+                                disabled={
+                                  busyId === group.courseId ||
+                                  index === 0 ||
+                                  reference.instructor_role === "pjmk"
+                                }
+                                onClick={() =>
+                                  moveReference(group.courseId, index, -1)
+                                }
+                                className={cn(
+                                  buttonClass,
+                                  "min-w-11 border border-border text-navy",
+                                )}
+                              >
+                                <ArrowUp
+                                  className="h-4 w-4"
+                                  aria-hidden="true"
+                                />
+                              </button>
+                              <button
+                                type="button"
+                                aria-label={`Turunkan ${reference.instructor_name}`}
+                                disabled={
+                                  busyId === group.courseId ||
+                                  index === group.references.length - 1 ||
+                                  reference.instructor_role === "pjmk"
+                                }
+                                onClick={() =>
+                                  moveReference(group.courseId, index, 1)
+                                }
+                                className={cn(
+                                  buttonClass,
+                                  "min-w-11 border border-border text-navy",
+                                )}
+                              >
+                                <ArrowDown
+                                  className="h-4 w-4"
+                                  aria-hidden="true"
+                                />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openEdit(reference)}
+                                className={cn(
+                                  buttonClass,
+                                  "border border-border text-navy",
+                                )}
+                              >
+                                <Pencil
+                                  className="h-4 w-4"
+                                  aria-hidden="true"
+                                />{" "}
+                                Ubah
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDeleteError(null)
+                                  setDeleteTarget(reference)
+                                }}
+                                className={cn(
+                                  buttonClass,
+                                  "border border-orange/40 text-orange",
+                                )}
+                              >
+                                <Trash2
+                                  className="h-4 w-4"
+                                  aria-hidden="true"
+                                />{" "}
+                                Hapus
+                              </button>
+                            </div>
+                          </li>
+                        ))}
+                      </ol>
+                      <p className="mt-3 text-xs text-muted">
+                        PJ MK tetap pada posisi pertama. Urutan dipakai untuk
+                        auto-assignment kelas paralel dan bukan jadwal mengajar
+                        tetap.
+                      </p>
+                    </article>
+                  )
+                })}
+              </div>
+              <TablePager
+                idPrefix="teaching-team-cards"
+                page={safePage}
+                pageCount={pageCount}
+                pageSize={CARD_PAGE_SIZE}
+                total={groups.length}
+                from={from}
+                to={to}
+                onPage={onPageChange}
+              />
             </div>
           )}
         </>

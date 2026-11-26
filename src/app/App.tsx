@@ -1398,6 +1398,15 @@ function AppShell() {
   const [chatAppliedPlanId, setChatAppliedPlanId] = useState<string | null>(
     null,
   )
+
+  const [teachingTeamView, setTeachingTeamView] = useState({
+    page: 1,
+    courseFilter: "all",
+  })
+  const [classAssignmentView, setClassAssignmentView] = useState({
+    page: 1,
+    contextFilter: "",
+  })
   const hasBeenLoggedIn = useRef(isLoggedIn)
 
   const navigate = useCallback((page: Page, replace = false) => {
@@ -1428,6 +1437,8 @@ function AppShell() {
         "",
         `/${target}${search ? `?${search}` : ""}`,
       )
+      setTeachingTeamView((view) => ({ ...view, page: 1 }))
+      setClassAssignmentView((view) => ({ ...view, page: 1 }))
       setActivePage(target)
     },
     [],
@@ -1811,6 +1822,18 @@ function AppShell() {
                   initialAcademicPeriodId={panelParams.get("period")}
                   initialCurriculumCourseId={panelParams.get("course")}
                   initialReferenceId={panelParams.get("reference")}
+                  page={teachingTeamView.page}
+                  onPageChange={(nextPage) =>
+                    setTeachingTeamView((view) => ({ ...view, page: nextPage }))
+                  }
+                  courseFilter={teachingTeamView.courseFilter}
+                  onCourseFilterChange={(courseFilter) =>
+                    setTeachingTeamView((view) => ({
+                      ...view,
+                      page: 1,
+                      courseFilter,
+                    }))
+                  }
                   onContinueToAssignment={({
                     academicPeriodId,
                     curriculumCourseId,
@@ -1826,6 +1849,21 @@ function AppShell() {
                 <AssignmentPanel
                   initialAcademicPeriodId={panelParams.get("period")}
                   initialCurriculumCourseId={panelParams.get("course")}
+                  page={classAssignmentView.page}
+                  onPageChange={(nextPage) =>
+                    setClassAssignmentView((view) => ({
+                      ...view,
+                      page: nextPage,
+                    }))
+                  }
+                  contextFilter={classAssignmentView.contextFilter}
+                  onContextFilterChange={(contextFilter) =>
+                    setClassAssignmentView((view) => ({
+                      ...view,
+                      page: 1,
+                      contextFilter,
+                    }))
+                  }
                 />
               )}
               {visiblePage === "preferences" && user?.role === "lecturer" && (
