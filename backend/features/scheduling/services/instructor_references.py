@@ -482,7 +482,10 @@ async def _resolve_candidate_course(
 
     row = (
         await db.execute(
-            select(Curriculum.study_program_id)
+            select(
+                Curriculum.study_program_id,
+                CurriculumCourse.course_scope.label("course_scope"),
+            )
             .join(
                 CurriculumCourse,
                 Curriculum.curriculum_id == CurriculumCourse.curriculum_id,
@@ -500,6 +503,12 @@ async def _resolve_candidate_course(
             403,
             "forbidden",
             "Mata kuliah di luar program studi Anda.",
+        )
+    if row.course_scope == UNIVERSITY_SCOPE:
+        return _deny(
+            403,
+            "university_scope",
+            "MK universitas di luar cakupan penjadwalan FTMM.",
         )
     return curriculum_course_id
 

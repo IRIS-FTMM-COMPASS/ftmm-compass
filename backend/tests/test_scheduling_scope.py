@@ -230,3 +230,43 @@ def test_class_sections_hide_university_course(client, db_session, admin_headers
     body = response.json()
     assert body["data"] == []
     assert body["meta"]["total"] == 0
+
+
+def test_instructor_candidates_reject_university_course(
+    client, db_session, admin_headers
+):
+    """Pool calon dosen menolak MK universitas."""
+
+    async def read():
+        period_id = (
+            await db_session.execute(
+                select(AcademicPeriod.academic_period_id)
+                .where(AcademicPeriod.is_active.is_(True))
+                .order_by(AcademicPeriod.academic_year_start.desc())
+                .limit(1)
+            )
+        ).scalar_one()
+        course_id = (
+            await db_session.execute(
+                select(CurriculumCourse.curriculum_course_id).where(
+                    CurriculumCourse.course_scope == UNIVERSITY_SCOPE,
+                    CurriculumCourse.is_active.is_(True),
+                )
+            )
+        ).scalars().first()
+        return str(period_id), (None if course_id is None else str(course_id))
+
+    period_id, course_id = client.portal.call(read)
+    if course_id is None:
+        pytest.skip("Tidak ada MK universitas aktif pada kurikulum.")
+
+    response = client.get(
+        f"{V1}/scheduling/instructor-candidates",
+        params={
+            "academic_period_id": period_id,
+            "curriculum_course_id": course_id,
+        },
+        headers=admin_headers,
+    )
+    assert response.status_code == 403, response.text
+    assert response.json()["error"]["code"] == "university_scope"
