@@ -71,14 +71,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Initialize PostgreSQL baseline schema (v2.1 RC1)
-        run: |
-          if command -v psql >/dev/null 2>&1; then
-            PGPASSWORD=postgres psql -h localhost -U postgres -d ftmm_compass_dev -f database/schema_v2_1_rc1.sql
-          else
-            docker exec -i $(docker ps -q --filter ancestor=postgres:16-alpine) psql -U postgres -d ftmm_compass_dev < database/schema_v2_1_rc1.sql
-          fi
-
       - name: Setup Astral UV
         uses: astral-sh/setup-uv@v5
         with:
@@ -132,14 +124,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Initialize PostgreSQL baseline schema
-        run: |
-          if command -v psql >/dev/null 2>&1; then
-            PGPASSWORD=postgres psql -h localhost -U postgres -d ftmm_compass_dev -f database/schema_v2_1_rc1.sql
-          else
-            docker exec -i $(docker ps -q --filter ancestor=postgres:16-alpine) psql -U postgres -d ftmm_compass_dev < database/schema_v2_1_rc1.sql
-          fi
 
       - name: Setup Astral UV
         uses: astral-sh/setup-uv@v5

@@ -71,7 +71,7 @@ class User(Base):
     chat_logs: Mapped[list["ChatLog"]] = relationship(
         "ChatLog",
         back_populates="user",
-        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
     @property

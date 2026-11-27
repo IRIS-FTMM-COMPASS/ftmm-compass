@@ -490,8 +490,8 @@ ftmm-compass-ui/
 │   ├── assets/                    # Logo & aset statis
 │   ├── index.css                  # Tailwind v4 @theme design tokens (Navy, Gold, Teal)
 │   └── vite-env.d.ts              # Tipe environment Vite
-├── database/                      # Canonical Database Baseline V2.1 RC1
-│   ├── schema_v2_1_rc1.sql        # PostgreSQL 16+ DDL (38 tabel = 36 baseline + 2 polling, 26 functions, 44 triggers)
+├── database/                      # Historical database baseline (V2.1 RC1)
+│   ├── schema_v2_1_rc1.sql        # Baseline historis revisi Alembic d76b9c9047cc (jalur kanonik: alembic upgrade head)
 │   ├── schema_v2_1_rc1.dbml       # DBML diagram definition
 │   ├── seed/                      # Input seed katalog 5 prodi (canonical + reconciliation)
 │   └── README.md                  # Ringkasan paket skema database
@@ -511,4 +511,4 @@ ftmm-compass-ui/
 
 ## Database Baseline — V2.1 RC1
 
-`database/schema_v2_1_rc1.sql` adalah canonical baseline PostgreSQL 16+ untuk arsitektur basis data akademik FTMM (**38 tabel — 36 baseline + 2 tabel polling —, 26 fungsi PL/pgSQL, 44 trigger, 2 read views**, dan lulus **97/97 static audit checks**). Dokumentasi lengkap keputusan desain tersedia di [`docs/database/DATABASE_SCHEMA_V2_1_RC1.md`](./docs/database/DATABASE_SCHEMA_V2_1_RC1.md) dan laporan validasinya di [`docs/database/SCHEMA_VALIDATION_V2_1_RC1.md`](./docs/database/SCHEMA_VALIDATION_V2_1_RC1.md).
+`database/schema_v2_1_rc1.sql` adalah baseline historis PostgreSQL 16+ untuk arsitektur basis data akademik FTMM (**38 tabel — 36 baseline + 2 tabel polling —, 26 fungsi PL/pgSQL, 44 trigger, 2 read views**, dan lulus **97/97 static audit checks**). Jalur skema kanonik adalah `uv run --directory backend alembic upgrade head`; file baseline hanya dijalankan oleh revisi Alembic `d76b9c9047cc`. Dokumentasi lengkap keputusan desain tersedia di [`docs/database/DATABASE_SCHEMA_V2_1_RC1.md`](./docs/database/DATABASE_SCHEMA_V2_1_RC1.md) dan laporan validasinya di [`docs/database/SCHEMA_VALIDATION_V2_1_RC1.md`](./docs/database/SCHEMA_VALIDATION_V2_1_RC1.md).

@@ -11,7 +11,6 @@ services:
       - POSTGRES_DB=ftmm_compass_dev
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./database/schema_v2_1_rc1.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
