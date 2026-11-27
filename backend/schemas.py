@@ -271,7 +271,7 @@ class UserResponse(BaseModel):
     email: str
     full_name: str
     role: str
-    auth_provider: str = "Cybercampus SSO UNAIR"
+    auth_provider: str = "Kata sandi lokal"
     academic_identifier: Optional[str] = None
     unit_name: Optional[str] = None
     phone_number: Optional[str] = None

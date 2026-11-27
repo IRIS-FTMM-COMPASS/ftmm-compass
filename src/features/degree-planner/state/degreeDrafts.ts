@@ -38,6 +38,44 @@ interface LegacyState {
   drafts?: LegacyDraft[]
 }
 
+function isLegacyDraft(value: unknown): value is LegacyDraft {
+  if (!value || typeof value !== "object") return false
+  const draft = value as Record<string, unknown>
+  if (draft.name !== undefined && typeof draft.name !== "string") return false
+  if (draft.plan === undefined) return true
+  if (
+    !draft.plan ||
+    typeof draft.plan !== "object" ||
+    Array.isArray(draft.plan)
+  ) {
+    return false
+  }
+  return Object.values(draft.plan).every(
+    (courses) =>
+      Array.isArray(courses) &&
+      courses.every(
+        (course) =>
+          course !== null &&
+          typeof course === "object" &&
+          ((course as Record<string, unknown>).code === undefined ||
+            typeof (course as Record<string, unknown>).code === "string"),
+      ),
+  )
+}
+
+function isLegacyState(value: unknown): value is LegacyState {
+  if (!value || typeof value !== "object") return false
+  const state = value as Record<string, unknown>
+  if (
+    state.activeDraftId !== undefined &&
+    typeof state.activeDraftId !== "string"
+  ) {
+    return false
+  }
+  if (state.drafts === undefined) return true
+  return Array.isArray(state.drafts) && state.drafts.every(isLegacyDraft)
+}
+
 function planFromDto(items: DegreePlanItemDto[]): Record<number, PlanCourse[]> {
   const plan: Record<number, PlanCourse[]> = {}
   const ordered = [...items].sort(
@@ -610,10 +648,14 @@ async function migrateLegacy(
     return
   }
 
-  let parsed: LegacyState
+  let parsed: unknown
   try {
     parsed = JSON.parse(raw)
   } catch {
+    window.localStorage.removeItem(LEGACY_KEY)
+    return
+  }
+  if (!isLegacyState(parsed)) {
     window.localStorage.removeItem(LEGACY_KEY)
     return
   }

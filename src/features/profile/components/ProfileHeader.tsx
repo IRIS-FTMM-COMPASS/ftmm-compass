@@ -105,7 +105,7 @@ export default function ProfileHeader({
             type="button"
             onClick={onRefreshProfile}
             disabled={isRefreshing}
-            title="Sinkronisasi data profil terbaru dari Basis Data Lokal FTMM (Development Mirror Cybercampus)"
+            title="Sinkronisasi data profil terbaru dari Basis Data Lokal FTMM"
             className="px-3.5 py-2 rounded-xl border border-border bg-background hover:bg-surface text-navy text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs disabled:opacity-60"
           >
             <RefreshCw
@@ -120,8 +120,7 @@ export default function ProfileHeader({
         <div className="mt-4 p-3 rounded-xl bg-teal/10 border border-teal/30 text-navy-dark text-xs flex items-center gap-2">
           <Check className="w-4 h-4 text-teal" />
           <span>
-            Data profil berhasil disinkronkan dengan basis data lokal
-            (Cybercampus Dev Mirror).
+            Data profil berhasil disinkronkan dengan basis data lokal FTMM.
           </span>
         </div>
       )}

@@ -81,7 +81,11 @@ export function PollingProvider({ children }: { children: ReactNode }) {
         priority,
       })
       setMyVotes((prev) => [
-        ...prev.filter((item) => item.course_id !== courseId),
+        ...prev.filter(
+          (item) =>
+            item.course_id !== vote.course_id &&
+            (!vote.course_code || item.course_code !== vote.course_code),
+        ),
         vote,
       ])
     },
@@ -90,7 +94,11 @@ export function PollingProvider({ children }: { children: ReactNode }) {
 
   const removeVote = useCallback(async (courseId: string) => {
     await pollingService.removeVote(courseId)
-    setMyVotes((prev) => prev.filter((item) => item.course_id !== courseId))
+    setMyVotes((prev) =>
+      prev.filter(
+        (item) => item.course_id !== courseId && item.course_code !== courseId,
+      ),
+    )
   }, [])
 
   const value = useMemo(

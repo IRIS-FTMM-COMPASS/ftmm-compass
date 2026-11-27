@@ -8,36 +8,14 @@ import {
   useState,
   type ReactNode,
 } from "react"
-import { API_BASE } from "@/shared/api/client"
 import {
   authService,
-  notifyUnauthorized,
   onTokenRenewed,
-  onUnauthorized,
   type AuthUser,
 } from "@/features/auth/authService"
+import { onUnauthorized } from "@/shared/api/session"
 
 const EXPIRY_KEY = "auth_expires_at"
-
-const INACTIVE_ACCOUNT_MESSAGE = "Akun Anda dinonaktifkan oleh admin"
-
-async function isInactiveAccountResponse(response: Response): Promise<boolean> {
-  try {
-    const payload: unknown = await response.clone().json()
-    if (!payload || typeof payload !== "object") return false
-    const body = payload as Record<string, unknown>
-    const error =
-      body.error && typeof body.error === "object"
-        ? body.error as Record<string, unknown>
-        : body
-    return (
-      error.code === "account_inactive" ||
-      error.message === INACTIVE_ACCOUNT_MESSAGE
-    )
-  } catch {
-    return false
-  }
-}
 
 const STUDENT_ONLY_PAGES: Record<string, true> = {
   "degree-planner": true,
@@ -50,6 +28,16 @@ const ADMIN_ONLY_PAGES: Record<string, true> = {
 
 const LECTURER_ONLY_PAGES: Record<string, true> = {
   "pj-courses": true,
+  preferences: true,
+}
+
+const SCHEDULING_PAGES: Record<string, true> = {
+  scheduling: true,
+}
+
+const SCHEDULE_MANAGE_PAGES: Record<string, true> = {
+  "teaching-team": true,
+  "class-assignment": true,
 }
 
 interface SessionContextValue {
@@ -72,8 +60,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     Boolean(authService.getStoredToken() && authService.getStoredUser()),
   )
   const expiryTimer = useRef<number | undefined>(undefined)
-  const isLoggedInRef = useRef(isLoggedIn)
-  isLoggedInRef.current = isLoggedIn
 
   const logout = useCallback(() => {
     clearTimeout(expiryTimer.current)
@@ -156,30 +142,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [logout, scheduleExpiry])
 
   useEffect(() => {
-    if (typeof window === "undefined" || typeof window.fetch !== "function") {
-      return
-    }
-    const originalFetch = window.fetch.bind(window)
-    window.fetch = (input, init) =>
-      originalFetch(input, init).then(async (response) => {
-        if (response.status !== 401 || !isLoggedInRef.current) return response
-        const url =
-          typeof input === "string"
-            ? input
-            : input instanceof URL
-              ? input.toString()
-              : input.url
-        if (!API_BASE || url.startsWith(API_BASE)) {
-          const isInactive = await isInactiveAccountResponse(response)
-          logout()
-          if (isInactive) notifyUnauthorized()
-        }
-        return response
+    if (!authService.getStoredToken()) return
+    let cancelled = false
+    void authService
+      .getMe()
+      .then((next) => {
+        if (!cancelled) setUserState(next)
+      })
+      .catch(() => {
+        // 401 already clears the session through the shared transport.
       })
     return () => {
-      window.fetch = originalFetch
+      cancelled = true
     }
-  }, [logout])
+  }, [])
 
   useEffect(
     () => () => {
@@ -194,9 +170,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (ADMIN_ONLY_PAGES[page]) return role === "admin"
       if (STUDENT_ONLY_PAGES[page]) return role === "student"
       if (LECTURER_ONLY_PAGES[page]) return role === "lecturer"
+      if (SCHEDULING_PAGES[page]) {
+        return role === "admin" || role === "lecturer"
+      }
+      if (SCHEDULE_MANAGE_PAGES[page]) {
+        return (
+          role === "admin" ||
+          (role === "lecturer" && user?.is_program_coordinator === true)
+        )
+      }
       return true
     },
-    [user?.role],
+    [user?.role, user?.is_program_coordinator],
   )
 
   const value = useMemo(

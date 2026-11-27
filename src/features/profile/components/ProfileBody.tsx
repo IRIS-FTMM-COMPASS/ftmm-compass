@@ -58,10 +58,7 @@ export default function ProfileBody({
                   Unit Pengelola
                 </span>
                 <p className="font-semibold text-navy">
-                  {user.unit_name || "Sub-Bagian Akademik & Kemahasiswaan FTMM"}
-                </p>
-                <p className="text-[11px] font-mono text-muted mt-0.5">
-                  Kode Unit: FTMM-BAA
+                  {user.unit_name || "Belum diatur"}
                 </p>
               </div>
 
@@ -83,9 +80,6 @@ export default function ProfileBody({
                 </span>
                 <p className="font-semibold text-navy font-mono text-base">
                   {academicId}
-                </p>
-                <p className="text-[11px] text-muted mt-0.5">
-                  Status: Pegawai Aktif UNAIR
                 </p>
               </div>
 
@@ -142,7 +136,7 @@ export default function ProfileBody({
                   Program Studi Homebase
                 </span>
                 <p className="font-semibold text-navy">
-                  {user.unit_name || "Teknologi Sains Data"}
+                  {user.unit_name || "Belum diatur"}
                 </p>
                 <p className="text-[11px] font-mono text-muted mt-0.5">
                   Fakultas Teknologi Maju dan Multidisiplin
@@ -169,7 +163,7 @@ export default function ProfileBody({
                   {academicId}
                 </p>
                 <p className="text-[11px] text-muted mt-0.5">
-                  Homebase: {user.unit_name || "Teknologi Sains Data"}
+                  Homebase: {user.unit_name || "Belum diatur"}
                 </p>
               </div>
 
@@ -178,7 +172,7 @@ export default function ProfileBody({
                   Beban Mengajar Semester Ini
                 </span>
                 <p className="font-semibold text-navy text-base">
-                  3 Mata Kuliah · 9 SKS
+                  Belum tersedia
                 </p>
                 <p className="text-[11px] text-muted mt-0.5 font-mono">
                   {period?.label ?? "—"}
@@ -225,10 +219,10 @@ export default function ProfileBody({
                 <p className="font-semibold text-navy">
                   {studentProfile?.study_program ||
                     user?.unit_name ||
-                    "Teknologi Sains Data"}
+                    "Belum diatur"}
                 </p>
                 <p className="text-[11px] font-mono text-muted mt-0.5">
-                  Kode Prodi: {studentProfile?.program_code || "TSD"}
+                  Kode Prodi: {studentProfile?.program_code || "—"}
                 </p>
               </div>
 
@@ -368,8 +362,7 @@ export default function ProfileBody({
               <div>
                 <p className="font-semibold text-navy">Metode Autentikasi</p>
                 <p className="text-muted mt-0.5">
-                  {user?.auth_provider ||
-                    "Cybercampus Single Sign-On (SSO) UNAIR"}
+                  {user?.auth_provider || "Kata sandi lokal"}
                 </p>
               </div>
             </div>
@@ -470,7 +463,7 @@ export default function ProfileBody({
           <p className="leading-relaxed">
             Jika terdapat ketidaksesuaian data identitas resmi, status
             kurikulum, atau NIM/NIP, hubungi Sub-Bagian Akademik FTMM di Gedung
-            Nano Lantai 1 atau Helpdesk Cybercampus UNAIR.
+            Nano Lantai 1 atau Helpdesk FTMM UNAIR.
           </p>
         </div>
       </div>

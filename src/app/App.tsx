@@ -1461,21 +1461,6 @@ function AppShell() {
     if (isLoggedIn && !canAccess(activePage)) navigate("dashboard", true)
   }, [activePage, canAccess, isLoggedIn, navigate])
   useEffect(() => {
-    if (!isLoggedIn) return
-    const restricted =
-      activePage === "teaching-team" || activePage === "class-assignment"
-    const allowed =
-      user?.role === "admin" ||
-      (user?.role === "lecturer" && user?.is_program_coordinator === true)
-    if (restricted && !allowed) navigate("dashboard", true)
-  }, [
-    activePage,
-    isLoggedIn,
-    navigate,
-    user?.role,
-    user?.is_program_coordinator,
-  ])
-  useEffect(() => {
     if (isLoggedIn) {
       hasBeenLoggedIn.current = true
       return
@@ -1529,17 +1514,9 @@ function AppShell() {
     if (window.innerWidth < 768) setIsSidebarOpen(false)
   }
 
-  const canManageSchedule =
-    user?.role === "admin" ||
-    (user?.role === "lecturer" && user?.is_program_coordinator === true)
+  const canManageSchedule = canAccess("teaching-team")
   const panelParams = new URLSearchParams(window.location.search)
-  const visiblePage =
-    canAccess(activePage) &&
-    ((activePage !== "teaching-team" && activePage !== "class-assignment") ||
-      canManageSchedule) &&
-    (activePage !== "preferences" || user?.role === "lecturer")
-      ? activePage
-      : "dashboard"
+  const visiblePage = canAccess(activePage) ? activePage : "dashboard"
 
   const handleApplyPlanFromChatbot = (payload: DegreePlanPayload) => {
     planner.applyPlan(payload)
@@ -1588,6 +1565,12 @@ function AppShell() {
           label: "Penugasan Kelas",
           icon: CalendarDays,
         },
+      ] as const
+    }
+    if (role !== "student") {
+      return [
+        { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+        { id: "course-finder", label: "Course Finder", icon: Search },
       ] as const
     }
     return [
@@ -1912,7 +1895,7 @@ function AppShell() {
           body={
             <p className="text-xs text-muted leading-relaxed">
               Apakah Anda yakin ingin mengakhiri sesi akademik di FTMM Compass?
-              Anda dapat masuk kembali kapan saja dengan akun Cybercampus UNAIR.
+              Anda dapat masuk kembali kapan saja dengan akun FTMM.
             </p>
           }
           cancelLabel="Batal"

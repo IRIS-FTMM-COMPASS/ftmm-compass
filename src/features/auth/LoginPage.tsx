@@ -44,7 +44,7 @@ const MODE_COPY: Record<Mode, {
 }> = {
   login: {
     title: "Selamat Datang",
-    subtitle: "Gunakan akun Cybercampus UNAIR untuk masuk",
+    subtitle: "Gunakan akun FTMM untuk masuk",
     submit: "Masuk ke Dashboard",
   },
   register: {
@@ -446,7 +446,7 @@ export default function Login({ onLogin }: LoginProps) {
                   htmlFor="login-identifier"
                   className="text-sm font-medium text-foreground"
                 >
-                  NIM / Email SSO
+                  NIM / Email
                 </label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted" />

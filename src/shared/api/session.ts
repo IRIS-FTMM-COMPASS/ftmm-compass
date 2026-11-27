@@ -1,6 +1,14 @@
 const TOKEN_KEY = "auth_token"
 const USER_KEY = "auth_user"
 
+type UnauthorizedListener = () => void
+const unauthorizedListeners = new Set<UnauthorizedListener>()
+
+export function onUnauthorized(listener: UnauthorizedListener): () => void {
+  unauthorizedListeners.add(listener)
+  return () => unauthorizedListeners.delete(listener)
+}
+
 function storage(): Storage | null {
   return typeof window === "undefined" ? null : window.localStorage
 }
@@ -31,4 +39,9 @@ export function clearSession(): void {
   const store = storage()
   store?.removeItem(TOKEN_KEY)
   store?.removeItem(USER_KEY)
+}
+
+export function notifyUnauthorized(): void {
+  clearSession()
+  unauthorizedListeners.forEach((listener) => listener())
 }

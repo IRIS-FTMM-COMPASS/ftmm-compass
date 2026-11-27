@@ -185,16 +185,13 @@ def _build_user_response(user: User) -> UserResponse:
         )
 
     if user.role == "student":
-        academic_id = user.student_profile.student_number if user.student_profile else "164231001"
+        academic_id = user.student_profile.student_number if user.student_profile else None
         unit_name = (
             user.student_profile.study_program.program_name
             if (user.student_profile and user.student_profile.study_program)
-            else "Teknologi Sains Data"
+            else None
         )
         permissions = ["view_catalog", "plan_courses", "vote_electives", "use_chatbot"]
-        default_phone = "081234567890"
-        default_bio = "Mahasiswa FTMM peminat Data Science dan Machine Learning"
-        default_interests = ["Machine Learning", "Data Science"]
     elif user.role == "lecturer":
         lecturer_profile = user.lecturer_profile
         academic_id = lecturer_profile.employee_number if lecturer_profile else None
@@ -207,12 +204,9 @@ def _build_user_response(user: User) -> UserResponse:
             bool(lecturer_profile.is_program_coordinator) if lecturer_profile else False
         )
         permissions = ["view_catalog", "view_demand_analytics", "review_study_plans", "use_chatbot"]
-        default_phone = "081398765432"
-        default_bio = "Dosen Pengajar dan Pembina Akademik FTMM UNAIR"
-        default_interests = []
     else:
-        academic_id = "198504122010121003"
-        unit_name = "Sub-Bagian Akademik & Kemahasiswaan FTMM"
+        academic_id = None
+        unit_name = None
         permissions = [
             "view_catalog",
             "view_demand_analytics",
@@ -221,21 +215,18 @@ def _build_user_response(user: User) -> UserResponse:
             "inspect_curricula",
             "use_chatbot",
         ]
-        default_phone = "081122334455"
-        default_bio = "Pengelola Master Kurikulum dan Operasional Akademik FTMM"
-        default_interests = []
 
     return UserResponse(
         user_id=str(user.user_id),
         email=user.email,
         full_name=user.full_name,
         role=user.role,
-        auth_provider="Cybercampus SSO UNAIR",
+        auth_provider="Kata sandi lokal",
         academic_identifier=academic_id,
         unit_name=unit_name,
-        phone_number=user.phone_number or default_phone,
-        bio=user.bio or default_bio,
-        career_interests=user.career_interests or default_interests,
+        phone_number=user.phone_number,
+        bio=user.bio,
+        career_interests=user.career_interests or [],
         permissions=permissions,
         student_profile=student_profile_data,
         needs_revalidation=getattr(user, "needs_revalidation", False),

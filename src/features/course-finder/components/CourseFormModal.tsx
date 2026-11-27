@@ -3,6 +3,7 @@ import { X, BookPlus, Edit3, AlertCircle, Loader2 } from "lucide-react"
 import { Course } from "@/shared/domain/models"
 import { apiErrorMessage, apiFetch } from "@/shared/api/client"
 import { termOfSemester } from "@/shared/domain/academics"
+import { normalizeCourse } from "@/shared/domain/course"
 
 interface CourseFormModalProps {
   isOpen: boolean
@@ -10,6 +11,23 @@ interface CourseFormModalProps {
   onSuccess: (course: Course) => void
   initialCourse?: Course | null
   availablePrograms: string[]
+}
+
+function normalizeSavedCourse(raw: Course, program: string): Course {
+  return normalizeCourse({
+    code: raw.code ?? raw.id,
+    fallbackId: raw.id,
+    name: raw.name,
+    credits: raw.credits,
+    semester: raw.semester,
+    type: raw.type,
+    parity: raw.parity,
+    desc: raw.desc,
+    program: raw.program || program,
+    prerequisites: raw.prerequisites,
+    is_active: raw.is_active,
+    course_scope: raw.course_scope,
+  })
 }
 
 export default function CourseFormModal({
@@ -97,7 +115,7 @@ export default function CourseFormModal({
           `/api/v1/admin/courses/${encodeURIComponent(courseId)}`,
           { method: "PUT", body: payload, auth: true },
         )
-        onSuccess(saved)
+        onSuccess(normalizeSavedCourse(saved, program))
         onClose()
       } else {
         const payload = {
@@ -118,7 +136,7 @@ export default function CourseFormModal({
           body: payload,
           auth: true,
         })
-        onSuccess(created)
+        onSuccess(normalizeSavedCourse(created, program))
         onClose()
       }
     } catch (err: unknown) {

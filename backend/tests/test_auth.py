@@ -181,8 +181,11 @@ def test_me_non_lecturer_identity_is_unchanged(client, student_headers, admin_he
     assert admin.status_code == 200
     body = admin.json()
     assert body["role"] == "admin"
-    assert body["unit_name"] == "Sub-Bagian Akademik & Kemahasiswaan FTMM"
-    assert body["academic_identifier"] == "198504122010121003"
+    assert body["auth_provider"] == "Kata sandi lokal"
+    assert body["unit_name"] is None
+    assert body["academic_identifier"] is None
+    assert body["phone_number"] is None
+    assert body["bio"] is None
     assert body["is_program_coordinator"] is False
 
 
