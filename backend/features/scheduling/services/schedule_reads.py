@@ -37,7 +37,12 @@ from schemas import (
     BoardProgramStatus,
     UnassignedItem,
 )
-from scheduling_common import all_study_program_ids, current_period_id, status_label
+from scheduling_common import (
+    all_study_program_ids,
+    current_period_id,
+    status_label,
+    university_course_ids,
+)
 
 from ..conflicts import ConflictBlock, detect_conflicts
 from ..scheduler import (
@@ -304,7 +309,10 @@ async def _blocks(
                 User,
                 User.user_id == ClassInstructorAssignment.user_id,
             )
-            .where(CourseOffering.academic_period_id == period_id)
+            .where(
+                CourseOffering.academic_period_id == period_id,
+                Course.course_id.not_in(university_course_ids()),
+            )
             .order_by(
                 StudyProgram.program_code,
                 Course.course_code,
@@ -418,6 +426,7 @@ async def _unassigned(db: AsyncSession, period_id: UUID) -> list[UnassignedItem]
             .where(
                 ScheduleRun.academic_period_id == period_id,
                 ScheduleRun.status == "completed",
+                Course.course_id.not_in(university_course_ids()),
             )
             .order_by(
                 func.coalesce(ScheduleRun.ended_at, ScheduleRun.started_at).desc(),

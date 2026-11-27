@@ -20,6 +20,7 @@ from models import (
     OfferingComponent,
     User,
 )
+from scheduling_common import university_course_ids
 
 router = APIRouter()
 
@@ -118,8 +119,13 @@ async def list_class_sections(
     db: AsyncSession = Depends(get_db),
 ):
     course = (
-        await db.execute(select(Course).where(Course.course_code == course_code))
-    ).scalars().first()
+        await db.execute(
+            select(
+                Course.course_id,
+                Course.course_id.in_(university_course_ids()).label("is_university"),
+            ).where(Course.course_code == course_code)
+        )
+    ).first()
     if course is None:
         message = f"Mata kuliah dengan kode {course_code} tidak ditemukan"
         return error_response(
@@ -129,6 +135,8 @@ async def list_class_sections(
             detail=message,
         )
 
+    if course.is_university:
+        return ClassSectionListResponse(data=[], meta={"total": 0})
     period_id = await _resolve_period_id(db, academic_period_id)
 
     rows = (

@@ -10,9 +10,21 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import AcademicPeriod, StudyProgram
+from models import AcademicPeriod, CurriculumCourse, StudyProgram
 
 DAY_NAMES = {1: "Senin", 2: "Selasa", 3: "Rabu", 4: "Kamis", 5: "Jumat"}
+
+# MK universitas di luar wewenang FTMM: tidak dibuatkan kelas, tidak masuk jadwal bersama.
+UNIVERSITY_SCOPE = "universitas"
+
+
+def university_course_ids():
+    """Subquery course_id MK universitas untuk dikecualikan dari penjadwalan."""
+    return select(CurriculumCourse.course_id).where(
+        CurriculumCourse.course_scope == UNIVERSITY_SCOPE
+    )
+
+
 START_HOUR_MIN = 7
 END_HOUR_MAX = 17
 

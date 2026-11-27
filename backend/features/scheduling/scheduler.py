@@ -53,9 +53,11 @@ from models import (
 from scheduling_common import (
     END_HOUR_MAX,
     START_HOUR_MIN,
+    UNIVERSITY_SCOPE,
     blocks_overlap,
     hour_end,
     is_valid_block,
+    university_course_ids,
 )
 from schemas import (
     CurriculumContextItem,
@@ -166,6 +168,7 @@ async def load_curriculum_contexts(
         .join(Course, Course.course_id == CourseOffering.course_id)
         .join(StudyProgram, StudyProgram.study_program_id == Curriculum.study_program_id)
         .where(CourseOffering.academic_period_id == period_id)
+        .where(Course.course_id.not_in(university_course_ids()))
         .order_by(
             ClassSection.class_section_id,
             StudyProgram.program_code,
@@ -830,6 +833,8 @@ async def _demand_class_counts(
         if course is None:
             continue
         for row in rows:
+            if row.course.course_scope == UNIVERSITY_SCOPE:
+                continue
             if (
                 study_program_id is not None
                 and row.program.study_program_id != study_program_id
@@ -954,7 +959,8 @@ async def _create_override_sections(
     overrides = (
         await db.execute(
             select(ClassCountOverride).where(
-                ClassCountOverride.academic_period_id == period.academic_period_id
+                ClassCountOverride.academic_period_id == period.academic_period_id,
+                ClassCountOverride.course_id.not_in(university_course_ids()),
             )
         )
     ).scalars().all()
@@ -981,6 +987,7 @@ async def _create_override_sections(
                 for row in rows
                 if row.course.course_id == course_id
                 and row.program.study_program_id == program_id
+                and row.course.course_scope != UNIVERSITY_SCOPE
             ]
             if not matched:
                 continue
@@ -1103,6 +1110,7 @@ async def generate_schedule(
             .where(
                 CourseOffering.academic_period_id == period.academic_period_id,
                 Course.is_active.is_(True),
+                Course.course_id.not_in(university_course_ids()),
             )
             .order_by(Course.course_code, CourseOffering.offering_code)
         )
@@ -1138,7 +1146,8 @@ async def generate_schedule(
                     StudyProgram.study_program_id == Curriculum.study_program_id,
                 )
                 .where(
-                    CourseOfferingEligibility.course_offering_id.in_(offering_ids)
+                    CourseOfferingEligibility.course_offering_id.in_(offering_ids),
+                    CurriculumCourse.course_id.not_in(university_course_ids()),
                 )
                 .order_by(
                     StudyProgram.program_code,

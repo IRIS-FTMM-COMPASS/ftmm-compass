@@ -14,6 +14,7 @@ from catalog import get_all_courses, prodi_code, refresh_from_db
 from database import AsyncSessionLocal
 from features.scheduling.scheduler import generate_schedule
 from section_codes import format_section_code, section_prefix
+from scheduling_common import UNIVERSITY_SCOPE
 from models import (
     StudyProgram,
     LecturerSchedulePreference,
@@ -521,6 +522,7 @@ async def _seed_demo_sections(session, period) -> int:
             .order_by(Course.course_code, CourseOffering.offering_code)
         )
     ).all()
+    rows = [row for row in rows if row.course_scope != UNIVERSITY_SCOPE]
     pairs = {(row.course_id, row.study_program_id) for row in rows}
     overrides = {
         (override.course_id, override.study_program_id): override.class_count
@@ -1236,6 +1238,9 @@ async def seed_data():
         ]
 
         for scfg in schedule_configs:
+            cc_obj = curriculum_course_map[scfg["code"]]
+            if cc_obj.course_scope == UNIVERSITY_SCOPE:
+                continue
             c_obj = course_map[scfg["code"]]
             stmt_off = select(CourseOffering).where(
                 CourseOffering.academic_period_id == active_period.academic_period_id,
@@ -1251,7 +1256,6 @@ async def seed_data():
                 session.add(offering)
                 await session.flush()
 
-            cc_obj = curriculum_course_map[scfg["code"]]
             stmt_coe = select(CourseOfferingEligibility).where(
                 CourseOfferingEligibility.course_offering_id == offering.course_offering_id,
                 CourseOfferingEligibility.curriculum_course_id == cc_obj.curriculum_course_id,
@@ -1423,6 +1427,8 @@ async def seed_data():
                 session.add(comp)
                 await session.flush()
 
+            if cc_obj.course_scope == UNIVERSITY_SCOPE:
+                continue
             # Seksi kanonik memakai seksi yang sudah ada; kode baru mengikuti
             # aturan penamaan section per prodi atau UM untuk MK bersama.
             canonical_section_code = format_section_code(prefix, 1)

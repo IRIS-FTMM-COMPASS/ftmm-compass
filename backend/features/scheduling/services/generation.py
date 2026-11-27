@@ -24,7 +24,11 @@ from models import (
     UnassignedClass,
 )
 from schemas import GenerateRequest, GenerateResponse
-from scheduling_common import all_study_program_ids, current_period_id
+from scheduling_common import (
+    all_study_program_ids,
+    current_period_id,
+    university_course_ids,
+)
 
 from ..scheduler import (
     bump_input_revisions,
@@ -352,7 +356,10 @@ async def list_unassigned(
                 == OfferingComponent.course_offering_id,
             )
             .join(Course, Course.course_id == CourseOffering.course_id)
-            .where(UnassignedClass.run_id == latest_run.run_id)
+            .where(
+                UnassignedClass.run_id == latest_run.run_id,
+                Course.course_id.not_in(university_course_ids()),
+            )
             .order_by(Course.course_code, ClassSection.section_code)
         )
     ).all()
