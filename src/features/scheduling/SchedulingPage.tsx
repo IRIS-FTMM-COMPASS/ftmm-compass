@@ -713,9 +713,9 @@ export default function SchedulingPage({ onOpenPanel }: SchedulingPageProps) {
           <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-gold">
             Penjadwalan kelas lintas prodi
           </p>
-          <h1 className="font-heading text-xl font-bold text-navy md:text-2xl">
+          <h2 className="font-heading text-xl font-bold text-navy md:text-2xl">
             Penjadwalan
-          </h1>
+          </h2>
           <p className="text-xs text-muted">
             {data?.period_label || "Periode akademik aktif"},{" "}
             {canOperateSchedule

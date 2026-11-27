@@ -80,8 +80,17 @@ export default function CourseResultsList({
             return (
               <div
                 key={course.id}
+                role="button"
+                tabIndex={0}
+                aria-label={`Lihat detail ${course.name}`}
                 onClick={() => onSelectCourse(course)}
-                className="bg-surface rounded-xl border border-border p-4 cursor-pointer hover:border-gold hover:shadow-md transition-all flex flex-col gap-3 group"
+                onKeyDown={(event) => {
+                  if (event.target !== event.currentTarget) return
+                  if (event.key !== "Enter" && event.key !== " ") return
+                  event.preventDefault()
+                  onSelectCourse(course)
+                }}
+                className="bg-surface rounded-xl border border-border p-4 cursor-pointer hover:border-gold hover:shadow-md transition-all flex flex-col gap-3 group focus-visible:outline-2 focus-visible:outline-navy focus-visible:outline-offset-2"
               >
                 <div className="flex justify-between items-start gap-2">
                   <div className="flex-1 min-w-0">

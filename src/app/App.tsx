@@ -614,15 +614,22 @@ function AdminAccounts() {
       </section>
 
       <section className="rounded-2xl border border-border bg-surface shadow-xs overflow-hidden">
+        <p className="border-b border-border px-4 py-2 text-[11px] text-muted md:hidden">
+          Geser tabel ke samping untuk melihat seluruh aksi.
+        </p>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-sm">
-            <thead className="bg-secondary text-left text-xs uppercase tracking-wide text-muted">
+          <table className="w-full min-w-[520px] text-sm md:min-w-[760px]">
+            <thead className="bg-secondary text-left text-xs uppercase tracking-wide text-navy/80">
               <tr>
                 <th className="px-4 py-3 font-semibold">Nama</th>
-                <th className="px-4 py-3 font-semibold">Email</th>
+                <th className="hidden px-4 py-3 font-semibold md:table-cell">
+                  Email
+                </th>
                 <th className="px-4 py-3 font-semibold">Peran</th>
                 <th className="px-4 py-3 font-semibold">Status</th>
-                <th className="px-4 py-3 font-semibold">NIM</th>
+                <th className="hidden px-4 py-3 font-semibold md:table-cell">
+                  NIM
+                </th>
                 <th className="px-4 py-3 font-semibold">Aksi</th>
               </tr>
             </thead>
@@ -651,9 +658,19 @@ function AdminAccounts() {
                     <Fragment key={account.user_id}>
                       <tr className="hover:bg-secondary/60">
                         <td className="px-4 py-3 font-medium text-foreground">
-                          {account.full_name || "Tidak tersedia"}
+                          <span className="block">
+                            {account.full_name || "Tidak tersedia"}
+                          </span>
+                          <span className="mt-1 block break-all text-xs font-normal text-muted md:hidden">
+                            {account.email}
+                          </span>
+                          {isStudent && (
+                            <span className="mt-1 block font-mono text-xs font-normal text-muted md:hidden">
+                              {account.student_number ?? "NIM belum diatur"}
+                            </span>
+                          )}
                         </td>
-                        <td className="px-4 py-3 text-muted">
+                        <td className="hidden px-4 py-3 text-muted md:table-cell">
                           {account.email}
                         </td>
                         <td className="px-4 py-3 text-muted">
@@ -678,13 +695,13 @@ function AdminAccounts() {
                               </span>
                             )}
                         </td>
-                        <td className="px-4 py-3 text-muted font-mono">
+                        <td className="hidden px-4 py-3 text-muted font-mono md:table-cell">
                           {account.student_number ?? "Tidak tersedia"}
                           {isStudent && account.study_program && (
                             <span className="mt-1 block font-sans text-xs text-muted">
                               {account.study_program}
                               {account.admission_year
-                                ? ` · ${account.admission_year}`
+                                ? `, ${account.admission_year}`
                                 : ""}
                             </span>
                           )}
@@ -1047,7 +1064,7 @@ function AdminAccounts() {
         )}
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[900px] text-sm">
-            <thead className="bg-secondary text-left text-xs uppercase tracking-wide text-muted">
+            <thead className="bg-secondary text-left text-xs uppercase tracking-wide text-navy/80">
               <tr>
                 <th className="px-4 py-3 font-semibold">Waktu</th>
                 <th className="px-4 py-3 font-semibold">Aktor</th>
@@ -1368,15 +1385,17 @@ function AppShell() {
   const [activePage, setActivePage] = useState<Page>(pageFromLocation)
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
     if (typeof window === "undefined") return true
+    if (window.innerWidth < 1024) return false
     try {
       const stored = window.localStorage.getItem("ftmm:sidebar-open")
       if (stored === "true" || stored === "false") return stored === "true"
     } catch {
       // localStorage dapat tidak tersedia; gunakan lebar layar sebagai cadangan
     }
-    return window.innerWidth >= 768
+    return true
   })
   useEffect(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 1024) return
     try {
       window.localStorage.setItem("ftmm:sidebar-open", String(isSidebarOpen))
     } catch {
@@ -1511,7 +1530,7 @@ function AppShell() {
     }
     event.preventDefault()
     handleNavigate(page)
-    if (window.innerWidth < 768) setIsSidebarOpen(false)
+    if (window.innerWidth < 1024) setIsSidebarOpen(false)
   }
 
   const canManageSchedule = canAccess("teaching-team")
@@ -1598,17 +1617,17 @@ function AppShell() {
         inert={!isSidebarOpen}
         aria-hidden={!isSidebarOpen}
         className={cn(
-          "bg-navy text-white flex flex-col flex-shrink-0 shadow-xl z-20 transition-all duration-300 ease-in-out absolute md:relative h-full overflow-hidden",
+          "bg-navy text-white flex flex-col flex-shrink-0 shadow-xl z-20 transition-all duration-300 ease-in-out absolute lg:relative h-full overflow-hidden",
           isSidebarOpen
             ? "w-64 translate-x-0 opacity-100"
-            : "w-0 -translate-x-full md:translate-x-0 opacity-0 pointer-events-none",
+            : "w-0 -translate-x-full lg:translate-x-0 opacity-0 pointer-events-none",
         )}
       >
         <div className="flex flex-col h-full w-64 min-w-[16rem]">
           <button
             onClick={() => setIsSidebarOpen(false)}
             aria-label="Tutup menu"
-            className="md:hidden absolute top-4 right-4 min-h-11 min-w-11 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors z-10 cursor-pointer"
+            className="lg:hidden absolute top-4 right-4 min-h-11 min-w-11 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors z-10 cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -1632,7 +1651,7 @@ function AppShell() {
                     "w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors duration-150 group text-left",
                     isActive
                       ? "bg-navy-light border-l-4 border-gold text-white"
-                      : "text-muted hover:text-white hover:bg-navy-light/50 border-l-4 border-transparent",
+                      : "text-white/80 hover:text-white hover:bg-navy-light/50 border-l-4 border-transparent",
                   )}
                 >
                   <Icon
@@ -1690,7 +1709,7 @@ function AppShell() {
                   <p className="text-sm font-medium truncate text-white group-hover:text-gold transition-colors">
                     {user?.full_name || "Mahasiswa FTMM"}
                   </p>
-                  <p className="text-xs text-muted font-mono truncate">
+                  <p className="text-xs text-white/70 font-mono truncate">
                     {user?.student_profile?.student_number ||
                       user?.email ||
                       user?.role}
@@ -1703,7 +1722,7 @@ function AppShell() {
                 onClick={() => setIsLogoutModalOpen(true)}
                 title="Keluar / Logout dari Sesi"
                 aria-label="Logout"
-                className="min-h-11 min-w-11 rounded-lg flex items-center justify-center transition-colors text-muted hover:text-orange hover:bg-orange/15 flex-shrink-0 cursor-pointer"
+                className="min-h-11 min-w-11 rounded-lg flex items-center justify-center transition-colors text-white/70 hover:text-orange hover:bg-orange/15 flex-shrink-0 cursor-pointer"
               >
                 <LogOut className="w-4 h-4" />
               </button>
@@ -1715,7 +1734,7 @@ function AppShell() {
       <main className="flex-1 flex flex-col h-full overflow-hidden relative">
         {isSidebarOpen && (
           <div
-            className="absolute inset-0 bg-black/50 z-10 md:hidden backdrop-blur-sm"
+            className="absolute inset-0 bg-black/50 z-10 lg:hidden backdrop-blur-sm"
             onClick={() => setIsSidebarOpen(false)}
           />
         )}
@@ -1726,7 +1745,7 @@ function AppShell() {
               isOpen={isSidebarOpen}
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
             />
-            <h2 className="font-heading text-xl md:text-2xl font-bold text-navy capitalize truncate">
+            <h1 className="font-heading text-xl md:text-2xl font-bold text-navy capitalize truncate">
               {visiblePage === "admin-accounts"
                 ? "Manajemen Akun"
                 : visiblePage === "pj-courses"
@@ -1744,8 +1763,14 @@ function AppShell() {
                             : visiblePage === "course-finder" &&
                                 user?.role === "admin"
                               ? "Course Management"
-                              : visiblePage.replace("-", " ")}
-            </h2>
+                              : visiblePage === "course-finder"
+                                ? "Course Finder"
+                                : visiblePage === "degree-planner"
+                                  ? "Degree Planner"
+                                  : visiblePage === "dashboard"
+                                    ? "Dashboard"
+                                    : visiblePage.replace("-", " ")}
+            </h1>
           </div>
           <div className="flex items-center gap-2 md:gap-4">
             <NotificationDropdown currentUser={user} />

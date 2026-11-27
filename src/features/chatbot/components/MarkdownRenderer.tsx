@@ -39,14 +39,14 @@ export function MarkdownRenderer({
           ),
           em: ({ children }) => <em className="italic">{children}</em>,
           h1: ({ children }) => (
-            <h1
+            <h2
               className={cn(
                 "font-heading font-bold text-base mt-3 mb-1.5 first:mt-0",
                 isUser ? "text-navy-dark" : "text-navy",
               )}
             >
               {children}
-            </h1>
+            </h2>
           ),
           h2: ({ children }) => (
             <h2

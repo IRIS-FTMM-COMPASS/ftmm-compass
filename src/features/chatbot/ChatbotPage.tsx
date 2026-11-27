@@ -1,5 +1,12 @@
 import { useState, useRef, useEffect } from "react"
-import { Send, Bot, Sparkles, AlertCircle, RotateCcw } from "lucide-react"
+import {
+  Send,
+  Bot,
+  Sparkles,
+  AlertCircle,
+  RotateCcw,
+  Square,
+} from "lucide-react"
 import { cn } from "@/shared/utils"
 import MarkdownRenderer from "@/features/chatbot/components/MarkdownRenderer"
 import {
@@ -91,6 +98,8 @@ export default function Chatbot({
   }, [])
 
   const endOfMessagesRef = useRef<HTMLDivElement>(null)
+  const abortRef = useRef<AbortController | null>(null)
+  const activeAssistantIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     endOfMessagesRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -116,6 +125,9 @@ export default function Chatbot({
     setMessages((prev) => [...prev, userMessage, initialAssistantMessage])
     if (!messageText) setInput("")
     setIsLoading(true)
+    const controller = new AbortController()
+    abortRef.current = controller
+    activeAssistantIdRef.current = assistantMsgId
 
     const chatBody = {
       message: textToSend,
@@ -131,6 +143,7 @@ export default function Chatbot({
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify(chatBody),
+        signal: controller.signal,
       })
 
       if (streamRes.ok && streamRes.body) {
@@ -164,7 +177,7 @@ export default function Chatbot({
               }
 
               if (data.error) {
-                accumulatedContent = `⚠️ **Layanan Tidak Tersedia**\n\n${sanitizeErrorMessage(data.error.message) || "Gagal memproses permintaan."}`
+                accumulatedContent = `**Layanan Tidak Tersedia**\n\n${sanitizeErrorMessage(data.error.message) || "Gagal memproses permintaan."}`
                 setMessages((prev) =>
                   prev.map((m) =>
                     m.id === assistantMsgId
@@ -226,6 +239,7 @@ export default function Chatbot({
         method: "POST",
         body: chatBody,
         auth: true,
+        signal: controller.signal,
       })
       if (data.updated_profile) setProfile(data.updated_profile)
       setMessages((prev) =>
@@ -243,6 +257,7 @@ export default function Chatbot({
         ),
       )
     } catch (error) {
+      if (controller.signal.aborted) return
       const failed = error instanceof ApiError
       const retryNote =
         failed && (error.status === 503 || error.status === 502)
@@ -254,16 +269,41 @@ export default function Chatbot({
             ? {
                 ...m,
                 content: failed
-                  ? `⚠️ **Layanan Tidak Tersedia (${error.status})**\n\n${error.message}${retryNote}`
-                  : "⚠️ **Koneksi Terputus**\n\nTidak dapat terhubung ke server FTMM Compass AI. Pastikan backend Gateway (`pnpm dev:backend`) dan kontainer Docker Chatbot (`ftmm-compass-chatbot`) telah aktif.",
+                  ? `**Layanan Tidak Tersedia (${error.status})**\n\n${error.message}${retryNote}`
+                  : "**Koneksi Terputus**\n\nTidak dapat terhubung ke server FTMM Compass AI. Pastikan backend Gateway (`pnpm dev:backend`) dan kontainer Docker Chatbot (`ftmm-compass-chatbot`) telah aktif.",
                 action_type: "GENERAL",
               }
             : m,
         ),
       )
     } finally {
+      if (abortRef.current === controller) {
+        abortRef.current = null
+        activeAssistantIdRef.current = null
+      }
       setIsLoading(false)
     }
+  }
+
+  const handleStop = () => {
+    abortRef.current?.abort()
+    const assistantId = activeAssistantIdRef.current
+    if (assistantId) {
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === assistantId
+            ? {
+                ...message,
+                content: message.content
+                  ? `${message.content}\n\n*Dihentikan.*`
+                  : "Permintaan dihentikan.",
+                action_type: "GENERAL",
+              }
+            : message,
+        ),
+      )
+    }
+    setIsLoading(false)
   }
 
   const handleApplyPlanToVisualRoadmap = (
@@ -311,7 +351,7 @@ export default function Chatbot({
               </span>
               <span className="hidden sm:inline">
                 {backendStatus?.chatbot_service_online
-                  ? `Live • ${backendStatus.chatbot_model || "Hybrid Engine"}`
+                  ? `Live, ${backendStatus.chatbot_model || "Hybrid Engine"}`
                   : "Rule Engine Fallback"}
               </span>
             </span>
@@ -413,15 +453,15 @@ export default function Chatbot({
       </div>
 
       {messages.length <= 2 && (
-        <div className="px-6 py-2 flex gap-2 overflow-x-auto scrollbar-hide border-t border-border bg-background/50 flex-shrink-0">
+        <div className="flex flex-wrap gap-2 border-t border-border bg-background/50 px-4 py-2 sm:px-6 flex-shrink-0">
           {QUICK_PROMPTS.map((prompt, i) => (
             <button
               key={i}
               type="button"
               onClick={() => handleSend(prompt)}
-              className="min-h-11 px-4 py-2 bg-surface border border-border hover:border-gold hover:text-navy text-xs rounded-full whitespace-nowrap text-muted transition-all shadow-2xs cursor-pointer flex-shrink-0 focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2"
+              className="min-h-11 w-full max-w-full rounded-xl border border-border bg-surface px-4 py-2 text-left text-xs text-muted transition-all hover:border-gold hover:text-navy shadow-2xs cursor-pointer line-clamp-2 focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2 sm:w-auto sm:rounded-full sm:whitespace-nowrap"
             >
-              💡 {prompt}
+              {prompt}
             </button>
           ))}
         </div>
@@ -434,17 +474,22 @@ export default function Chatbot({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-            placeholder="Ketik pertanyaan atau permintaan rencana studi Anda..."
+            placeholder="Tanya rencana studi..."
             className="w-full pl-4 pr-14 py-3 bg-background border border-border rounded-xl focus:border-gold focus:ring-1 focus:ring-gold outline-hidden text-sm font-sans transition-all"
             disabled={isLoading}
           />
           <button
             type="button"
-            onClick={() => handleSend()}
-            disabled={!input.trim() || isLoading}
+            onClick={isLoading ? handleStop : () => handleSend()}
+            disabled={!isLoading && !input.trim()}
+            aria-label={isLoading ? "Hentikan respons" : "Kirim pesan"}
             className="absolute right-2 min-h-11 min-w-11 flex items-center justify-center bg-navy text-gold rounded-lg hover:bg-navy-light disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-1"
           >
-            <Send className="w-4 h-4" />
+            {isLoading ? (
+              <Square className="w-4 h-4 fill-current" />
+            ) : (
+              <Send className="w-4 h-4" />
+            )}
           </button>
         </div>
         <p className="text-[10px] text-muted text-center mt-2 flex items-center justify-center gap-1">

@@ -58,9 +58,9 @@ export default function BrandLogo({
             <div className="absolute w-[2px] h-4 bg-gold top-1 left-1/2 -translate-x-1/2 rounded-full" />
           </div>
           <div className="min-w-0">
-            <h1 className="font-heading font-bold text-lg tracking-wide text-gold whitespace-nowrap">
+            <div className="font-heading font-bold text-lg tracking-wide text-gold whitespace-nowrap">
               FTMM COMPASS
-            </h1>
+            </div>
             {showSubtitle && (
               <p className="text-[10px] text-teal-light uppercase tracking-wider font-mono whitespace-nowrap">
                 Academic Advisor

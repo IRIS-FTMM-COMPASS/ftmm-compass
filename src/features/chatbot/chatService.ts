@@ -66,7 +66,7 @@ export const INITIAL_CHAT_MESSAGES: ChatMessage[] = [
     id: "init-1",
     role: "assistant",
     content:
-      "Halo! Saya **Compass AI**, asisten akademik pintar di FTMM Universitas Airlangga. 🧭\n\nSaya dapat membantu Anda menyusun **Rencana Studi (Study Planner)** yang dipersonalisasi sesuai minat karir dan aturan prasyarat kurikulum FTMM.\n\nAda yang bisa saya bantu hari ini?",
+      "Halo! Saya **Compass AI**, asisten akademik pintar di FTMM Universitas Airlangga.\n\nSaya dapat membantu Anda menyusun **Rencana Studi (Study Planner)** yang dipersonalisasi sesuai minat karir dan aturan prasyarat kurikulum FTMM.\n\nAda yang bisa saya bantu hari ini?",
   },
 ]
 

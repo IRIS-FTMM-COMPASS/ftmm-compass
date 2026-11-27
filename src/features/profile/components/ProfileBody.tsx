@@ -91,7 +91,7 @@ export default function ProfileBody({
                   5 Program Studi FTMM
                 </p>
                 <p className="text-[11px] text-muted mt-0.5 font-mono">
-                  TSD · TRKB · RN · TI · TE
+                  TSD, TRKB, RN, TI, TE
                 </p>
               </div>
             </div>

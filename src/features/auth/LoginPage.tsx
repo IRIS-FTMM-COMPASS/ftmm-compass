@@ -321,9 +321,9 @@ export default function Login({ onLogin }: LoginProps) {
           <Compass className="w-7 h-7" />
         </div>
         <div>
-          <h1 className="font-heading font-bold text-xl text-gold tracking-wide">
+          <div className="font-heading font-bold text-xl text-gold tracking-wide">
             FTMM COMPASS
-          </h1>
+          </div>
           <p className="text-xs text-teal-light uppercase tracking-wider font-mono">
             Academic Advisor
           </p>
@@ -399,9 +399,9 @@ export default function Login({ onLogin }: LoginProps) {
         <div className="max-w-md w-full">
           <div className="text-center mb-8">
             <BrandLogo variant="login-form" className="lg:hidden" />
-            <h2 className="text-3xl font-heading font-bold text-navy mb-2">
+            <h1 className="text-3xl font-heading font-bold text-navy mb-2">
               {MODE_COPY[mode].title}
-            </h2>
+            </h1>
             <p className="text-muted text-sm">{MODE_COPY[mode].subtitle}</p>
           </div>
 

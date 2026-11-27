@@ -85,7 +85,7 @@ export default function PlannerHeader({
   return (
     <>
       {appliedSummary && (
-        <div className="mb-4 p-4 bg-teal/15 border border-teal/40 rounded-xl flex items-center justify-between gap-4 animate-in fade-in duration-300">
+        <div className="mb-4 p-4 bg-teal/15 border border-teal/40 rounded-xl flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between animate-in fade-in duration-300">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-navy text-gold rounded-lg shadow-sm">
               <Sparkles className="w-5 h-5 text-gold" />
@@ -99,9 +99,9 @@ export default function PlannerHeader({
               </h4>
               <p className="text-xs text-muted">
                 Target Lulus:{" "}
-                <strong>Semester {appliedSummary.target_semester}</strong> •
-                Total Beban: <strong>{appliedSummary.total_credits} SKS</strong>{" "}
-                • Fokus:{" "}
+                <strong>Semester {appliedSummary.target_semester}</strong>,
+                Total Beban: <strong>{appliedSummary.total_credits} SKS</strong>
+                , Fokus:{" "}
                 <strong>{appliedSummary.focus_tracks.join(", ")}</strong>
               </p>
             </div>
@@ -109,7 +109,7 @@ export default function PlannerHeader({
           {onResetPlan && (
             <button
               onClick={onResetPlan}
-              className="min-h-11 min-w-11 px-3 text-xs font-medium text-navy hover:bg-navy/10 rounded-lg transition-colors flex items-center justify-center gap-1.5 border border-navy/20 cursor-pointer"
+              className="min-h-11 min-w-11 self-start px-3 text-xs font-medium text-navy hover:bg-navy/10 rounded-lg transition-colors flex items-center justify-center gap-1.5 border border-navy/20 cursor-pointer sm:self-auto"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               Reset Default
@@ -220,10 +220,11 @@ export default function PlannerHeader({
                 type="button"
                 onClick={onResetDraft}
                 title="Muat ulang skenario ini dari server"
+                aria-label="Muat ulang skenario dari server"
                 className="min-h-11 min-w-11 px-2.5 text-xs font-medium text-navy hover:bg-navy/5 rounded-lg border border-border flex items-center justify-center gap-1 cursor-pointer transition-colors"
               >
                 <RotateCcw className="w-3 h-3 text-muted" />
-                Reset
+                <span className="hidden sm:inline">Reset</span>
               </button>
             )}
 
@@ -237,10 +238,11 @@ export default function PlannerHeader({
                     ? "Minimal satu skenario harus tersimpan"
                     : "Hapus skenario aktif"
                 }
+                aria-label="Hapus skenario aktif"
                 className="min-h-11 min-w-11 px-2.5 text-xs font-medium text-orange hover:bg-orange/10 rounded-lg border border-border flex items-center justify-center gap-1 cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Trash2 className="w-3 h-3" />
-                Hapus
+                <span className="hidden sm:inline">Hapus</span>
               </button>
             )}
 
@@ -249,10 +251,11 @@ export default function PlannerHeader({
                 type="button"
                 onClick={onDuplicateDraft}
                 title="Salin skenario aktif sebagai draft baru"
+                aria-label="Salin skenario aktif sebagai draft baru"
                 className="min-h-11 min-w-11 px-2.5 text-xs font-medium text-navy hover:bg-navy/5 rounded-lg border border-border flex items-center justify-center gap-1 cursor-pointer transition-colors"
               >
                 <Copy className="w-3.5 h-3.5" />
-                Salin Skenario
+                <span className="hidden sm:inline">Salin Skenario</span>
               </button>
             )}
 
@@ -269,10 +272,11 @@ export default function PlannerHeader({
                   }
                 }}
                 title="Buat skenario rencana studi baru"
+                aria-label="Buat skenario rencana studi baru"
                 className="min-h-11 min-w-11 px-2.5 text-xs font-semibold text-white bg-navy hover:bg-navy-light rounded-lg flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-2xs"
               >
                 <Plus className="w-3.5 h-3.5" />
-                Skenario Baru
+                <span className="hidden sm:inline">Skenario Baru</span>
               </button>
             )}
           </div>
@@ -303,7 +307,7 @@ export default function PlannerHeader({
           <h3 className="font-heading font-bold text-lg text-navy mb-1">
             Rencana Studi (Roadmap)
           </h3>
-          <p className="text-sm text-muted">
+          <p className="hidden text-sm text-muted sm:block">
             Matkul <span className="font-medium text-navy">Wajib</span> otomatis
             terkunci di semesternya. Matkul{" "}
             <span className="font-medium text-navy">Pilihan</span> dapat
@@ -312,7 +316,7 @@ export default function PlannerHeader({
             ikut disimpan ulang ke skenario.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2.5 items-center">
+        <div className="hidden flex-wrap gap-2.5 items-center md:flex">
           {LEGEND_ITEMS.map((item) => (
             <div
               key={item.label}

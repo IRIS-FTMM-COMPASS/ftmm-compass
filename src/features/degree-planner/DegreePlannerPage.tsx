@@ -823,6 +823,7 @@ export default function DegreePlanner({
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
+              aria-pressed={activeTab === tab.key}
               className={cn(
                 "flex items-center gap-2 px-4 min-h-11 rounded-lg text-sm font-medium transition-all cursor-pointer",
                 activeTab === tab.key

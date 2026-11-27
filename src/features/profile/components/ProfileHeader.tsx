@@ -62,9 +62,9 @@ export default function ProfileHeader({
 
           <div className="space-y-1.5">
             <div className="flex items-center gap-2.5 flex-wrap">
-              <h1 className="text-2xl md:text-3xl font-heading font-bold text-navy">
+              <h2 className="text-2xl md:text-3xl font-heading font-bold text-navy">
                 {user?.full_name || "Civitas Academica FTMM"}
-              </h1>
+              </h2>
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gold/15 text-navy border border-gold/40">
                 <Sparkles className="w-3 h-3 text-gold" />
                 {roleLabel}

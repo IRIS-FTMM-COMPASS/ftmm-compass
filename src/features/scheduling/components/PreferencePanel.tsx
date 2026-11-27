@@ -354,9 +354,9 @@ export default function PreferencePanel() {
   if (user?.role !== "lecturer") {
     return (
       <section className="rounded-xl border border-border bg-surface p-6">
-        <h1 className="font-heading text-xl font-bold text-navy">
+        <h2 className="font-heading text-xl font-bold text-navy">
           Preferensi Jadwal
-        </h1>
+        </h2>
         <p className="mt-2 text-sm text-muted">
           Preferensi hanya dapat diisi oleh dosen untuk akunnya sendiri.
         </p>
@@ -370,12 +370,12 @@ export default function PreferencePanel() {
       className="flex w-full flex-col gap-6"
     >
       <header>
-        <h1
+        <h2
           id="preference-title"
           className="font-heading text-2xl font-bold text-navy"
         >
           Preferensi Jadwal
-        </h1>
+        </h2>
         <p className="mt-2 max-w-2xl text-sm text-muted">
           Tentukan jam yang Anda utamakan dan blok waktu yang tidak dapat
           digunakan untuk mengajar.
