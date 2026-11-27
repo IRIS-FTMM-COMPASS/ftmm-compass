@@ -1046,6 +1046,7 @@ async def generate_schedule(
     mode: str,
     triggered_by: UUID,
     study_program_id: UUID | None = None,
+    request_key: str | None = None,
 ) -> GenerateResponse:
     """Buat satu blok per kelas dan simpan hasil serta diagnosisnya."""
     await db.execute(
@@ -1063,6 +1064,7 @@ async def generate_schedule(
         triggered_by=triggered_by,
         status="running",
         stats={},
+        request_key=request_key,
     )
     db.add(run)
     await db.flush()
@@ -1822,9 +1824,7 @@ async def generate_schedule(
     }
     run.status = "completed"
     run.ended_at = datetime.now(timezone.utc)
-    await db.flush()
-
-    return GenerateResponse(
+    response = GenerateResponse(
         run_id=str(run.run_id),
         assigned=len(result.assignments),
         unassigned=unassigned_items,
@@ -1841,3 +1841,6 @@ async def generate_schedule(
         preserved_final_count=len(preserved_final_sections),
         preserved_manual_count=len(preserved_manual_sections),
     )
+    run.response = response.model_dump(mode="json")
+    await db.flush()
+    return response

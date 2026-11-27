@@ -783,6 +783,7 @@ class GenerateRequest(BaseModel):
     mode: Literal["fill_empty", "regenerate", "full_reset"] = "fill_empty"
     study_program_id: Optional[str] = None
     confirm_full_reset: bool = False
+    request_key: Optional[str] = Field(default=None, min_length=1, max_length=64)
 
 
 class GenerateResponse(BaseModel):

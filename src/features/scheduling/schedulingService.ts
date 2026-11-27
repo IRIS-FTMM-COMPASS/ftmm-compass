@@ -449,6 +449,7 @@ export interface GenerateRequest {
   mode: "regenerate" | "full_reset"
   confirm_full_reset?: boolean
   study_program_id?: string
+  request_key?: string
 }
 
 export interface GenerateResponse {

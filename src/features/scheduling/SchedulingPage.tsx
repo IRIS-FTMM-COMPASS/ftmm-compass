@@ -142,6 +142,8 @@ export default function SchedulingPage({ onOpenPanel }: SchedulingPageProps) {
   )
   const [reloadKey, setReloadKey] = useState(0)
   const boardLoadCount = useRef(0)
+  const generationKeysRef =
+    useRef<Partial<Record<"regenerate" | "full_reset", string>>>({})
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
   const visibleTabs = useMemo(
     () =>
@@ -548,6 +550,9 @@ export default function SchedulingPage({ onOpenPanel }: SchedulingPageProps) {
     if (mode === "full_reset" && !isAdmin) return
     const targetProgramId = generationTargetProgramId
     if (mode === "regenerate" && isPjProdi && !targetProgramId) return
+    const requestKey =
+      generationKeysRef.current[mode] ??
+      (generationKeysRef.current[mode] = crypto.randomUUID())
     setBusyAction(mode)
     setActionError(null)
     setActionNotice(null)
@@ -558,6 +563,7 @@ export default function SchedulingPage({ onOpenPanel }: SchedulingPageProps) {
         mode,
         confirm_full_reset: mode === "full_reset",
         study_program_id: targetProgramId,
+        request_key: requestKey,
       })
       setGenerationResult(result)
       setActionNotice(
@@ -572,6 +578,7 @@ export default function SchedulingPage({ onOpenPanel }: SchedulingPageProps) {
         apiErrorMessage(cause, "Penjadwalan otomatis gagal dijalankan."),
       )
     } finally {
+      delete generationKeysRef.current[mode]
       setBusyAction(null)
     }
   }
