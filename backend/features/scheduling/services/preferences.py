@@ -9,7 +9,6 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from academics import period_payload
 from models import (
     AcademicPeriod,
     ClassInstructorAssignment,
