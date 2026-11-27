@@ -70,10 +70,11 @@ cp .env.example .env
 | `AUTO_SEED` | `false` | Seed data demo saat startup; hanya memanggil `seed_data()` dari `scripts/seed.py`, tidak pernah seed katalog penuh |
 | `CHATBOT_SERVICE_URL` | `http://127.0.0.1:8000` (host) / `http://ftmm-compass-chatbot:8000` (Docker) | Upstream URL for Chatbot AI microservice |
 | `CHATBOT_TIMEOUT_SECONDS` | `45.0` | Timeout in seconds for Chatbot microservice calls |
-| `JWT_SECRET_KEY` | random per proses | Signing key access token; wajib di-set untuk multi-worker |
+| `APP_ENV` | `development` | `production` mewajibkan `JWT_SECRET_KEY`; nilai lain memakai secret acak per proses |
+| `JWT_SECRET_KEY` | random per proses (development) | Signing key access token; wajib di-set saat `APP_ENV=production` dan untuk multi-worker |
 | `EKSTRAK_DIR` | `<repo>/Ekstrak` | lokasi data Ekstrak gitignored untuk seed katalog |
-| `DEFAULT_RATE_LIMIT` | none | Slowapi global limit per client; kosongkan untuk menonaktifkan |
-| `CORS_ORIGINS` | `*` | Allowed CORS origins, dipisah koma |
+| `DEFAULT_RATE_LIMIT` | none | Slowapi global limit per client; kini diterapkan lewat `SlowAPIMiddleware`, kosongkan untuk menonaktifkan |
+| `CORS_ORIGINS` | `http://localhost:8443,http://127.0.0.1:8443` | Allowed CORS origins, dipisah koma; `*` menonaktifkan credentials |
 
 > `AUTO_SEED=true` hanya menjalankan `seed_data()` dari `scripts/seed.py` (akun dan data demo). Katalog penuh tidak pernah di-seed saat startup — jalankan eksplisit dengan `uv run --directory backend python -m scripts.seed_full_catalog`. Lihat `docs/demo-data-policy.md` sebagai SSOT kebijakan data demo.
 

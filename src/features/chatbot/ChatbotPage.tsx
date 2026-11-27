@@ -225,6 +225,7 @@ export default function Chatbot({
       const data = await apiFetch<ChatResponse>(CHAT_PATH, {
         method: "POST",
         body: chatBody,
+        auth: true,
       })
       if (data.updated_profile) setProfile(data.updated_profile)
       setMessages((prev) =>

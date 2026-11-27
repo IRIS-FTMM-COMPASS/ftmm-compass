@@ -9,8 +9,8 @@ if hasattr(sys.stderr, "reconfigure"):
 import json
 import time
 import uuid
-import jwt
 import httpx
+from contextlib import nullcontext
 from typing import AsyncGenerator
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
@@ -27,7 +27,7 @@ from models import (
     StudentProfile as StudentProfileModel,
     User,
 )
-from auth import SECRET_KEY, ALGORITHM, get_current_user
+from auth import get_current_user
 from catalog import normalize_prodi
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -89,26 +89,6 @@ async def _chat_scope(user_id: uuid.UUID) -> tuple[str | None, bool]:
         return None, False
 
 
-def _resolve_user_id(request_data: ChatRequest, client_request: Request | None = None) -> uuid.UUID | None:
-    if request_data.user_id:
-        try:
-            return uuid.UUID(str(request_data.user_id))
-        except (ValueError, TypeError):
-            pass
-    if client_request and "authorization" in client_request.headers:
-        auth_header = client_request.headers.get("authorization", "")
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:].strip()
-            try:
-                payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-                sub = payload.get("sub")
-                if sub:
-                    return uuid.UUID(str(sub))
-            except Exception as exc:
-                logger.debug("Token JWT tidak valid pada payload chat: %s", exc)
-    return None
-
-
 async def log_chat_metadata(
     session_id: str,
     user_message: str,
@@ -135,12 +115,16 @@ async def log_chat_metadata(
         logger.warning(f"Failed to log chat metadata to PostgreSQL: {exc}")
 
 
-async def handle_chat(request: ChatRequest, client_request: Request | None = None) -> ChatResponse:
+async def handle_chat(
+    request: ChatRequest,
+    user: User,
+    client_request: Request | None = None,
+) -> ChatResponse:
     _check_circular_url(settings.CHATBOT_SERVICE_URL)
     start_time = time.perf_counter()
     session_id = request.session_id or (client_request.headers.get("x-session-id") if client_request else None) or "default"
-    user_id = _resolve_user_id(request, client_request)
-    scoped_prodi, is_scoped = await _chat_scope(user_id) if user_id else (None, False)
+    user_id = user.user_id
+    scoped_prodi, is_scoped = await _chat_scope(user_id)
     if is_scoped:
         if request.student_profile is None:
             request.student_profile = StudentProfile()
@@ -230,19 +214,76 @@ async def handle_chat(request: ChatRequest, client_request: Request | None = Non
 
 async def handle_chat_stream(
     request: ChatRequest,
+    user: User,
     client_request: Request | None = None,
-    authenticated_user_id: uuid.UUID | None = None,
 ) -> StreamingResponse:
     _check_circular_url(settings.CHATBOT_SERVICE_URL)
     session_id = request.session_id or (client_request.headers.get("x-session-id") if client_request else None) or "default"
-    user_id = authenticated_user_id
+    user_id = user.user_id
+    scoped_prodi, is_scoped = await _chat_scope(user_id)
+    if is_scoped:
+        if request.student_profile is None:
+            request.student_profile = StudentProfile()
+        request.student_profile.program_studi = scoped_prodi
+
+    payload = {
+        "message": request.message,
+        "history": [{"role": m.role, "content": m.content} for m in request.history],
+        "student_profile": request.student_profile.model_dump() if request.student_profile else {},
+    }
+    if not await stream_tracker.acquire():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Batas koneksi streaming tercapai. Coba lagi nanti.",
+            headers={"Retry-After": "5"},
+        )
+    start_time = time.perf_counter()
+    client = httpx.AsyncClient(timeout=settings.CHATBOT_TIMEOUT_SECONDS)
+    try:
+        stream_cm = client.stream(
+            "POST",
+            f"{settings.CHATBOT_SERVICE_URL}/api/v1/chat/stream",
+            json=payload,
+        )
+        response = await stream_cm.__aenter__()
+    except (httpx.ConnectError, ConnectionError) as exc:
+        await client.aclose()
+        await stream_tracker.release(start_time)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Layanan Chatbot AI offline ({exc.__class__.__name__}). Pastikan kontainer ftmm-compass-chatbot aktif di port 8000.",
+            headers={"Retry-After": "5"},
+        )
+    except httpx.TimeoutException:
+        await client.aclose()
+        await stream_tracker.release(start_time)
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Waktu tunggu layanan Chatbot AI habis.",
+        )
+
+    if response.status_code != 200:
+        err_text = await response.aread()
+        try:
+            err_json = json.loads(err_text)
+            err_msg = (
+                err_json.get("error", {}).get("message")
+                or err_json.get("detail")
+                or err_text.decode("utf-8", errors="ignore")
+            )
+        except Exception:
+            err_msg = f"Chatbot microservice error ({response.status_code}): {err_text.decode('utf-8', errors='ignore')}"
+        try:
+            await stream_cm.__aexit__(None, None, None)
+        finally:
+            await client.aclose()
+            await stream_tracker.release(start_time)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=err_msg)
 
     async def client_gone() -> bool:
         return client_request is not None and await client_request.is_disconnected()
 
     async def stream_generator() -> AsyncGenerator[str, None]:
-        client = httpx.AsyncClient(timeout=settings.CHATBOT_TIMEOUT_SECONDS)
-        start_time = time.perf_counter()
         accumulated_tokens: list[str] = []
         final_reply: str | None = None
         action_type: str | None = None
@@ -253,23 +294,7 @@ async def handle_chat_stream(
             if await client_gone():
                 return
 
-            if user_id:
-                scoped_prodi, is_scoped = await _chat_scope(user_id)
-                if is_scoped:
-                    if request.student_profile is None:
-                        request.student_profile = StudentProfile()
-                    request.student_profile.program_studi = scoped_prodi
-
-            payload = {
-                "message": request.message,
-                "history": [{"role": m.role, "content": m.content} for m in request.history],
-                "student_profile": request.student_profile.model_dump() if request.student_profile else {},
-            }
-            async with client.stream(
-                "POST",
-                f"{settings.CHATBOT_SERVICE_URL}/api/v1/chat/stream",
-                json=payload,
-            ) as response:
+            async with nullcontext(response):
                 if response.status_code != 200:
                     err_text = await response.aread()
                     try:
@@ -392,18 +417,53 @@ async def handle_chat_stream(
             )
             yield f"data: {json.dumps(err_payload, ensure_ascii=False)}\n\n"
         finally:
-            await stream_tracker.release(start_time)
-            await client.aclose()
+            try:
+                await stream_cm.__aexit__(None, None, None)
+            finally:
+                await client.aclose()
+                await stream_tracker.release(start_time)
 
     return StreamingResponse(stream_generator(), media_type="text/event-stream")
 
 
-async def handle_reset_chat_session(session_id: str) -> dict:
+async def _assert_session_owner(session_id: str, user_id: uuid.UUID) -> None:
+    async with AsyncSessionLocal() as db_session:
+        result = await db_session.execute(
+            select(ChatLog.user_id)
+            .where(ChatLog.session_id == session_id)
+            .distinct()
+        )
+        owners = [row for row in result.scalars().all() if row is not None]
+    if not owners or any(owner != user_id for owner in owners):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Sesi obrolan tidak ditemukan.",
+        )
+
+
+async def handle_reset_chat_session(session_id: str, user: User) -> dict:
+    await _assert_session_owner(session_id, user.user_id)
     try:
-        async with httpx.AsyncClient(timeout=2.0) as client:
-            await client.delete(f"{settings.CHATBOT_SERVICE_URL}/api/v1/chat/sessions/{session_id}")
-    except Exception as exc:
-        logger.info("Reset sesi upstream tidak tersedia: %s", exc)
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.delete(
+                f"{settings.CHATBOT_SERVICE_URL}/api/v1/chat/sessions/{session_id}"
+            )
+    except (httpx.ConnectError, ConnectionError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Layanan Chatbot AI offline ({exc.__class__.__name__}).",
+            headers={"Retry-After": "5"},
+        )
+    except httpx.TimeoutException:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Waktu tunggu layanan Chatbot AI habis.",
+        )
+    if response.status_code >= 400:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Reset sesi chatbot gagal ({response.status_code}).",
+        )
 
     return {
         "status": "success",
@@ -415,33 +475,34 @@ async def handle_reset_chat_session(session_id: str) -> dict:
 
 
 @router.post("/chat", response_model=ChatResponse)
-@limiter.limit("20/minute")
-async def v1_chat(request: Request, chat_request: ChatRequest):
-    return await handle_chat(chat_request, client_request=request)
+@limiter.limit("20/minute", override_defaults=False)
+async def v1_chat(
+    request: Request,
+    chat_request: ChatRequest,
+    current_user: User = Depends(get_current_user),
+):
+    return await handle_chat(chat_request, user=current_user, client_request=request)
 
 
 @router.post("/chat/stream")
-@limiter.limit("20/minute")
+@limiter.limit("20/minute", override_defaults=False)
 async def v1_chat_stream(
     request: Request,
     chat_request: ChatRequest,
     current_user: User = Depends(get_current_user),
 ):
-    if not await stream_tracker.acquire():
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Batas koneksi streaming tercapai. Coba lagi nanti.",
-            headers={"Retry-After": "5"},
-        )
     return await handle_chat_stream(
         chat_request,
+        user=current_user,
         client_request=request,
-        authenticated_user_id=current_user.user_id,
     )
 
 
 @router.delete("/chat/sessions/{session_id}")
-async def v1_reset_chat_session(session_id: str):
-    return await handle_reset_chat_session(session_id)
+async def v1_reset_chat_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    return await handle_reset_chat_session(session_id, current_user)
 
 

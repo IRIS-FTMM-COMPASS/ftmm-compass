@@ -85,7 +85,7 @@ def auth_rate_limit(rate: str):
     """Batas laju hanya untuk endpoint autentikasi yang diberi penanda."""
 
     def decorator(func):
-        limited = limiter.limit(rate)(func)
+        limited = limiter.limit(rate, override_defaults=False)(func)
 
         @wraps(func)
         async def wrapper(*args, **kwargs):
