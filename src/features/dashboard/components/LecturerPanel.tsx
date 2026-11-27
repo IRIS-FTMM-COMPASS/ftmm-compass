@@ -18,7 +18,9 @@ export default function LecturerPanel({ dashboardData }: LecturerPanelProps) {
           </h3>
           <p className="text-xs text-muted">
             {dashboardData?.stats?.type === "lecturer"
-              ? dashboardData.stats.status
+              ? `${dashboardData.stats.assigned_classes} kelas ditugaskan · ${
+                  dashboardData.stats.scheduled_classes
+                } terjadwal`
               : ""}
           </p>
         </div>

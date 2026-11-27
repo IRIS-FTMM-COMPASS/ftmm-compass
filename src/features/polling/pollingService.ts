@@ -64,6 +64,10 @@ export interface PjAvailabilityItem {
   is_active: boolean
   can_toggle: boolean
   lock_reason: string | null
+  class_count?: number
+  capacity_per_class?: number
+  total_quota?: number
+  enrolled_count?: number
 }
 
 export interface PjAvailabilityMeta {
@@ -81,6 +85,17 @@ export interface PjAvailabilityResponse {
 export interface PjAvailabilityParams {
   periodId?: string
   semester?: number
+}
+
+export interface CourseQuotaResponse {
+  curriculum_course_id: string
+  study_program_id: string
+  academic_period_id: string
+  class_count: number
+  capacity_per_class: number
+  total_quota: number
+  enrolled_count: number
+  created: boolean
 }
 
 export const pollingService = {
@@ -153,6 +168,25 @@ export const pjService = {
           is_active: isActive,
           ...(reason ? { reason } : {}),
         },
+        auth: true,
+      },
+    )
+  },
+
+  setQuota(
+    curriculumCourseId: string,
+    payload: {
+      academic_period_id?: string
+      class_count: number
+      capacity_per_class: number
+      reason?: string
+    },
+  ): Promise<CourseQuotaResponse> {
+    return apiFetch<CourseQuotaResponse>(
+      `/api/v1/pj/course-availability/${encodeURIComponent(curriculumCourseId)}/quota`,
+      {
+        method: "PUT",
+        body: payload,
         auth: true,
       },
     )

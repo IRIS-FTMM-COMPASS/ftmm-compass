@@ -14,11 +14,9 @@ export interface StudentDashboardStats {
 
 export interface LecturerDashboardStats {
   type: "lecturer"
-  courses_taught: number
-  sks_taught: number
-  total_students: number
-  advisee_students: number
-  status: string
+  assigned_classes: number
+  scheduled_classes: number
+  unscheduled_classes: number
 }
 
 export interface AdminDashboardStats {
@@ -34,19 +32,49 @@ export type DashboardStats = StudentDashboardStats | LecturerDashboardStats | Ad
 
 export interface DashboardScheduleItem {
   id: string
+  class_section_id: string
+  assignment_id: string
   course_id: string
   course_code: string
   course_name: string
   credits: number
+  study_program_ids: string[]
+  study_program_codes: string[]
+  study_program_names: string[]
+  schedule_state: "draft" | "final"
   day: string
+  day_of_week: number
   start_time: string
   end_time: string
   time: string
   room: string
-  lecturer?: string
-  class_name?: string
-  enrolled_students?: number
-  color?: string
+  lecturer?: string | null
+  class_name?: string | null
+  color?: string | null
+}
+
+export interface DashboardAssignedClass {
+  assignment_id: string
+  class_section_id: string
+  course_id: string
+  course_code: string
+  course_name: string
+  class_name: string
+  credits: number
+  study_program_ids: string[]
+  study_program_codes: string[]
+  study_program_names: string[]
+  schedule_state: "draft" | "final"
+  schedules: DashboardScheduleItem[]
+}
+
+export interface LecturerPreferenceStatus {
+  academic_period_id: string | null
+  status: "empty" | "filled"
+  preferred_count: number
+  unavailable_count: number
+  deadline: string | null
+  deadline_scope: "program" | "global" | null
 }
 
 export interface DashboardMeResponse {
@@ -54,10 +82,17 @@ export interface DashboardMeResponse {
   full_name: string
   role: string
   email: string
-  student_number?: string
-  study_program?: string
+  student_number?: string | null
+  study_program?: string | null
+  schedule_status?: string
   stats: DashboardStats
   schedule: DashboardScheduleItem[]
+  academic_period_id?: string | null
+  today?: string | null
+  today_schedule?: DashboardScheduleItem[]
+  assigned_classes?: DashboardAssignedClass[]
+  unscheduled_classes?: DashboardAssignedClass[]
+  preference?: LecturerPreferenceStatus | null
 }
 
 export const dashboardService = {

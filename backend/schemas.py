@@ -1,7 +1,7 @@
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import List, Optional, Dict, Literal, Any, Union
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from settings import ACCESS_TOKEN_EXPIRE_SECONDS
 
 class OllamaHealthDetail(BaseModel):
@@ -478,6 +478,7 @@ class AcademicPeriodResponse(BaseModel):
     end_date: date
     first_week_monday: date
     semester_weeks: int
+    semester_number: Optional[int] = None
 
 
 class StudentDashboardStats(BaseModel):
@@ -519,6 +520,7 @@ class DashboardMeResponse(BaseModel):
     study_program: Optional[str] = None
     stats: Union[StudentDashboardStats, LecturerDashboardStats, AdminDashboardStats]
     schedule: List[DashboardScheduleItem] = Field(default_factory=list)
+    schedule_status: str = "Jadwal masih dalam proses"
 
 
 class NotificationItemResponse(BaseModel):
@@ -552,3 +554,585 @@ class TimetableResponse(BaseModel):
     academic_period_id: Optional[str] = None
     selections: List[TimetableSelectionResponse] = Field(default_factory=list)
     updated_at: Optional[str] = None
+
+
+# --- Penjadwalan lintas program studi (Papan Jadwal Bersama) ---
+
+
+class RoomCreateRequest(BaseModel):
+    room_code: str = Field(..., min_length=1, max_length=50)
+    building: str = Field(..., min_length=1, max_length=50)
+    floor: Optional[str] = Field(None, max_length=20)
+    capacity: int = Field(..., ge=1, le=32767)
+    owner_study_program_id: Optional[str] = None
+    is_active: bool = True
+
+
+class RoomUpdateRequest(BaseModel):
+    room_code: Optional[str] = Field(None, min_length=1, max_length=50)
+    building: Optional[str] = Field(None, min_length=1, max_length=50)
+    floor: Optional[str] = Field(None, max_length=20)
+    capacity: Optional[int] = Field(None, ge=1, le=32767)
+    owner_study_program_id: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class RoomResponse(BaseModel):
+    room_code: str
+    room_id: str
+    building: str = "NANO"
+    floor: Optional[str] = None
+    capacity: int
+    owner_study_program_id: Optional[str] = None
+    is_active: bool = True
+
+
+class RoomListResponse(BaseModel):
+    data: List[RoomResponse] = Field(default_factory=list)
+    meta: Dict[str, Any] = Field(default_factory=dict)
+
+
+class InstructorReferenceResponse(BaseModel):
+    reference_id: str
+    instructor_name: str
+    instructor_role: str = "other"
+    course_code: Optional[str] = None
+    course_name: Optional[str] = None
+    curriculum_course_id: Optional[str] = None
+    study_program_id: Optional[str] = None
+    study_program_code: Optional[str] = None
+    study_program_name: Optional[str] = None
+    user_id: Optional[str] = None
+    is_mapped: bool = False
+    lecturer_name: Optional[str] = None
+
+
+class InstructorReferenceCreateRequest(BaseModel):
+    curriculum_course_id: str
+    instructor_name: str = Field(..., min_length=1, max_length=200)
+    instructor_role: Literal["pjmk", "teaching_team", "lecturer", "other"] = "pjmk"
+    user_id: Optional[str] = None
+
+
+class InstructorReferenceUpdateRequest(BaseModel):
+    instructor_name: Optional[str] = Field(None, min_length=1, max_length=200)
+    instructor_role: Optional[
+        Literal["pjmk", "teaching_team", "lecturer", "other"]
+    ] = None
+    curriculum_course_id: Optional[str] = None
+    # Null eksplisit pada user_id memutus pemetaan; field lain diabaikan bila null.
+    user_id: Optional[str] = None
+
+
+class InstructorReferenceListResponse(BaseModel):
+    data: List[InstructorReferenceResponse] = Field(default_factory=list)
+    meta: Dict[str, Any] = Field(default_factory=dict)
+
+
+class CurriculumCourseOption(BaseModel):
+    curriculum_course_id: str
+    course_code: str
+    course_name: str
+    course_id: str
+    study_program_id: str
+
+
+class CurriculumCourseListResponse(BaseModel):
+    data: List[CurriculumCourseOption] = Field(default_factory=list)
+    meta: Dict[str, Any] = Field(default_factory=dict)
+
+
+class InstructorCandidateItem(BaseModel):
+    user_id: str
+    full_name: str
+    email: str
+    employee_number: Optional[str] = None
+    study_program_id: Optional[str] = None
+    study_program_code: Optional[str] = None
+    is_active: bool = True
+
+
+class InstructorCandidateListResponse(BaseModel):
+    data: List[InstructorCandidateItem] = Field(default_factory=list)
+    meta: Dict[str, Any] = Field(default_factory=dict)
+
+
+
+
+class StudyProgramIdentity(BaseModel):
+    study_program_id: str
+    study_program_code: str = ""
+    study_program_name: str = ""
+
+
+class CurriculumContextItem(StudyProgramIdentity):
+    curriculum_course_id: str
+    curriculum_id: str
+    course_code: str = ""
+    course_name: str = ""
+    pjmk_reference_id: Optional[str] = None
+
+
+class UnassignedItem(BaseModel):
+    class_section_id: str
+    course_id: str = ""
+    course_code: str = ""
+    course_name: str = ""
+    section_code: str = ""
+    reason: str = ""
+    reason_code: str = ""
+    programs: List[StudyProgramIdentity] = Field(default_factory=list)
+    eligible_curriculum_contexts: List[CurriculumContextItem] = Field(
+        default_factory=list
+    )
+    action: Literal[
+        "open_pjmk_form",
+        "edit_pjmk",
+        "open_assignment",
+        "open_room_detail",
+        "open_course_detail",
+    ] = "open_course_detail"
+    pjmk_reference_id: Optional[str] = None
+
+
+class BoardClassProgram(StudyProgramIdentity):
+    state: str = "draft"
+    label: str = "Jadwal masih dalam proses"
+
+
+class BoardClassItem(BaseModel):
+    class_section_id: str
+    section_code: str = ""
+    course_code: str = ""
+    course_name: str = ""
+    credits: int = 0
+    face_to_face_minutes: int = 0
+    course_id: str = ""
+    study_program_id: str = ""
+    study_program_code: str = ""
+    study_program_name: str = ""
+    program_ids: List[str] = Field(default_factory=list)
+    programs: List[BoardClassProgram] = Field(default_factory=list)
+    day_of_week: int = 0
+    start_hour: int = 0
+    end_hour: int = 0
+    room_id: Optional[str] = None
+    room_code: Optional[str] = None
+    lecturers: List[str] = Field(default_factory=list)
+    assigned_lecturer_id: Optional[str] = None
+    assigned_lecturer_name: Optional[str] = None
+    assigned_curriculum_course_id: Optional[str] = None
+    can_edit: bool = False
+    read_only: bool = True
+    is_manually_edited: bool = False
+    state: str = "draft"
+    is_stale: bool = False
+    run_id: Optional[str] = None
+    input_revision: int = 0
+
+    @model_validator(mode="after")
+    def derive_face_to_face_minutes(self) -> "BoardClassItem":
+        if self.face_to_face_minutes == 0 and self.credits > 0:
+            self.face_to_face_minutes = self.credits * 50
+        return self
+
+
+class BoardConflictItem(BaseModel):
+    class_section_a_id: str
+    class_section_b_id: str
+    kind: Literal["lecturer", "room"]
+    day_of_week: int
+    start_hour: int
+    end_hour: int
+    object_id: Optional[str] = None
+    object_name: str = ""
+    object_label: str = ""
+    class_section_a_label: str = ""
+    class_section_b_label: str = ""
+    day_name: str = ""
+    label: str = ""
+
+
+class BoardProgramStatus(StudyProgramIdentity):
+    study_program_id: str
+    study_program_code: str = ""
+    study_program_name: str = ""
+    state: str = "draft"
+    label: str = "Jadwal masih dalam proses"
+    finalized_at: Optional[str] = None
+    is_stale: bool = False
+    run_id: Optional[str] = None
+    input_revision: int = 0
+
+
+class BoardData(BaseModel):
+    academic_period_id: str
+    period_label: str = ""
+    classes: List[BoardClassItem] = Field(default_factory=list)
+    conflicts: List[BoardConflictItem] = Field(default_factory=list)
+    programs: List[BoardProgramStatus] = Field(default_factory=list)
+    unassigned: List[UnassignedItem] = Field(default_factory=list)
+
+
+class BoardResponse(BaseModel):
+    data: BoardData
+    meta: Dict[str, Any] = Field(default_factory=dict)
+
+
+class GenerateRequest(BaseModel):
+    academic_period_id: Optional[str] = None
+    mode: Literal["fill_empty", "regenerate", "full_reset"] = "fill_empty"
+    study_program_id: Optional[str] = None
+    confirm_full_reset: bool = False
+
+
+class GenerateResponse(BaseModel):
+    run_id: str
+    assigned: int = 0
+    unassigned: List[UnassignedItem] = Field(default_factory=list)
+    conflicts: List[BoardConflictItem] = Field(default_factory=list)
+    mode: str = "fill_empty"
+    assigned_count: int = 0
+    unassigned_count: int = 0
+    conflict_count: int = 0
+    input_revision: int = 0
+    study_program_id: Optional[str] = None
+    regenerated_count: int = 0
+    preserved_final_count: int = 0
+    preserved_manual_count: int = 0
+
+
+class CourseQuotaUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    academic_period_id: Optional[str] = None
+    class_count: int = Field(..., ge=1, le=3)
+    capacity_per_class: int = Field(40, ge=1, le=100)
+    reason: Optional[str] = None
+
+
+class CourseQuotaResponse(BaseModel):
+    curriculum_course_id: str
+    study_program_id: str
+    academic_period_id: str
+    class_count: int
+    capacity_per_class: int
+    total_quota: int
+    enrolled_count: int = 0
+    created: bool = False
+
+
+class ClassMoveRequest(BaseModel):
+    day_of_week: int = Field(..., ge=1, le=5)
+    start_hour: int = Field(..., ge=7, le=16)
+    room_id: str = ""
+    reason: str = Field(..., min_length=1, max_length=500)
+
+
+class ClassMoveResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    class_: BoardClassItem = Field(..., alias="class")
+    conflicts: List[BoardConflictItem] = Field(default_factory=list)
+
+
+class FinalizeWarning(BaseModel):
+    code: str
+    message: str
+    class_section_id: Optional[str] = None
+    user_id: Optional[str] = None
+
+
+class FinalizeClassCompleteness(BaseModel):
+    total: int = 0
+    scheduled: int = 0
+
+
+class FinalizePreferenceCompleteness(BaseModel):
+    expected: int = 0
+    submitted: int = 0
+    complete: int = 0
+    missing_user_ids: List[str] = Field(default_factory=list)
+
+
+class FinalizeCompleteness(BaseModel):
+    classes: FinalizeClassCompleteness = Field(default_factory=FinalizeClassCompleteness)
+    preferences: FinalizePreferenceCompleteness = Field(
+        default_factory=FinalizePreferenceCompleteness
+    )
+
+
+class FinalizeResponse(BaseModel):
+    study_program_id: str = ""
+    state: str = "final"
+    all_final: bool = False
+    warnings: List[FinalizeWarning] = Field(default_factory=list)
+    completeness: FinalizeCompleteness = Field(default_factory=FinalizeCompleteness)
+
+class UnlockRequest(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=500)
+    confirm: bool = False
+
+
+class ConflictListResponse(BaseModel):
+    data: List[BoardConflictItem] = Field(default_factory=list)
+    meta: Dict[str, Any] = Field(default_factory=dict)
+
+
+class EditLogEntry(BaseModel):
+    id: str
+    class_section_id: str
+    changed_by: str
+    changed_by_name: str
+    reason: str
+    before_state: Optional[Dict[str, Any]] = None
+    after_state: Optional[Dict[str, Any]] = None
+    created_at: str
+
+
+class EditLogResponse(BaseModel):
+    data: List[EditLogEntry] = Field(default_factory=list)
+    meta: Dict[str, int] = Field(default_factory=dict)
+
+
+class AssignmentDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    class_section_id: UUID
+    user_id: UUID
+    source: Literal["auto", "manual"]
+    is_pinned: bool
+    curriculum_course_id: UUID | None = None
+
+
+class AssignmentBulkRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decisions: list[AssignmentDecisionRequest] = Field(..., min_length=1, max_length=500)
+
+
+class AssignmentResponse(BaseModel):
+    assignment_id: str
+    class_section_id: str
+    academic_period_id: str
+    curriculum_course_id: str | None
+    user_id: str
+    lecturer_name: str
+    source: Literal["auto", "manual"]
+    is_pinned: bool
+    is_active: bool
+    assigned_by: str
+    assigned_at: str
+
+
+class AssignmentCandidate(BaseModel):
+    user_id: str
+    lecturer_name: str
+    position: int
+    is_pjmk: bool
+    curriculum_course_id: str
+
+
+class AssignmentPoolItem(BaseModel):
+    user_id: str
+    lecturer_name: str
+    position: int
+    is_pjmk: bool
+    curriculum_course_id: str
+
+
+class AssignmentPreviewClass(BaseModel):
+    class_section_id: str
+    section_code: str
+    curriculum_course_id: str
+    can_edit: bool
+    context_required: bool
+    candidate: AssignmentCandidate | None
+    existing_assignment: AssignmentResponse | None
+
+
+class AssignmentPreviewGroup(BaseModel):
+    curriculum_course_id: str
+    study_program_id: str
+    study_program_code: str
+    study_program_name: str
+    programs: list[StudyProgramIdentity]
+    course_code: str
+    course_name: str
+    can_edit: bool
+    pool: list[AssignmentPoolItem]
+    classes: list[AssignmentPreviewClass]
+
+
+class AssignmentPreviewMeta(BaseModel):
+    academic_period_id: str
+    input_revision: int
+
+
+class AssignmentPreviewResponse(BaseModel):
+    data: list[AssignmentPreviewGroup]
+    meta: AssignmentPreviewMeta
+
+
+class AssignmentBulkMeta(BaseModel):
+    academic_period_id: str
+    input_revision: int
+
+
+class AssignmentBulkResponse(BaseModel):
+    data: list[AssignmentResponse]
+    meta: AssignmentBulkMeta
+
+
+class AssignmentEnvelope(BaseModel):
+    data: AssignmentResponse | None
+
+
+class PreferenceSlotRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    day_of_week: int = Field(..., ge=1, le=5)
+    start_time: time
+    end_time: time
+    kind: Literal["preferred", "unavailable"]
+
+    @field_validator("start_time", "end_time")
+    @classmethod
+    def validate_whole_hour(cls, value: time) -> time:
+        if value.tzinfo is not None or value.minute or value.second or value.microsecond:
+            raise ValueError("Jam mulai dan selesai harus berupa jam penuh tanpa zona waktu")
+        return value
+
+    @model_validator(mode="after")
+    def validate_range(self) -> "PreferenceSlotRequest":
+        if not time(7) <= self.start_time < time(17):
+            raise ValueError("Jam mulai harus antara 07:00 dan 17:00")
+        if not time(7) < self.end_time <= time(17):
+            raise ValueError("Jam selesai harus antara 07:00 dan 17:00")
+        if self.end_time <= self.start_time:
+            raise ValueError("Jam selesai harus setelah jam mulai")
+        return self
+
+
+class PreferenceReplaceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    slots: list[PreferenceSlotRequest] = Field(default_factory=list)
+    academic_period_id: UUID | None = None
+
+
+class PreferenceItemResponse(BaseModel):
+    day_of_week: int
+    day_name: str
+    start_time: time
+    end_time: time
+    kind: Literal["preferred", "unavailable"]
+
+
+class PreferenceWarning(BaseModel):
+    code: Literal["assigned_class_overlap"]
+    message: str
+    class_section_id: str
+    course_code: str
+    course_name: str
+    section_code: str
+    day_of_week: int
+    day_name: str
+    unavailable_start_time: time
+    unavailable_end_time: time
+    class_start_time: time
+    class_end_time: time
+    overlap_start_time: time
+    overlap_end_time: time
+
+
+class PreferenceCompleteness(BaseModel):
+    filled: bool
+    preferred_count: int
+    unavailable_count: int
+
+
+class PreferenceMeta(BaseModel):
+    count: int
+    status: Literal["empty", "filled"]
+    preferred_count: int
+    unavailable_count: int
+    completeness: PreferenceCompleteness
+    deadline: datetime | None
+    warnings: list[PreferenceWarning]
+
+
+class PreferenceListResponse(BaseModel):
+    academic_period_id: str
+    user_id: str
+    data: list[PreferenceItemResponse]
+    meta: PreferenceMeta
+
+
+class PreferenceCopyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    from_academic_period_id: UUID
+    academic_period_id: UUID
+    overwrite: bool = False
+
+
+class PreferencePeriodResponse(BaseModel):
+    academic_period_id: str
+    academic_year_start: int
+    semester_number: int | None
+    term: str
+    label: str
+    start_date: date | None
+    end_date: date | None
+    is_active: bool
+    is_current: bool
+
+
+class PreferencePeriodListResponse(BaseModel):
+    data: list[PreferencePeriodResponse]
+    meta: dict[str, Any]
+
+
+class PeriodSettingsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    academic_period_id: UUID
+    study_program_id: UUID | None = None
+    preference_deadline: datetime | None = None
+
+
+class PeriodSettingsResponse(BaseModel):
+    academic_period_id: str
+    study_program_id: str | None
+    study_program_code: str | None
+    study_program_name: str | None
+    preference_deadline: datetime | None
+    input_revision: int
+    finalized_at: datetime | None
+    updated_at: datetime | None
+
+
+class PreferenceSummaryItem(BaseModel):
+    user_id: str
+    full_name: str
+    study_program_id: str
+    study_program_code: str
+    study_program_name: str
+    status: Literal["empty", "filled"]
+    preferred_count: int
+    unavailable_count: int
+    deadline: datetime | None
+
+
+class PreferenceSummaryResponse(BaseModel):
+    data: list[PreferenceSummaryItem]
+    meta: dict[str, int]
+
+
+class AssignmentUpsertRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    academic_period_id: UUID
+    user_id: UUID
+    source: Literal["auto", "manual"] = "manual"
+    is_pinned: bool = False

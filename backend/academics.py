@@ -78,15 +78,22 @@ def period_payload(
     start_date: date | None,
     end_date: date | None,
     today: date,
+    semester_number: int | None = None,
 ) -> dict:
     start = start_date or semester_start(academic_year_start, term)
     end = end_date or semester_end(academic_year_start, term)
     title = TERM_TITLES.get(term, term)
     academic_year = f"{academic_year_start}/{academic_year_start + 1}"
+    label = (
+        f"Semester {semester_number} ({title}) {academic_year}"
+        if semester_number is not None
+        else f"Semester {title} {academic_year}"
+    )
     return {
         "academic_year": academic_year,
         "term": term,
-        "label": f"Semester {title} {academic_year}",
+        "semester_number": semester_number,
+        "label": label,
         "term_label": f"{title} {academic_year}",
         "week_label": week_label(start, today),
         "start_date": start,

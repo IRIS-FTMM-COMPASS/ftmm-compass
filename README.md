@@ -107,56 +107,7 @@ Komponen yang dirujuk di diagram: `PlannerHeader`, `SemesterColumn`, `CoursePick
 
 > **Panduan Pengembang Lengkap:** Untuk panduan onboarding mendalam, diagnosa toolchain, arsitektur lingkungan pengembang, dan referensi automasi `Makefile`, baca [**`docs/ONBOARDING.md`**](./docs/ONBOARDING.md).
 
-### 1. Quick Start Automasi (`Makefile` — Direkomendasikan)
-
-Jika Anda menggunakan sistem berbasis POSIX (Linux, macOS, atau Windows WSL2), seluruh alur inisialisasi lingkungan pengembang dan eksekusi server dapat dijalankan secara instan via `Makefile`:
-
-```bash
-# 1. Setup otomatis: verifikasi toolchain, buat .env, pasang pnpm/uv, jalankan DB, migrasi, & seed data
-make setup
-
-# 2. Jalankan Frontend & Backend secara bersamaan (Mode Hybrid: DB di Docker, App di host)
-make dev
-```
-
-Perintah pembantu lainnya:
-- `make doctor` — Memeriksa kesiapan toolchain (Node, pnpm, Python, uv, Docker).
-- `make db-up` / `make db-down` — Menyalakan/menghentikan container PostgreSQL 16.
-- `make db-reset` — Mereset database dari nol (recreate volume, migrasi Alembic, & seeding).
-- `make help` — Menampilkan seluruh daftar perintah automasi yang tersedia.
-
----
-
-### 2. Dua Mode Menjalankan Aplikasi: Hybrid vs Full Docker
-
-Terdapat dua mode eksekusi yang didukung:
-
-#### Mode A: Hybrid Mode (Sangat Direkomendasikan untuk Daily Coding)
-- **Database**: PostgreSQL 16 berjalan di container Docker (`make db-up` atau `docker compose up -d postgres`).
-- **Frontend & Backend**: Berjalan langsung di host OS (`make dev` atau `pnpm dev:all`).
-- **Keuntungan**:
-  - **Hot Module Replacement (Vite HMR) instan (<50 ms)**: setiap perubahan kode frontend maupun backend langsung tersinkronisasi tanpa lag.
-  - Sangat hemat RAM (<300 MB).
-  - Integrasi LSP, typechecking, dan autocomplete IDE bekerja optimal secara native.
-
-#### Mode B: Full Docker Mode (Untuk QA, Reviewer, atau Deployment Server)
-- Menjalankan seluruh stack (`postgres`, `gateway`, dan `frontend`) terisolasi di dalam container Docker (`make docker-up` berjalan di foreground):
-  ```bash
-  make docker-up
-  # atau manual: docker compose up --build
-  # varian detached: docker compose up -d --build
-  ```
-- **Catatan Penting Sinkronisasi Kode**:
-  Karena `Dockerfile.backend` dan `Dockerfile.frontend` menyalin (*COPY*) berkas kode sumber ke dalam image saat build time (tanpa host volume bind mount di `docker-compose.yml`), **perubahan kode di host tidak otomatis tersinkronisasi ke dalam kontainer yang sedang berjalan**. Setiap perubahan kode di tengah jalan memerlukan proses rebuild:
-  ```bash
-  docker compose up -d --build
-  # atau hentikan dan nyalakan ulang:
-  make docker-down && make docker-up
-  ```
-
----
-
-### 3. Prasyarat & Instalasi Toolchain
+### 1. Prasyarat & Instalasi Toolchain
 
 Sebelum memulai, pastikan perangkat Anda telah terpasang:
 
@@ -216,6 +167,58 @@ Sebelum memulai, pastikan perangkat Anda telah terpasang:
 
 ---
 
+### 2. Quick Start Automasi (`Makefile` — Direkomendasikan)
+
+Jika Anda menggunakan sistem berbasis POSIX (Linux, macOS, atau Windows WSL2), seluruh alur inisialisasi lingkungan pengembang dan eksekusi server dapat dijalankan secara instan via `Makefile`:
+
+```bash
+# 1. Setup otomatis: verifikasi toolchain, buat .env, pasang pnpm/uv, jalankan DB; migrasi + seed sudah termasuk
+make setup
+
+# 2. Jalankan Frontend & Backend secara bersamaan (Mode Hybrid: DB di Docker, App di host)
+make dev
+```
+
+Perintah pembantu lainnya:
+- `make doctor` — Memeriksa kesiapan toolchain (Node, pnpm, Python, uv, Docker).
+- `make db-up` / `make db-down` — Menyalakan/menghentikan container PostgreSQL 16.
+- `make db-wait` — Menunggu PostgreSQL siap menerima koneksi sebelum langkah berikutnya.
+- `make migrate` — Menjalankan migrasi Alembic skema database ke versi terbaru (`alembic upgrade head`).
+- `make seed` — Mengisi database: `seed_full_catalog.py` lalu `seed.py` (urutan ini wajib).
+- `make db-reset` — Mereset database dari nol (recreate volume, migrasi Alembic, & seeding).
+- `make help` — Menampilkan seluruh daftar perintah automasi yang tersedia.
+
+---
+
+### 3. Dua Mode Menjalankan Aplikasi: Hybrid vs Full Docker
+
+Terdapat dua mode eksekusi yang didukung:
+
+#### Mode A: Hybrid Mode (Sangat Direkomendasikan untuk Daily Coding)
+- **Database**: PostgreSQL 16 berjalan di container Docker (`make db-up` atau `docker compose up -d postgres`).
+- **Frontend & Backend**: Berjalan langsung di host OS (`make dev` atau `pnpm dev:all`).
+- **Keuntungan**:
+  - **Hot Module Replacement (Vite HMR) instan (<50 ms)**: setiap perubahan kode frontend maupun backend langsung tersinkronisasi tanpa lag.
+  - Sangat hemat RAM (<300 MB).
+  - Integrasi LSP, typechecking, dan autocomplete IDE bekerja optimal secara native.
+
+#### Mode B: Full Docker Mode (Untuk QA, Reviewer, atau Deployment Server)
+- Menjalankan seluruh stack (`postgres`, `gateway`, dan `frontend`) terisolasi di dalam container Docker (`make docker-up` berjalan di foreground):
+  ```bash
+  make docker-up
+  # atau manual: docker compose up --build
+  # varian detached: docker compose up -d --build
+  ```
+- **Catatan Penting Sinkronisasi Kode**:
+  Karena `Dockerfile.backend` dan `Dockerfile.frontend` menyalin (*COPY*) berkas kode sumber ke dalam image saat build time (tanpa host volume bind mount di `docker-compose.yml`), **perubahan kode di host tidak otomatis tersinkronisasi ke dalam kontainer yang sedang berjalan**. Setiap perubahan kode di tengah jalan memerlukan proses rebuild:
+  ```bash
+  docker compose up -d --build
+  # atau hentikan dan nyalakan ulang:
+  make docker-down && make docker-up
+  ```
+
+---
+
 ### 4. Menjalankan Manual (Alternatif Tanpa `Makefile`)
 
 #### A. Menjalankan Sekaligus (Frontend + Backend)
@@ -228,16 +231,11 @@ pnpm install
 # 2. Sinkronisasi dependencies backend (otomatis membuat venv via uv)
 uv sync --directory backend
 
-# 3. Jalankan database PostgreSQL di Docker
-docker compose up -d postgres
-
-# 4. Jalankan frontend + backend bersamaan
-pnpm dev:all
+# 3. Jalankan database PostgreSQL, tunggu siap, migrasi, lalu seed
+make db-up db-wait migrate seed
 ```
 
-- **Cross-Platform**: Menggunakan `concurrently` yang mendukung signal terminate (Ctrl+C) bersih di Linux maupun Windows.
-- **Dynamic Port Auto-Discovery**: Backend memindai port kosong pada rentang 8001–8050 (port 8000 disediakan untuk microservice chatbot) dan menuliskan port aktif ke `.backend-port`. Vite dev proxy membaca berkas itu dan meneruskan request `/api` ke port tersebut.
-##### Akun Demo
+### Akun Demo
 
 Buka **`http://localhost:8443`** di browser. Login memakai salah satu akun hasil seeding berikut:
 
@@ -256,8 +254,16 @@ Buka **`http://localhost:8443`** di browser. Login memakai salah satu akun hasil
 | PJ Prodi / lecturer | pj.te@ftmm.unair.ac.id | - | PjProdi2026! | TE |
 | admin | admin@ftmm.unair.ac.id | - | AdminFTMM2026! | - |
 
-Identifier menerima NIM atau email. `backend/seed.py` adalah sumber kebenaran untuk kredensial akun-akun ini.
-- Database harus sudah di-migrate dan di-seed (`make db-up && make migrate && make seed`), karena kredensial dan katalog dibaca dari PostgreSQL, bukan dari data statis frontend.
+Identifier menerima NIM atau email. `backend/scripts/seed.py` adalah sumber kebenaran untuk kredensial akun-akun ini.
+- Database harus sudah di-migrate dan di-seed (make db-up db-wait migrate seed); make seed menjalankan seed_full_catalog.py lalu seed.py, urutan ini wajib.
+
+```bash
+# 4. Jalankan frontend + backend bersamaan
+pnpm dev:all
+```
+
+- **Cross-Platform**: Menggunakan `concurrently` yang mendukung signal terminate (Ctrl+C) bersih di Linux maupun Windows.
+- **Dynamic Port Auto-Discovery**: Backend memindai port kosong pada rentang 8001–8050 (port 8000 disediakan untuk microservice chatbot) dan menuliskan port aktif ke `.backend-port`. Vite dev proxy membaca berkas itu dan meneruskan request `/api` ke port tersebut.
 
 #### B. Menjalankan Terpisah (2 Tab Terminal)
 Jika Anda lebih menyukai tab terminal terpisah untuk memantau log masing-masing service:
@@ -341,7 +347,7 @@ cd ../ftmm-compass-ui && docker compose up -d
 
 `docs/web-flow-viewer.md` berisi figur inline (HTML/CSS + PlantUML) yang bisa dibaca langsung lewat ekstensi **docu.md Markdown Viewer** di VS Code/Cursor. Untuk menghasilkan HTML statis tanpa server, gunakan `documd` CLI. Versi paket di-pin ke `6.1.1` (bukan `@latest`) agar render reproducible; `-y` hanya melewati prompt instal. Akses jaringan mencakup npm registry dan aset CSS eksternal (KaTeX) saat render; `playwright install chromium` bila diperlukan adalah unduhan terpisah. Output ditulis ke direktori temp, bukan ke repo, sehingga working tree tetap bersih. Tidak ada kredensial, push, atau perubahan kode aplikasi.
 
-Prasyarat: Node.js v22 (lihat bagian 3). Jika Chrome/Chromium belum tersedia, jalankan sekali `npx -y playwright@latest install chromium` untuk mengunduh biner browser; ini opsional dan bukan bagian dari ekspor.
+Prasyarat: Node.js v22 (lihat bagian 1). Jika Chrome/Chromium belum tersedia, jalankan sekali `npx -y playwright@latest install chromium` untuk mengunduh biner browser; ini opsional dan bukan bagian dari ekspor.
 
 **WSL/Linux** — deteksi Chromium dari cache Playwright, fallback ke Chrome/Chromium sistem:
 
@@ -372,7 +378,7 @@ Verifikasi: CLI mencetak `Rendered ...` dan keluar dengan status `0`; HTML memua
 
 ## Testing & QA Audit
 
-Suite backend berjalan terhadap PostgreSQL yang sudah di-migrate. Fixture `tests/conftest.py` menanam pengguna demo sendiri, tetapi tes katalog dan degree-plan membaca katalog 5 prodi, sehingga database harus sudah dijalankan `make seed` (yang kini juga menjalankan `seed_full_catalog.py`). CI melakukan urutan yang sama: schema baseline → `alembic upgrade head` → `seed_full_catalog.py` → `pytest`.
+Suite backend berjalan terhadap PostgreSQL yang sudah di-migrate. Fixture `tests/conftest.py` menanam pengguna demo sendiri, tetapi tes katalog dan degree-plan membaca katalog 5 prodi, sehingga database harus sudah dijalankan `make seed` (yang menjalankan `seed_full_catalog.py` lalu `seed.py`, urutan ini wajib). CI melakukan urutan yang sama: job `database` memuat schema baseline, menjalankan `alembic upgrade head`, menguji rollback dengan `alembic downgrade -1` lalu upgrade lagi (`ci.yml:101-106`), lalu menjalankan seeder dua kali berturut-turut lewat `python -m scripts.seed` untuk membuktikan idempotensi; setelah itu job `backend` menjalankan `pytest`.
 
 ```bash
 # ----------------------------------------------------
@@ -385,8 +391,12 @@ make format        # Auto-format frontend via oxfmt (tidak memformat backend)
 # ----------------------------------------------------
 # B. Perintah Manual / Spesifik Sub-Sistem
 # ----------------------------------------------------
-# 1. Seed katalog (sekali per database baru; idempoten)
-uv run --directory backend python seed_full_catalog.py
+# 1. Seed database (idempoten; urutan wajib: katalog 5 prodi dulu, lalu akun/transkrip demo)
+make seed
+
+#    Manual untuk urutan yang sama:
+uv run --directory backend python -m scripts.seed_full_catalog
+uv run --directory backend python -m scripts.seed
 
 # 2. Jalankan seluruh suite backend (domain + endpoint + polling + chat + degree-plan)
 uv run --directory backend python -m pytest tests -q
@@ -417,22 +427,44 @@ ftmm-compass-ui/
 │   ├── README.md                  # Dokumentasi API, setup uv, & arsitektur backend
 │   ├── app.py                     # Mount router (/api/v1 kanonik + /api legacy), lifespan, error handler
 │   ├── settings.py                # Satu-satunya pembaca environment (DSN, port, Ollama, CORS)
+│   ├── database.py                # Engine & session SQLAlchemy untuk koneksi PostgreSQL
 │   ├── models.py                  # Pemetaan ORM SQLAlchemy (termasuk degree_plans & degree_plan_items)
 │   ├── schemas.py                 # Pydantic v2 data models & payload contracts
-│   ├── catalog.py                 # Pipeline katalog: baca DB → normalisasi → list/get course
 │   ├── academics.py               # Batas SKS, total kredit, konversi nilai, parity
+│   ├── auth.py                    # Autentikasi pengguna & otorisasi peran
+│   ├── catalog.py                 # Pipeline katalog: baca DB → normalisasi → list/get course
 │   ├── plan_storage.py            # Persistensi degree-plan & exception domain
-│   ├── course_records.py          # Transkrip mahasiswa: baca, tandai lulus, batalkan
-│   ├── api/                       # Router per resource (dipasang di /api/v1 dan /api)
+│   ├── audit.py                   # Audit trail perubahan data akademik
+│   ├── prodi_access.py            # Pembatasan akses data per prodi
+│   ├── rate_limit.py              # Pembatasan laju request API
+│   ├── stream_control.py          # Kontrol aliran & state respons SSE
+│   ├── api/                       # Modul lintas-endpoint (dipasang di /api/v1 dan /api)
+│   │   ├── __init__.py            # Marker paket api
+│   │   └── errors.py              # Envelope error & handler terpusat
+│   ├── features/                  # Router & logika bisnis per domain
+│   │   ├── course_records/        # Transkrip mahasiswa: baca, tandai lulus, batalkan
+│   │   ├── scheduling/            # Penjadwalan kelas & deteksi bentrok
+│   │   ├── planning/              # Degree-plan, planner.py, & prerequisite_validator.py
+│   │   ├── catalog/               # Endpoint katalog mata kuliah
+│   │   ├── admin/                 # Endpoint administrasi & rekonsiliasi data
+│   │   ├── auth/                  # Endpoint login, sesi, & profil
+│   │   ├── academic_periods/      # Endpoint periode akademik aktif
+│   │   ├── dashboard/             # Endpoint statistik dashboard
+│   │   ├── chat/                  # Endpoint chat & stream Compass AI
+│   │   ├── polling/               # Endpoint polling & voting
+│   │   ├── timetable/             # Endpoint jadwal mingguan
+│   │   ├── class_sections/        # Endpoint kelas per mata kuliah
+│   │   └── health/                # Endpoint health check gateway
+│   ├── scripts/                   # Seed & utilitas katalog (modul Python dijalankan lewat uv run)
+│   │   ├── seed.py                # Seed pengguna demo, transkrip, polling, notifikasi
+│   │   ├── seed_full_catalog.py   # Seed katalog 5 prodi dari database/seed
+│   │   ├── build_catalog.py       # Build data katalog ter-normalisasi dari sumber
+│   │   ├── reconcile_catalog.py   # Rekonsiliasi katalog dengan sumber resmi
+│   │   └── verify_catalog_sources.py  # Verifikasi konsistensi sumber katalog
 │   ├── migrations/                # Revisi Alembic (baseline skema + perubahan berikutnya)
 │   ├── pyproject.toml             # Konfigurasi dependensi uv (Astral)
 │   ├── uv.lock                    # Deterministic lockfile backend
 │   ├── .env.example               # Template konfigurasi environment backend
-│   ├── seed.py                    # Seed pengguna demo, transkrip, polling, notifikasi
-│   ├── seed_full_catalog.py       # Seed katalog 5 prodi dari database/seed
-│   ├── tools/
-│   │   ├── prerequisite_validator.py  # Deterministic DAG, parity, & SKS validator
-│   │   └── planner.py             # Study plan synthesis & elective scoring engine
 │   └── tests/                     # Suite pytest (domain, endpoint, polling, chat, degree-plan)
 ├── src/                           # React 19 + TypeScript + Tailwind v4 SPA
 │   ├── app/                       # Shell aplikasi & komposisi global

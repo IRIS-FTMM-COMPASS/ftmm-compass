@@ -1,6 +1,7 @@
 import {
   AlertCircle,
   BookOpen,
+  CalendarDays,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -36,6 +37,10 @@ import PjCoursesPage from "@/features/pj/PjCoursesPage"
 import CourseFinder from "@/features/course-finder/CourseFinderPage"
 
 import DegreePlanner from "@/features/degree-planner/DegreePlannerPage"
+import SchedulingPage from "@/features/scheduling/SchedulingPage"
+import PreferencePanel from "@/features/scheduling/components/PreferencePanel"
+import InstructorMappingPanel from "@/features/scheduling/components/InstructorMappingPanel"
+import AssignmentPanel from "@/features/scheduling/components/AssignmentPanel"
 import Chatbot from "@/features/chatbot/ChatbotPage"
 import type { DegreePlanPayload } from "@/shared/domain/plan"
 import {
@@ -76,18 +81,21 @@ import {
   useAcademicPeriod,
 } from "@/shared/academic-period/academic"
 
-type Page = "dashboard" | "course-finder" | "pj-courses" | "degree-planner" | "chatbot" | "profile" | "admin-accounts"
+type Page = "dashboard" | "preferences" | "course-finder" | "pj-courses" | "degree-planner" | "scheduling" | "teaching-team" | "class-assignment" | "chatbot" | "profile" | "admin-accounts"
 
 const PAGES: Page[] = [
   "dashboard",
+  "preferences",
   "course-finder",
   "pj-courses",
   "degree-planner",
+  "scheduling",
+  "teaching-team",
+  "class-assignment",
   "chatbot",
   "profile",
   "admin-accounts",
 ]
-
 function isPage(value: string): value is Page {
   return PAGES.includes(value as Page)
 }
@@ -1358,9 +1366,23 @@ function AppShell() {
   }, [user?.user_id, reloadCatalog])
   const planner = usePlanner()
   const [activePage, setActivePage] = useState<Page>(pageFromLocation)
-  const [isSidebarOpen, setIsSidebarOpen] = useState(
-    () => typeof window === "undefined" || window.innerWidth >= 768,
-  )
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true
+    try {
+      const stored = window.localStorage.getItem("ftmm:sidebar-open")
+      if (stored === "true" || stored === "false") return stored === "true"
+    } catch {
+      // localStorage dapat tidak tersedia; gunakan lebar layar sebagai cadangan
+    }
+    return window.innerWidth >= 768
+  })
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("ftmm:sidebar-open", String(isSidebarOpen))
+    } catch {
+      // localStorage dapat tidak tersedia; abaikan kegagalan penyimpanan
+    }
+  }, [isSidebarOpen])
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false)
   const [plannerInitialTab, setPlannerInitialTab] =
     useState<"roadmap" | "timetable">("roadmap")
@@ -1376,6 +1398,15 @@ function AppShell() {
   const [chatAppliedPlanId, setChatAppliedPlanId] = useState<string | null>(
     null,
   )
+
+  const [teachingTeamView, setTeachingTeamView] = useState({
+    page: 1,
+    courseFilter: "all",
+  })
+  const [classAssignmentView, setClassAssignmentView] = useState({
+    page: 1,
+    contextFilter: "",
+  })
   const hasBeenLoggedIn = useRef(isLoggedIn)
 
   const navigate = useCallback((page: Page, replace = false) => {
@@ -1387,6 +1418,31 @@ function AppShell() {
     }
     setActivePage(page)
   }, [])
+  const openSchedulingPanel = useCallback(
+    (
+      target: "teaching-team" | "class-assignment",
+      params: {
+        period?: string | null
+        course?: string | null
+        reference?: string | null
+      },
+    ) => {
+      const query = new URLSearchParams()
+      if (params.period) query.set("period", params.period)
+      if (params.course) query.set("course", params.course)
+      if (params.reference) query.set("reference", params.reference)
+      const search = query.toString()
+      window.history.pushState(
+        null,
+        "",
+        `/${target}${search ? `?${search}` : ""}`,
+      )
+      setTeachingTeamView((view) => ({ ...view, page: 1 }))
+      setClassAssignmentView((view) => ({ ...view, page: 1 }))
+      setActivePage(target)
+    },
+    [],
+  )
 
   useEffect(() => {
     const syncFromLocation = () => {
@@ -1404,6 +1460,21 @@ function AppShell() {
   useEffect(() => {
     if (isLoggedIn && !canAccess(activePage)) navigate("dashboard", true)
   }, [activePage, canAccess, isLoggedIn, navigate])
+  useEffect(() => {
+    if (!isLoggedIn) return
+    const restricted =
+      activePage === "teaching-team" || activePage === "class-assignment"
+    const allowed =
+      user?.role === "admin" ||
+      (user?.role === "lecturer" && user?.is_program_coordinator === true)
+    if (restricted && !allowed) navigate("dashboard", true)
+  }, [
+    activePage,
+    isLoggedIn,
+    navigate,
+    user?.role,
+    user?.is_program_coordinator,
+  ])
   useEffect(() => {
     if (isLoggedIn) {
       hasBeenLoggedIn.current = true
@@ -1458,7 +1529,17 @@ function AppShell() {
     if (window.innerWidth < 768) setIsSidebarOpen(false)
   }
 
-  const visiblePage = canAccess(activePage) ? activePage : "dashboard"
+  const canManageSchedule =
+    user?.role === "admin" ||
+    (user?.role === "lecturer" && user?.is_program_coordinator === true)
+  const panelParams = new URLSearchParams(window.location.search)
+  const visiblePage =
+    canAccess(activePage) &&
+    ((activePage !== "teaching-team" && activePage !== "class-assignment") ||
+      canManageSchedule) &&
+    (activePage !== "preferences" || user?.role === "lecturer")
+      ? activePage
+      : "dashboard"
 
   const handleApplyPlanFromChatbot = (payload: DegreePlanPayload) => {
     planner.applyPlan(payload)
@@ -1479,7 +1560,19 @@ function AppShell() {
     if (role === "lecturer") {
       return [
         { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+        { id: "preferences", label: "Preferensi Jadwal", icon: CalendarDays },
         { id: "pj-courses", label: "Rekap & Kelola MK", icon: BookOpen },
+        { id: "scheduling", label: "Jadwal Bersama", icon: CalendarDays },
+        ...(canManageSchedule
+          ? [
+              { id: "teaching-team", label: "Tim Pengajar", icon: Users },
+              {
+                id: "class-assignment",
+                label: "Penugasan Kelas",
+                icon: CalendarDays,
+              },
+            ]
+          : []),
       ] as const
     }
 
@@ -1488,6 +1581,13 @@ function AppShell() {
         { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
         { id: "course-finder", label: "Course Management", icon: BookOpen },
         { id: "admin-accounts", label: "Manajemen Akun", icon: Users },
+        { id: "scheduling", label: "Jadwal Bersama", icon: CalendarDays },
+        { id: "teaching-team", label: "Tim Pengajar", icon: Users },
+        {
+          id: "class-assignment",
+          label: "Penugasan Kelas",
+          icon: CalendarDays,
+        },
       ] as const
     }
     return [
@@ -1496,7 +1596,7 @@ function AppShell() {
       { id: "degree-planner", label: "Degree Planner", icon: Map },
       { id: "chatbot", label: "Compass AI", icon: MessageSquare },
     ] as const
-  }, [user?.role])
+  }, [user?.role, user?.is_program_coordinator, canManageSchedule])
 
   if (!isLoggedIn) {
     return (
@@ -1541,8 +1641,10 @@ function AppShell() {
               return (
                 <a
                   key={item.id}
-                  href={pageUrlWithContext(item.id)}
-                  onClick={(event) => handleAnchorNavigate(event, item.id)}
+                  href={pageUrlWithContext(item.id as Page)}
+                  onClick={(event) =>
+                    handleAnchorNavigate(event, item.id as Page)
+                  }
                   className={cn(
                     "w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors duration-150 group text-left",
                     isActive
@@ -1646,14 +1748,20 @@ function AppShell() {
                 ? "Manajemen Akun"
                 : visiblePage === "pj-courses"
                   ? "Rekap & Kelola MK"
-                  : visiblePage === "chatbot"
-                    ? "Compass AI"
-                    : visiblePage === "profile"
-                      ? "Profil Pengguna"
-                      : visiblePage === "course-finder" &&
-                          user?.role === "admin"
-                        ? "Course Management"
-                        : visiblePage.replace("-", " ")}
+                  : visiblePage === "scheduling"
+                    ? "Jadwal Bersama"
+                    : visiblePage === "teaching-team"
+                      ? "Tim Pengajar"
+                      : visiblePage === "class-assignment"
+                        ? "Penugasan Kelas"
+                        : visiblePage === "chatbot"
+                          ? "Compass AI"
+                          : visiblePage === "profile"
+                            ? "Profil Pengguna"
+                            : visiblePage === "course-finder" &&
+                                user?.role === "admin"
+                              ? "Course Management"
+                              : visiblePage.replace("-", " ")}
             </h2>
           </div>
           <div className="flex items-center gap-2 md:gap-4">
@@ -1689,14 +1797,7 @@ function AppShell() {
               </button>
             </div>
           )}
-          <div
-            className={cn(
-              "mx-auto h-full",
-              visiblePage === "degree-planner"
-                ? "w-full max-w-none"
-                : "max-w-7xl",
-            )}
-          >
+          <div className="h-full w-full">
             <ErrorBoundary key={visiblePage}>
               {visiblePage === "dashboard" && (
                 <Dashboard onNavigate={handleNavigate} />
@@ -1711,6 +1812,62 @@ function AppShell() {
               )}
               {visiblePage === "pj-courses" && user?.role === "lecturer" && (
                 <PjCoursesPage onNavigate={handleNavigate} />
+              )}
+              {visiblePage === "scheduling" &&
+                (user?.role === "admin" || user?.role === "lecturer") && (
+                  <SchedulingPage onOpenPanel={openSchedulingPanel} />
+                )}
+              {visiblePage === "teaching-team" && canManageSchedule && (
+                <InstructorMappingPanel
+                  initialAcademicPeriodId={panelParams.get("period")}
+                  initialCurriculumCourseId={panelParams.get("course")}
+                  initialReferenceId={panelParams.get("reference")}
+                  page={teachingTeamView.page}
+                  onPageChange={(nextPage) =>
+                    setTeachingTeamView((view) => ({ ...view, page: nextPage }))
+                  }
+                  courseFilter={teachingTeamView.courseFilter}
+                  onCourseFilterChange={(courseFilter) =>
+                    setTeachingTeamView((view) => ({
+                      ...view,
+                      page: 1,
+                      courseFilter,
+                    }))
+                  }
+                  onContinueToAssignment={({
+                    academicPeriodId,
+                    curriculumCourseId,
+                  }) =>
+                    openSchedulingPanel("class-assignment", {
+                      period: academicPeriodId,
+                      course: curriculumCourseId,
+                    })
+                  }
+                />
+              )}
+              {visiblePage === "class-assignment" && canManageSchedule && (
+                <AssignmentPanel
+                  initialAcademicPeriodId={panelParams.get("period")}
+                  initialCurriculumCourseId={panelParams.get("course")}
+                  page={classAssignmentView.page}
+                  onPageChange={(nextPage) =>
+                    setClassAssignmentView((view) => ({
+                      ...view,
+                      page: nextPage,
+                    }))
+                  }
+                  contextFilter={classAssignmentView.contextFilter}
+                  onContextFilterChange={(contextFilter) =>
+                    setClassAssignmentView((view) => ({
+                      ...view,
+                      page: 1,
+                      contextFilter,
+                    }))
+                  }
+                />
+              )}
+              {visiblePage === "preferences" && user?.role === "lecturer" && (
+                <PreferencePanel />
               )}
               {visiblePage === "degree-planner" && (
                 <DegreePlanner

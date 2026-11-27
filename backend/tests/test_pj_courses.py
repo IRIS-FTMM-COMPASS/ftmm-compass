@@ -18,7 +18,7 @@ from models import (
 
 V1 = "/api/v1"
 LEGACY = "/api"
-PJ_EMAIL = "pj.tsd@ftmm.unair.ac.id"
+PJ_EMAIL = "dwi.rantini@ftmm.unair.ac.id"
 ITEM_KEYS = {
     "curriculum_course_id",
     "course_id",
@@ -31,6 +31,10 @@ ITEM_KEYS = {
     "is_active",
     "can_toggle",
     "lock_reason",
+    "class_count",
+    "capacity_per_class",
+    "total_quota",
+    "enrolled_count",
 }
 
 

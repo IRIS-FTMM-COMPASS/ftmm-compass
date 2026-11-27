@@ -2,7 +2,7 @@ import { useAcademicPeriod } from "@/shared/academic-period/academic"
 import { useSession } from "@/features/auth/session"
 import DashboardMainPanel from "@/features/dashboard/components/DashboardMainPanel"
 import DashboardStats from "@/features/dashboard/components/DashboardStats"
-import LecturerPanel from "@/features/dashboard/components/LecturerPanel"
+import LecturerDashboard from "@/features/dashboard/components/LecturerDashboard"
 import PollingPanel from "@/features/dashboard/components/PollingPanel"
 import { useDashboardData } from "@/features/dashboard/hooks/useDashboardData"
 import { useDemandAnalytics } from "@/features/dashboard/hooks/useDemandAnalytics"
@@ -39,6 +39,37 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 
   const adminStats =
     dashboardData?.stats.type === "admin" ? dashboardData.stats : null
+  const canViewPollingAnalytics =
+    user?.role === "admin" ||
+    (user?.role === "lecturer" && user.is_program_coordinator === true)
+
+  if (user?.role === "lecturer") {
+    return (
+      <div className="space-y-6">
+        <LecturerDashboard
+          dashboardData={dashboardData}
+          isLoading={isLoading}
+          error={error}
+          retry={retry}
+          onNavigate={onNavigate}
+        />
+        {canViewPollingAnalytics && (
+          <PollingPanel
+            user={user}
+            studentVotes={studentVotes}
+            pollingPeriod={pollingPeriod}
+            onNavigate={onNavigate}
+            selectedProdi={selectedProdi}
+            setSelectedProdi={setSelectedProdi}
+            items={items}
+            demandAnalytics={demandAnalytics}
+            isLoadingAnalytics={isLoadingAnalytics}
+            handleExportCSV={handleExportCSV}
+          />
+        )}
+      </div>
+    )
+  }
 
   if (isLoading && !dashboardData) {
     return (
@@ -80,29 +111,29 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
         hasConflict={hasConflict}
         onNavigate={onNavigate}
       />
-      {user?.role === "lecturer" && (
-        <LecturerPanel dashboardData={dashboardData} />
+      {(user?.role !== "lecturer" || canViewPollingAnalytics) &&
+        pollingError && (
+          <div
+            role="status"
+            className="px-4 py-2.5 rounded-xl border border-orange/30 bg-orange/10 text-xs text-navy"
+          >
+            {pollingError}
+          </div>
+        )}
+      {(user?.role === "student" || canViewPollingAnalytics) && (
+        <PollingPanel
+          user={user}
+          studentVotes={studentVotes}
+          pollingPeriod={pollingPeriod}
+          onNavigate={onNavigate}
+          selectedProdi={selectedProdi}
+          setSelectedProdi={setSelectedProdi}
+          items={items}
+          demandAnalytics={demandAnalytics}
+          isLoadingAnalytics={isLoadingAnalytics}
+          handleExportCSV={handleExportCSV}
+        />
       )}
-      {pollingError && (
-        <div
-          role="status"
-          className="px-4 py-2.5 rounded-xl border border-orange/30 bg-orange/10 text-xs text-navy"
-        >
-          {pollingError}
-        </div>
-      )}
-      <PollingPanel
-        user={user}
-        studentVotes={studentVotes}
-        pollingPeriod={pollingPeriod}
-        onNavigate={onNavigate}
-        selectedProdi={selectedProdi}
-        setSelectedProdi={setSelectedProdi}
-        items={items}
-        demandAnalytics={demandAnalytics}
-        isLoadingAnalytics={isLoadingAnalytics}
-        handleExportCSV={handleExportCSV}
-      />
     </div>
   )
 }

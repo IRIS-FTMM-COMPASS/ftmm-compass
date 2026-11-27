@@ -134,7 +134,7 @@ def deterministic_surface():
     original = settings.CHATBOT_SERVICE_URL
     settings.CHATBOT_SERVICE_URL = OFFLINE_CHATBOT_URL
     try:
-        with patch("api.auth._format_relative_time", return_value="Baru saja"):
+        with patch("features.auth.router._format_relative_time", return_value="Baru saja"):
             yield
     finally:
         settings.CHATBOT_SERVICE_URL = original
@@ -213,6 +213,9 @@ def test_pasangan_kanonik_dan_lawas_setara(
     client, admin_headers, student_headers, label, canonical_path, legacy_path, method, options
 ):
     request_options = dict(options)
+    role = request_options.pop("as", None)
+    if role == "admin":
+        request_options["headers"] = admin_headers
     if request_options.pop("authenticated", False):
         request_options["headers"] = student_headers
     if label.startswith("courses"):
@@ -276,17 +279,6 @@ def test_amplop_error_konsisten(client, admin_headers, student_headers, status_c
 
     assert_envelope(response, status_code)
     assert response.json()["error"]["code"] == EXPECTED_ERROR_CODES[status_code]
-
-
-def test_respons_error_tidak_pernah_teks_biasa(client, admin_headers):
-    responses = (
-        client.get("/api/v1/courses/ZZZ999", headers=admin_headers),
-        client.get("/api/v1/courses", params={"per_page": 0}, headers=admin_headers),
-        client.get("/api/v1/dashboard/me"),
-    )
-    for response in responses:
-        assert response.status_code >= 400
-        assert response.headers.get("content-type", "").startswith("application/json")
 
 
 def test_parity_register(client):

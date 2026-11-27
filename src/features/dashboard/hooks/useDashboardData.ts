@@ -6,7 +6,6 @@ import {
   type DashboardMeResponse,
   type DashboardScheduleItem,
 } from "@/features/dashboard/dashboardService"
-import { usePlanner } from "@/features/degree-planner/state/planner"
 import type { ScheduleItem } from "@/shared/domain/models"
 
 function toScheduleItem(item: DashboardScheduleItem): ScheduleItem | null {
@@ -26,14 +25,13 @@ function toScheduleItem(item: DashboardScheduleItem): ScheduleItem | null {
     start,
     duration: end - start,
     color: item.color || "teal",
-    room: item.room,
-    sectionCode: item.class_name,
-    lecturer: item.lecturer,
+    room: item.room || "Ruang belum ditentukan",
+    sectionCode: item.class_name ?? undefined,
+    lecturer: item.lecturer ?? undefined,
   }
 }
 
 export function useDashboardData(user: AuthUser | null) {
-  const { schedule } = usePlanner()
   const [dashboardData, setDashboardData] =
     useState<DashboardMeResponse | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -69,22 +67,28 @@ export function useDashboardData(user: AuthUser | null) {
 
   useEffect(() => {
     window.addEventListener("timetable-updated", retry)
-    return () => window.removeEventListener("timetable-updated", retry)
+    window.addEventListener("scheduling-status-changed", retry)
+    return () => {
+      window.removeEventListener("timetable-updated", retry)
+      window.removeEventListener("scheduling-status-changed", retry)
+    }
   }, [retry])
 
-  const displayedSchedule = useMemo<ScheduleItem[]>(() => {
-    if (user?.role === "admin") return []
-    const apiSchedule = (dashboardData?.schedule ?? [])
-      .map(toScheduleItem)
-      .filter((item): item is ScheduleItem => item !== null)
-    if (apiSchedule.length > 0) return apiSchedule
-    return schedule
-  }, [user?.role, dashboardData, schedule])
+  const displayedSchedule = useMemo<ScheduleItem[]>(
+    () =>
+      user?.role === "admin"
+        ? []
+        : (dashboardData?.schedule ?? [])
+            .map(toScheduleItem)
+            .filter((item): item is ScheduleItem => item !== null),
+    [user?.role, dashboardData],
+  )
 
   const hasConflict = displayedSchedule.some((item) => item.conflict)
 
   return {
     dashboardData,
+    scheduleStatus: dashboardData?.schedule_status,
     isLoading,
     displayedSchedule,
     hasConflict,

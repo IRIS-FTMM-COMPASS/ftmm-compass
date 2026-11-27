@@ -30,7 +30,7 @@ def test_sections_for_active_period(client, student_headers):
     body = response.json()
     assert body["meta"]["total"] == len(body["data"])
 
-    section = next((s for s in body["data"] if s["section_code"] == "A"), None)
+    section = next((s for s in body["data"] if s["section_code"] == "SD-A1"), None)
     assert section is not None
     assert section["section_id"]
     assert section["schedules"]
@@ -38,8 +38,9 @@ def test_sections_for_active_period(client, student_headers):
     assert meeting["day_of_week"] == 1
     assert meeting["day"] == "Senin"
     assert meeting["start_time"] == "08:00"
-    assert meeting["end_time"] == "10:30"
-    assert "Lab Komputasi A" in meeting["room"]
+    # ADR 0004: blok legacy 150 menit dinormalisasi ke jam penuh sesuai SKS.
+    assert meeting["end_time"] == "11:00"
+    assert meeting["room"] is None
 
 
 def test_legacy_alias_returns_same_collection(client, student_headers):

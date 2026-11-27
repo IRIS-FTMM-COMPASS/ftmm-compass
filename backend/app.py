@@ -16,23 +16,22 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from slowapi.errors import RateLimitExceeded
 
-from api import (
+from features import (
     academic_periods,
-    admin_accounts,
-    admin_traces,
+    admin,
     auth,
-    class_sections,
+    catalog as catalog_feature,
     chat,
+    class_sections,
     course_records,
-    courses,
     dashboard,
-    degree_plans,
     health,
-    pj_courses,
-    plans,
+    planning,
     polling,
+    scheduling,
     timetable,
 )
+from features.planning.router import v1_generate_plan, v1_validate_plan
 from api.errors import error_response
 from catalog import refresh_from_db
 from rate_limit import limiter
@@ -57,7 +56,7 @@ async def lifespan(app: FastAPI):
 
     if settings.AUTO_SEED:
         try:
-            from seed import seed_data
+            from scripts.seed import seed_data
             await seed_data()
         except Exception as e:
             print(f"[WARN] Auto-seed skipped or encountered an error: {e}", flush=True)
@@ -106,21 +105,20 @@ def mount_resource(router):
 for resource in (
     health,
     auth,
-    admin_traces,
-    admin_accounts,
+    admin,
     class_sections,
-    courses,
+    catalog_feature,
     chat,
-    plans,
+    planning,
     polling,
-    pj_courses,
     dashboard,
     academic_periods,
-    degree_plans,
     course_records,
     timetable,
+    scheduling,
 ):
     mount_resource(resource.router)
+
 
 info_router = APIRouter()
 
@@ -144,14 +142,14 @@ app.add_api_route("/", service_info, methods=["GET"], include_in_schema=False)
 # Dua path legacy dengan nama berbeda tetap dilayani tanpa salinan handler.
 app.add_api_route(
     "/api/plan/validate",
-    plans.v1_validate_plan,
+    v1_validate_plan,
     methods=["POST"],
     response_model=PlanValidationResponse,
     include_in_schema=False,
 )
 app.add_api_route(
     "/api/plan/generate",
-    plans.v1_generate_plan,
+    v1_generate_plan,
     methods=["POST"],
     response_model=DegreePlanPayload,
     include_in_schema=False,

@@ -104,7 +104,9 @@ export function useProfileEditor() {
   }
 
   const roleLabel = user?.role
-    ? ROLE_LABEL_MAP[user.role] || user.role
+    ? user.role === "lecturer" && user.is_program_coordinator
+      ? "PJ Prodi"
+      : ROLE_LABEL_MAP[user.role] || user.role
     : "Mahasiswa Aktif"
 
   const studentProfile = user?.student_profile

@@ -22,6 +22,8 @@ graphify-out/
 /Ekstrak/
 Ekstrak/
 **/Ekstrak/
+# Raw scraped source (lecturer PII); curated result lives in database/seed/
+/data/
 
 # Keys, Certs, & Secrets
 *.pem

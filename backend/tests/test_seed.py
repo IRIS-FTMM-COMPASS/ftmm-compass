@@ -1,18 +1,30 @@
 """Integrasi seeder #33: PJ Prodi, voter per prodi, dan idempotensi."""
 
+import json
 from collections import Counter, defaultdict
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 from sqlalchemy import text
 
-import seed as seed_module
+from scripts import seed as seed_module
 from catalog import get_all_courses, prodi_code
+import app as app_module
+import settings
 
 EXPECTED_PJ = {
-    "TSD": "pj.tsd@ftmm.unair.ac.id",
-    "TRKB": "pj.trkb@ftmm.unair.ac.id",
-    "RN": "pj.rn@ftmm.unair.ac.id",
-    "TI": "pj.ti@ftmm.unair.ac.id",
-    "TE": "pj.te@ftmm.unair.ac.id",
+    "TSD": "dwi.rantini@ftmm.unair.ac.id",
+    "TRKB": "asif.ali@ftmm.unair.ac.id",
+    "RN": "mirza.ardella@ftmm.unair.ac.id",
+    "TI": "chandrawati.p.w@ftmm.unair.ac.id",
+    "TE": "agus.mukhlisin@ftmm.unair.ac.id",
+}
+EXPECTED_PJ_NAMES = {
+    "TSD": "Dr. Dwi Rantini, S.Si.",
+    "TRKB": "Asif Ali Zamzami",
+    "RN": "Mirza Ardella Saputra, S.Si., M.Sc., Ph.D",
+    "TI": "Chandrawati Putri Wulandari, S.T., M.T., MBA., Ph.D.",
+    "TE": "Dr. Agus Mukhlisin, S.T., M.T.",
 }
 PJ_PASSWORD = "PjProdi2026!"
 LEGACY_LECTURER_EMAIL = "dosen.testing@ftmm.unair.ac.id"
@@ -116,19 +128,21 @@ def test_seed_creates_exactly_five_active_pj_accounts(client, admin_headers, db_
     pjs = _rows(
         client,
         db_session,
-        "SELECT email, full_name, role FROM users "
-        "WHERE email LIKE 'pj.%@ftmm.unair.ac.id' AND is_active = true ORDER BY email",
+        "SELECT u.email, u.full_name, u.role FROM users u "
+        "JOIN lecturer_profiles lp ON lp.user_id = u.user_id "
+        "WHERE lp.is_program_coordinator = true AND u.is_active = true "
+        "ORDER BY u.email",
     )
     assert {pj["email"] for pj in pjs} == set(EXPECTED_PJ.values())
     assert len(pjs) == 5
     for pj in pjs:
         code = next(code for code, email in EXPECTED_PJ.items() if email == pj["email"])
-        assert pj["full_name"] == f"PJ Prodi {code}"
+        assert pj["full_name"] == EXPECTED_PJ_NAMES[code]
         assert pj["role"] == "lecturer"
 
     response = client.get(
         "/api/v1/admin/accounts",
-        params={"search": "pj.tsd@", "role": "lecturer", "status": "active"},
+        params={"search": "dwi.rantini@", "role": "lecturer", "status": "active"},
         headers=admin_headers,
     )
     assert response.status_code == 200, response.text
@@ -150,7 +164,53 @@ def test_seed_has_one_active_coordinator_per_prodi(client, db_session):
     )
     assert len(coordinators) == 5
     assert {row["program_code"]: row["email"] for row in coordinators} == EXPECTED_PJ
-    assert all(row["employee_number"] is None for row in coordinators)
+    assert all(row["employee_number"] is not None for row in coordinators)
+
+
+def test_seed_rooms_match_inventory_floor_plan(client, db_session):
+    rooms = _rows(
+        client,
+        db_session,
+        "SELECT room_code, building, floor, capacity, is_active FROM rooms",
+    )
+    assert len(rooms) == 26
+    assert len({room["room_code"] for room in rooms}) == 26
+    assert all(room["is_active"] for room in rooms)
+    assert all(room["capacity"] == 60 for room in rooms)
+
+    by_code = {room["room_code"]: room for room in rooms}
+    assert "L1" not in by_code
+    for code in ("LAB-TRKB", "LAB-TI"):
+        assert (by_code[code]["building"], by_code[code]["floor"]) == ("NANO", "1")
+    assert (by_code["10.RN"]["building"], by_code["10.RN"]["floor"]) == ("NANI", "10")
+
+
+def test_seed_creates_52_active_lecturers_from_curated_roster(client, db_session):
+    lecturers = _rows(
+        client,
+        db_session,
+        "SELECT u.email, u.full_name, lp.employee_number "
+        "FROM users u JOIN lecturer_profiles lp ON lp.user_id = u.user_id "
+        "WHERE u.is_active = true AND u.role = 'lecturer'",
+    )
+    assert len(lecturers) == 52
+    assert len({row["email"] for row in lecturers}) == 52
+    assert all(row["employee_number"] is not None for row in lecturers)
+    assert LEGACY_LECTURER_EMAIL not in {row["email"] for row in lecturers}
+
+    roster_path = Path(__file__).resolve().parents[2] / "database" / "seed" / "lecturers.json"
+    with roster_path.open(encoding="utf-8") as handle:
+        roster = json.load(handle)["lecturers"]
+    expected = {
+        item["email"]: (item["name"], item["employee_number"])
+        for item in roster
+    }
+    assert {row["email"] for row in lecturers} == set(expected)
+    for row in lecturers:
+        name, employee_number = expected[row["email"]]
+        assert row["full_name"] == name, row["email"]
+        assert row["employee_number"] == employee_number, row["email"]
+
 
 def test_legacy_testing_lecturer_is_not_active(client, admin_headers, db_session):
     active = _one(
@@ -199,8 +259,9 @@ def test_reseed_is_idempotent(client, db_session, monkeypatch):
             "pj": _one(
                 client,
                 db_session,
-                "SELECT count(*) AS n FROM users WHERE is_active = true "
-                "AND email LIKE 'pj.%@ftmm.unair.ac.id'",
+                "SELECT count(*) AS n FROM users u JOIN lecturer_profiles lp "
+                "ON lp.user_id = u.user_id WHERE u.is_active = true "
+                "AND lp.is_program_coordinator = true",
             )["n"],
             "coordinators": _one(
                 client,
@@ -238,6 +299,34 @@ def test_reseed_is_idempotent(client, db_session, monkeypatch):
                 "GROUP BY user_id, priority HAVING count(*) > 1) duplicates",
                 {"pid": period["id"]},
             )["n"],
+            "preferences": _one(
+                client,
+                db_session,
+                "SELECT count(*) AS n FROM lecturer_schedule_preferences "
+                "WHERE academic_period_id = CAST(:pid AS uuid)",
+                {"pid": period["id"]},
+            )["n"],
+            "mappings": _one(
+                client,
+                db_session,
+                "SELECT count(*) AS n FROM course_instructor_references "
+                "WHERE academic_period_id = CAST(:pid AS uuid)",
+                {"pid": period["id"]},
+            )["n"],
+            "assignments": _one(
+                client,
+                db_session,
+                "SELECT count(*) AS n FROM class_instructor_assignments "
+                "WHERE academic_period_id = CAST(:pid AS uuid)",
+                {"pid": period["id"]},
+            )["n"],
+            "schedule_runs": _one(
+                client,
+                db_session,
+                "SELECT count(*) AS n FROM schedule_runs "
+                "WHERE academic_period_id = CAST(:pid AS uuid)",
+                {"pid": period["id"]},
+            )["n"],
         }
 
     before = _counts()
@@ -253,3 +342,19 @@ def test_reseed_is_idempotent(client, db_session, monkeypatch):
     assert after_second["profiles"] == 45
     assert after_second["duplicate_priorities"] == 0
     _assert_voters_and_votes_are_scoped(client, db_session)
+
+
+def test_startup_does_not_seed_when_auto_seed_is_disabled(client, monkeypatch):
+    monkeypatch.setattr(settings, "AUTO_SEED", False)
+
+    async def run_startup():
+        with (
+            patch("alembic.command.upgrade"),
+            patch("scripts.seed.seed_data", new_callable=AsyncMock) as seeded,
+            patch("catalog.refresh_from_db", new_callable=AsyncMock),
+        ):
+            async with app_module.lifespan(app_module.app):
+                pass
+        seeded.assert_not_awaited()
+
+    client.portal.call(run_startup)

@@ -14,11 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import app as app_module
 from database import AsyncSessionLocal, engine, get_db
 from rate_limit import limiter
-from seed import seed_data
+from scripts.seed import seed_data
 
 SEEDED_STUDENT = ("mahasiswa.testing@ftmm.unair.ac.id", "Mahasiswa2026!")
 SEEDED_ADMIN = ("admin@ftmm.unair.ac.id", "AdminFTMM2026!")
-SEEDED_PJ = ("pj.tsd@ftmm.unair.ac.id", "PjProdi2026!")
+SEEDED_PJ = ("dwi.rantini@ftmm.unair.ac.id", "PjProdi2026!")
 SEEDED_LECTURER = SEEDED_PJ
 
 

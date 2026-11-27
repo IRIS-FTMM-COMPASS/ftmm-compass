@@ -10,6 +10,7 @@ export interface AcademicPeriod {
   end_date: string
   first_week_monday: string
   semester_weeks: number
+  semester_number: number | null
 }
 
 export const academicService = {

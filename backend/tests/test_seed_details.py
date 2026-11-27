@@ -6,8 +6,8 @@ di-monkeypatch, sehingga test tidak menyentuh Ekstrak/ asli maupun database.
 
 import json
 
-import reconcile_catalog as rc
-import seed_full_catalog as seed
+from scripts import reconcile_catalog as rc
+from scripts import seed_full_catalog as seed
 
 KEY = "TSD:AGI101:Agama Islam"
 
