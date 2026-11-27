@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -76,8 +77,16 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
   const [schedule, setSchedule] = useState<ScheduleItem[]>([])
   const planRef = useRef(storage.plan)
   planRef.current = storage.plan
-  const preApplyRef = useRef<Record<number, PlacedCourse[]> | null>(null)
-  const { setPlan, resetCurrentDraft } = storage
+  const preApplyRef = useRef<{
+    draftId: string
+    plan: Record<number, PlacedCourse[]>
+  } | null>(null)
+  const { setPlan, resetCurrentDraft, activeDraftId } = storage
+
+  useEffect(() => {
+    preApplyRef.current = null
+    setAppliedSummary(null)
+  }, [activeDraftId])
 
   const addPendingCourse = useCallback((course: Course) => {
     setPendingCourses((prev) =>
@@ -91,22 +100,26 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
 
   const applyPlan = useCallback(
     (payload: DegreePlanPayload) => {
-      preApplyRef.current = planRef.current
+      preApplyRef.current = {
+        draftId: activeDraftId,
+        plan: planRef.current,
+      }
       setAppliedSummary(payload.summary)
       setPlan(planFromPayload(payload))
     },
-    [setPlan],
+    [activeDraftId, setPlan],
   )
 
   const resetPlan = useCallback(() => {
-    if (preApplyRef.current) {
-      setPlan(preApplyRef.current)
+    if (preApplyRef.current?.draftId === activeDraftId) {
+      setPlan(preApplyRef.current.plan)
       preApplyRef.current = null
     } else {
+      preApplyRef.current = null
       resetCurrentDraft()
     }
     setAppliedSummary(null)
-  }, [resetCurrentDraft, setPlan])
+  }, [activeDraftId, resetCurrentDraft, setPlan])
 
   const value = useMemo(
     () => ({

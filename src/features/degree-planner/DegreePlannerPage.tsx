@@ -597,6 +597,9 @@ export default function DegreePlanner({
   useEffect(() => {
     if (!timetableSemesterResolved || !timetableHydrated) return
     if (effectiveSignature === timetableSavedSignatureRef.current) return
+    // shortcut: empty selections never clear the timetable; the backend
+    // replaces all rows, so add a scoped clear endpoint before allowing it.
+    if (effectiveSelections.length === 0) return
 
     const controller = new AbortController()
     setTimetableSaveStatus("saving")

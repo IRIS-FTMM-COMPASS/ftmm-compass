@@ -613,10 +613,18 @@ async def get_dashboard_me(
         )
 
     total_students = (
-        await db.execute(select(func.count(User.user_id)).where(User.role == "student"))
+        await db.execute(
+            select(func.count(User.user_id)).where(
+                User.role == "student", User.is_active.is_(True)
+            )
+        )
     ).scalar() or 0
     total_lecturers = (
-        await db.execute(select(func.count(User.user_id)).where(User.role == "lecturer"))
+        await db.execute(
+            select(func.count(User.user_id)).where(
+                User.role == "lecturer", User.is_active.is_(True)
+            )
+        )
     ).scalar() or 0
     total_courses = (
         await db.execute(select(func.count(Course.course_id)).where(Course.is_active.is_(True)))

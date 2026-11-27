@@ -1048,6 +1048,11 @@ async def generate_schedule(
     study_program_id: UUID | None = None,
 ) -> GenerateResponse:
     """Buat satu blok per kelas dan simpan hasil serta diagnosisnya."""
+    await db.execute(
+        select(AcademicPeriod.academic_period_id)
+        .where(AcademicPeriod.academic_period_id == period.academic_period_id)
+        .with_for_update()
+    )
     run = ScheduleRun(
         academic_period_id=period.academic_period_id,
         study_program_id=study_program_id,

@@ -21,6 +21,7 @@ from models import (
     ClassSection,
     Course,
     CourseOffering,
+    CourseOfferingEligibility,
     Curriculum,
     CurriculumCourse,
     ElectiveCourseVote,
@@ -33,6 +34,7 @@ from models import (
 from prodi_access import require_pj_scope
 from schemas import CourseQuotaResponse, CourseQuotaUpdateRequest
 from scheduling_common import current_period_id
+from ..scheduling.scheduler import bump_input_revisions
 
 router = APIRouter()
 
@@ -601,15 +603,34 @@ async def update_course_quota(
                 CourseOffering.course_offering_id
                 == OfferingComponent.course_offering_id,
             )
+            .join(
+                CourseOfferingEligibility,
+                CourseOfferingEligibility.course_offering_id
+                == CourseOffering.course_offering_id,
+            )
+            .join(
+                CurriculumCourse,
+                CurriculumCourse.curriculum_course_id
+                == CourseOfferingEligibility.curriculum_course_id,
+            )
+            .join(
+                Curriculum,
+                Curriculum.curriculum_id == CurriculumCourse.curriculum_id,
+            )
             .where(
                 CourseOffering.academic_period_id == period.academic_period_id,
                 CourseOffering.course_id == row["course_id"],
+                Curriculum.study_program_id == row["study_program_id"],
             )
+            .distinct()
         )
     ).scalars().all()
     for section in sections:
         section.capacity = payload.capacity_per_class
 
+    await bump_input_revisions(
+        db, period.academic_period_id, {row["study_program_id"]}
+    )
     await record_admin_action(
         db,
         actor=current_user,
