@@ -21,6 +21,7 @@ from .instructor_references import (
     _period_filter,
     _resolve_candidate_course,
 )
+from scheduling_common import UNIVERSITY_SCOPE
 
 
 async def list_candidates(
@@ -129,6 +130,7 @@ async def list_curriculum_courses(
         .join(Curriculum, Curriculum.curriculum_id == CurriculumCourse.curriculum_id)
         .join(Course, Course.course_id == CurriculumCourse.course_id)
         .where(CurriculumCourse.is_active.is_(True))
+        .where(CurriculumCourse.course_scope != UNIVERSITY_SCOPE)
     )
     if scope is not None:
         stmt = stmt.where(Curriculum.study_program_id == scope)

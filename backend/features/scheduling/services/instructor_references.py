@@ -23,6 +23,7 @@ from models import (
     User,
 )
 from ..scheduler import bump_input_revisions, scheduling_input_lock
+from scheduling_common import UNIVERSITY_SCOPE
 from .errors import ServiceError
 
 _UNPROCESSABLE = 422
@@ -52,6 +53,7 @@ _REFERENCE_SELECT = (
         Course.course_code.label("course_code"),
         Course.course_name.label("course_name"),
         CurriculumCourse.curriculum_course_id.label("curriculum_course_id"),
+        CurriculumCourse.course_scope.label("course_scope"),
         User.full_name.label("lecturer_name"),
         User.role.label("lecturer_role"),
         User.is_active.label("lecturer_is_active"),
@@ -434,7 +436,11 @@ async def _resolve_curriculum_course(
 
     curriculum_course = (
         await db.execute(
-            select(CurriculumCourse, Curriculum.study_program_id.label("program_id"))
+            select(
+                CurriculumCourse,
+                Curriculum.study_program_id.label("program_id"),
+                CurriculumCourse.course_scope.label("course_scope"),
+            )
             .join(
                 Curriculum, Curriculum.curriculum_id == CurriculumCourse.curriculum_id
             )
@@ -456,6 +462,12 @@ async def _resolve_curriculum_course(
             403,
             "forbidden",
             "Mata kuliah di luar program studi Anda.",
+        )
+    if curriculum_course.course_scope == UNIVERSITY_SCOPE:
+        return _deny(
+            403,
+            "university_scope",
+            "MK universitas di luar cakupan penjadwalan FTMM.",
         )
     return curriculum_course_id
 
@@ -585,6 +597,7 @@ async def list_references(
     if scope is not None:
         stmt = stmt.where(Curriculum.study_program_id == scope)
     stmt = stmt.where(CourseInstructorReference.academic_period_id == period_id)
+    stmt = stmt.where(CurriculumCourse.course_scope != UNIVERSITY_SCOPE)
     if role is not None:
         normalized_role = role.strip()
         if normalized_role not in _ROLE_VALUES:
@@ -977,6 +990,9 @@ async def copy_references(
     skipped_count = 0
     affected_programs: set[UUID | None] = set()
     for curriculum_course_id, course_rows in grouped.items():
+        if course_rows[0].course_scope == UNIVERSITY_SCOPE:
+            skipped_count += len(course_rows)
+            continue
         resolved_course_id = await _resolve_curriculum_course(
             db, str(curriculum_course_id), scope
         )
