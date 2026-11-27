@@ -1633,6 +1633,7 @@ async def seed_data():
                     CurriculumCourse.curriculum_id == assignment.curriculum_id,
                     CurriculumCourse.course_type == "wajib",
                     CurriculumCourse.term == active_period.term,
+                    CurriculumCourse.course_scope != UNIVERSITY_SCOPE,
                     CurriculumCourse.is_active.is_(True),
                     Curriculum.is_active.is_(True),
                     Course.is_active.is_(True),
