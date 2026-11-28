@@ -392,10 +392,14 @@ make format        # Auto-format frontend via oxfmt (tidak memformat backend)
 # ----------------------------------------------------
 # B. Perintah Manual / Spesifik Sub-Sistem
 # ----------------------------------------------------
-# 0. E2E Playwright (sekali saja): unduh Chromium yang cocok dengan versi runner
-pnpm exec playwright install chromium
+# 0. E2E Playwright (sekali saja): unduh Chromium, Firefox, dan WebKit
+pnpm exec playwright install chromium firefox webkit
+# Linux tanpa sesi desktop: dependensi WebKit dipasang dengan
+# pnpm exec playwright install-deps (butuh akses root)
 # Jalankan setelah database dimigrasi dan di-seed (make migrate && make seed)
 pnpm test:e2e
+# Satu browser saja:
+pnpm exec playwright test --project=firefox
 
 # 1. Seed database (idempoten; urutan wajib: katalog 5 prodi dulu, lalu akun/transkrip demo)
 make seed

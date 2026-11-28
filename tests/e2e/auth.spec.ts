@@ -1,8 +1,12 @@
 import { expect, test } from "@playwright/test"
-import { ACCOUNTS, STORAGE_STATE, fillLogin, login } from "./support/app"
+import { ACCOUNTS, STORAGE_STATE, fillLogin } from "./support/app"
 
 test.describe("Kredensial", () => {
-  test("menolak kredensial yang salah", async ({ page }) => {
+  test("menolak kredensial yang salah", async ({ page }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "chromium",
+      "Login UI diuji sekali agar tidak menabrak batas 5 percobaan per menit.",
+    )
     await fillLogin(page, {
       identifier: ACCOUNTS.admin.identifier,
       password: "kata-sandi-salah",
@@ -17,8 +21,11 @@ test.describe("Kredensial", () => {
 })
 
 test.describe("Sesi mahasiswa", () => {
-  test("mahasiswa masuk lalu keluar", async ({ page }) => {
-    await login(page, ACCOUNTS.student)
+  test.use({ storageState: STORAGE_STATE.student })
+
+  test("mahasiswa memuat dashboard lalu keluar", async ({ page }) => {
+    await page.goto("/dashboard")
+    await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible()
     await page.getByRole("button", { name: "Logout" }).click()
     await expect(
       page.getByRole("heading", { name: "Konfirmasi Keluar" }),

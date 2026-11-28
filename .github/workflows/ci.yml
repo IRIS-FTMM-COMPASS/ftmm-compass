@@ -214,8 +214,8 @@ jobs:
           uv run --directory backend python -m scripts.seed_full_catalog
           uv run --directory backend python -m scripts.seed
 
-      - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium firefox webkit
 
       - name: Run Playwright E2E tests
         run: pnpm test:e2e
