@@ -44,7 +44,6 @@ from models import (
     LecturerProfile,
     StudyProgram,
     AcademicPeriod,
-    Curriculum,
     StudentCurriculumAssignment,
     UserNotification,
 )
@@ -62,6 +61,7 @@ from auth import (
 )
 from audit import record_admin_action
 from api.errors import error_response
+from catalog import cohort_curriculum_id
 from rate_limit import limiter
 from slowapi.errors import RateLimitExceeded
 
@@ -369,21 +369,14 @@ async def v1_register(
     user.student_profile = profile
     profile.study_program = program
 
-    curriculum = (
-        await db.execute(
-            select(Curriculum)
-            .where(
-                Curriculum.study_program_id == program.study_program_id,
-                Curriculum.is_active.is_(True),
-            )
-            .order_by(Curriculum.curriculum_year.desc())
-        )
-    ).scalars().first()
-    if curriculum is not None:
+    curriculum_id = await cohort_curriculum_id(
+        db, program.study_program_id, payload.admission_year
+    )
+    if curriculum_id is not None:
         db.add(
             StudentCurriculumAssignment(
                 user_id=user.user_id,
-                curriculum_id=curriculum.curriculum_id,
+                curriculum_id=curriculum_id,
                 is_current=True,
                 assignment_source="cohort_rule",
             )

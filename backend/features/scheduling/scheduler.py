@@ -430,6 +430,7 @@ class SolveResult:
     unassigned: list[tuple[UUID, str]]
     explored: int = 0
     preferred_matches: int = 0
+    truncated: bool = False
 
 
 @dataclass(frozen=True)
@@ -595,6 +596,7 @@ def solve(
     best: dict[UUID, Placement] = {}
     best_depth = -1
     explored = 0
+    truncated = False
 
     def place(task: ClassTask, placement: Placement) -> None:
         assigned[task.section_id] = placement
@@ -619,7 +621,7 @@ def solve(
             timetable_busy[timetable_id].pop()
 
     def search(depth: int) -> bool:
-        nonlocal explored, best, best_depth
+        nonlocal explored, best, best_depth, truncated
         if depth > best_depth:
             best = dict(assigned)
             best_depth = depth
@@ -627,6 +629,7 @@ def solve(
             return True
         explored += 1
         if explored > max_nodes:
+            truncated = True
             return False
 
         task = order[depth]
@@ -670,6 +673,7 @@ def solve(
         preferred_matches=sum(
             placement.preference_score for placement in best.values()
         ),
+        truncated=truncated,
     )
 
 
@@ -1819,6 +1823,7 @@ async def generate_schedule(
         "preserved_manual": len(preserved_manual_sections),
         "study_program_id": str(study_program_id) if study_program_id else None,
         "search_nodes": result.explored,
+        "search_truncated": result.truncated,
         "preferred_matches": result.preferred_matches,
         "fallback_assignments": fallback_assignments,
     }
@@ -1840,6 +1845,7 @@ async def generate_schedule(
         regenerated_count=len(target_section_ids - preserved_manual_sections),
         preserved_final_count=len(preserved_final_sections),
         preserved_manual_count=len(preserved_manual_sections),
+        search_truncated=result.truncated,
     )
     run.response = response.model_dump(mode="json")
     await db.flush()

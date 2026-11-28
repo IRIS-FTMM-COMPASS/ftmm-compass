@@ -1,4 +1,5 @@
 from typing import Dict, List, Set
+from academics import MAX_SKS_PER_SEMESTER
 from schemas import PlacedCourseModel, PlanValidationResponse
 
 
@@ -36,7 +37,7 @@ def extract_religion_type(course_name: str, course_code: str | None = None) -> s
 def validate_plan_constraints(
     plan: Dict[int, List[PlacedCourseModel]],
     riwayat_matkul_lulus: List[str],
-    maks_sks_per_semester: int = 24,
+    maks_sks_per_semester: int = MAX_SKS_PER_SEMESTER,
 ) -> PlanValidationResponse:
     """
     Deterministically validates prerequisite DAG, semester parity, and SKS limits.

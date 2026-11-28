@@ -58,7 +58,9 @@ async def handle_health_check(strict: bool = False) -> HealthResponse:
             detail="Chatbot microservice is offline",
         )
 
-    service_status = "healthy" if chatbot_online else "degraded"
+    service_status = (
+        "healthy" if chatbot_online and database_online else "degraded"
+    )
     return HealthResponse(
         status=service_status,
         service="FTMM Compass AI Planner Gateway",

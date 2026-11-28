@@ -2,6 +2,7 @@ from datetime import date, datetime, time
 from typing import List, Optional, Dict, Literal, Any, Union
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from academics import MAX_SKS_PER_SEMESTER, TOTAL_SKS_FOR_GRADUATION
 from settings import ACCESS_TOKEN_EXPIRE_SECONDS
 
 class OllamaHealthDetail(BaseModel):
@@ -95,7 +96,7 @@ class PlanValidationRequest(BaseModel):
     program_studi: str
     semester_saat_ini: int
     riwayat_matkul_lulus: List[str] = Field(default_factory=list)
-    maks_sks_per_semester: int = 24
+    maks_sks_per_semester: int = MAX_SKS_PER_SEMESTER
     plan: Dict[int, List[PlacedCourseModel]]
 
 
@@ -483,7 +484,7 @@ class AcademicPeriodResponse(BaseModel):
 class StudentDashboardStats(BaseModel):
     type: Literal["student"] = "student"
     sks_completed: int
-    sks_target: int = 144
+    sks_target: int = TOTAL_SKS_FOR_GRADUATION
     completion_percentage: float
     current_semester: int
     courses_planned: int
@@ -800,6 +801,7 @@ class GenerateResponse(BaseModel):
     regenerated_count: int = 0
     preserved_final_count: int = 0
     preserved_manual_count: int = 0
+    search_truncated: bool = False
 
 
 class CourseQuotaUpdateRequest(BaseModel):

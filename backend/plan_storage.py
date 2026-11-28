@@ -12,9 +12,10 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from academics import parity_of
+from academics import MAX_SKS_PER_SEMESTER, parity_of
 from catalog import (
     authoritative_curriculum_id,
+    cohort_curriculum_id,
     get_courses_for_curriculum,
     normalize_course_type,
 )
@@ -107,11 +108,11 @@ async def ensure_assignment(
             )
         )
     ).scalar_one_or_none()
-    curriculum_id = (
-        await authoritative_curriculum_id(db, program_name)
-        if program_name
-        else None
+    curriculum_id = await cohort_curriculum_id(
+        db, profile.study_program_id, profile.admission_year
     )
+    if curriculum_id is None and program_name:
+        curriculum_id = await authoritative_curriculum_id(db, program_name)
 
     if curriculum_id is None:
         curriculum = (
@@ -312,7 +313,7 @@ async def _apply_items(
         validation = validate_plan_constraints(
             validation_plan,
             await _completed_course_labels(db, plan),
-            maks_sks_per_semester=24,
+            maks_sks_per_semester=MAX_SKS_PER_SEMESTER,
         )
         if not validation.is_valid:
             raise PlanValidationFailed(validation.errors)

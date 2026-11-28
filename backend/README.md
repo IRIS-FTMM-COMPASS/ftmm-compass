@@ -175,8 +175,12 @@ All 4xx and 5xx responses follow the standardized error payload:
 Run automated unit and integration tests:
 
 ```bash
-# Domain, endpoint, polling, and chat gateway tests
+# Domain, endpoint, polling, and chat gateway tests.
+# conftest membuat database sementara, menjalankan migrasi dan seed, lalu menghapusnya.
 uv run python -m pytest tests -q
+
+# Frontend pure-logic tests
+pnpm test:unit
 ```
 
 ---

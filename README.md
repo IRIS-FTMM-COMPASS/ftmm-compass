@@ -378,13 +378,13 @@ Verifikasi: CLI mencetak `Rendered ...` dan keluar dengan status `0`; HTML memua
 
 ## Testing & QA Audit
 
-Suite backend berjalan terhadap PostgreSQL yang sudah di-migrate. Fixture `tests/conftest.py` menanam pengguna demo sendiri, tetapi tes katalog dan degree-plan membaca katalog 5 prodi, sehingga database harus sudah dijalankan `make seed` (yang menjalankan `seed_full_catalog.py` lalu `seed.py`, urutan ini wajib). CI melakukan urutan yang sama: job `database` memuat schema baseline, menjalankan `alembic upgrade head`, menguji rollback dengan `alembic downgrade -1` lalu upgrade lagi (`ci.yml:101-106`), lalu menjalankan seeder dua kali berturut-turut lewat `python -m scripts.seed` untuk membuktikan idempotensi; setelah itu job `backend` menjalankan `pytest`.
+Suite backend membuat database PostgreSQL sementara per sesi pytest. Fixture `tests/conftest.py` menjalankan `alembic upgrade head`, seed katalog 5 prodi, lalu seed akun demo sebelum tes, dan menghapus database itu saat sesi selesai. Database pengembangan tidak pernah di-seed atau diubah. Untuk memakai database uji yang sudah ada, set `FTMM_TEST_DATABASE_URL`; tanpa itu nama database diturunkan dari `DATABASE_URL` dengan sufiks PID.
 
 ```bash
 # ----------------------------------------------------
 # A. Menggunakan Makefile (Cepat & Terintegrasi)
 # ----------------------------------------------------
-make test          # Typecheck TypeScript + suite pytest backend
+make test          # Format, build, unit test frontend, Ruff, compileall, pytest backend
 make lint          # oxfmt + typecheck + Ruff (backend)
 make format        # Auto-format frontend via oxfmt (tidak memformat backend)
 

@@ -133,12 +133,49 @@ def _assert_error(response, status_code, code):
     assert body["error"]["code"] == code, body
 
 
+def test_projected_classes_match_scheduler_capacity():
+    from features.polling.router import _projected_classes
+
+    assert _projected_classes(0) == 0
+    assert _projected_classes(1) == 1
+    assert _projected_classes(40) == 1
+    assert _projected_classes(41) == 2
+
+
 def test_active_period_has_quorum_fields(client, student_headers):
     response = client.get("/api/v1/polling/periods/active", headers=student_headers)
     assert response.status_code == 200
     body = response.json()
     assert body["min_quorum"] > 0
     assert body["max_votes_per_student"] > 0
+
+
+def test_active_period_ignores_future_open_period(client, db_session, student_headers):
+    current = _active_period(client, student_headers)
+
+    async def insert_future():
+        period = ElectivePollingPeriod(
+            title="Polling mendatang",
+            academic_year="2099/2100",
+            target_term=current["term"],
+            target_semester=_target_semester(current["term"]),
+            start_date=datetime.datetime.now(datetime.timezone.utc)
+            + datetime.timedelta(days=1),
+            end_date=datetime.datetime.now(datetime.timezone.utc)
+            + datetime.timedelta(days=10),
+            status="open",
+            min_quota_threshold=15,
+            max_votes_per_student=3,
+        )
+        db_session.add(period)
+        await db_session.flush()
+        return str(period.polling_period_id)
+
+    future_id = client.portal.call(insert_future)
+    response = client.get("/api/v1/polling/periods/active", headers=student_headers)
+    assert response.status_code == 200, response.text
+    assert response.json()["period_id"] == current["period_id"]
+    assert response.json()["period_id"] != future_id
 
 
 def test_my_votes_respects_quota(client, student_headers):

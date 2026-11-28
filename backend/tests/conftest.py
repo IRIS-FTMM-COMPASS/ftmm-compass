@@ -1,14 +1,72 @@
 """Fixture integrasi backend.
 
-Tes berjalan terhadap PostgreSQL pengembangan, tetapi setiap tes dibungkus satu
-transaksi yang di-rollback. Database yang tidak tersedia menggagalkan suite.
+Setiap sesi pytest memakai database PostgreSQL sementara yang dibuat dan
+dihapus otomatis. Database pengembangan tidak pernah di-seed atau diubah.
 """
 
 import asyncio
+import os
+from pathlib import Path
+
+from sqlalchemy.engine import make_url
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+DEFAULT_DATABASE_URL = (
+    "postgresql+asyncpg://postgres:postgres@localhost:5432/ftmm_compass_dev"
+)
+_EXPLICIT_TEST_URL = os.environ.get("FTMM_TEST_DATABASE_URL")
+_SOURCE_URL = os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL)
+_CREATED_DATABASE: str | None = None
+_DATABASE_ERROR: Exception | None = None
+
+
+def _with_database(url: str, name: str) -> str:
+    return make_url(url).set(database=name).render_as_string(hide_password=False)
+
+
+def _quoted_identifier(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _admin_connection_url(url: str) -> str:
+    return _with_database(url, "postgres").replace(
+        "postgresql+asyncpg://", "postgresql://", 1
+    )
+
+
+def _prepare_test_database() -> None:
+    global _CREATED_DATABASE, _DATABASE_ERROR
+    if _EXPLICIT_TEST_URL:
+        os.environ["DATABASE_URL"] = _EXPLICIT_TEST_URL
+        return
+
+    name = f"ftmm_compass_test_{os.getpid()}"
+    test_url = _with_database(_SOURCE_URL, name)
+    os.environ["DATABASE_URL"] = test_url
+
+    async def recreate() -> None:
+        import asyncpg
+
+        connection = await asyncpg.connect(_admin_connection_url(_SOURCE_URL))
+        try:
+            await connection.execute(
+                f"DROP DATABASE IF EXISTS {_quoted_identifier(name)} WITH (FORCE)"
+            )
+            await connection.execute(f"CREATE DATABASE {_quoted_identifier(name)}")
+        finally:
+            await connection.close()
+
+    try:
+        asyncio.run(recreate())
+        _CREATED_DATABASE = name
+    except Exception as exc:
+        _DATABASE_ERROR = exc
+
+
+_prepare_test_database()
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app as app_module
@@ -16,31 +74,40 @@ from database import AsyncSessionLocal, engine, get_db
 from rate_limit import limiter
 from scripts.seed import seed_data
 
+
 SEEDED_STUDENT = ("mahasiswa.testing@ftmm.unair.ac.id", "Mahasiswa2026!")
 SEEDED_ADMIN = ("admin@ftmm.unair.ac.id", "AdminFTMM2026!")
 SEEDED_PJ = ("dwi.rantini@ftmm.unair.ac.id", "PjProdi2026!")
 SEEDED_LECTURER = SEEDED_PJ
 
 
-def _database_reachable() -> bool:
-    async def probe() -> bool:
-        try:
-            async with AsyncSessionLocal() as session:
-                await session.execute(text("SELECT 1"))
-            return True
-        except Exception:
-            return False
+def _run_migrations() -> None:
+    from alembic import command
+    from alembic.config import Config
 
-    return asyncio.run(probe())
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
+    command.upgrade(config, "head")
+
+
+async def _seed_database() -> None:
+    from scripts.seed_full_catalog import seed as seed_catalog
+
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            await seed_catalog(session)
+    await seed_data()
 
 
 @pytest.fixture(scope="session", autouse=True)
 def seeded_database():
-    if not _database_reachable():
+    if _DATABASE_ERROR is not None:
         pytest.fail(
-            "PostgreSQL tidak tersedia; jalankan `make db-up && make migrate`."
+            "PostgreSQL tidak tersedia untuk database tes sementara: "
+            f"{_DATABASE_ERROR}. Jalankan `make db-up`."
         )
-    asyncio.run(seed_data())
+    _run_migrations()
+    asyncio.run(_seed_database())
 
 
 @pytest.fixture(scope="session")
@@ -145,3 +212,26 @@ def pj_token(client) -> str:
 @pytest.fixture
 def pj_headers(pj_token) -> dict[str, str]:
     return {"Authorization": f"Bearer {pj_token}"}
+
+
+def pytest_sessionfinish(session, exitstatus):
+    if _CREATED_DATABASE is None:
+        return
+
+    async def drop() -> None:
+        import asyncpg
+
+        await engine.dispose()
+        connection = await asyncpg.connect(_admin_connection_url(_SOURCE_URL))
+        try:
+            await connection.execute(
+                f"DROP DATABASE IF EXISTS {_quoted_identifier(_CREATED_DATABASE)} "
+                "WITH (FORCE)"
+            )
+        finally:
+            await connection.close()
+
+    try:
+        asyncio.run(drop())
+    except Exception as exc:
+        print(f"[WARN] Gagal menghapus database tes {_CREATED_DATABASE}: {exc}")

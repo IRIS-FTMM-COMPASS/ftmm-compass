@@ -1,4 +1,5 @@
 from typing import Dict, List
+from academics import MAX_SKS_PER_SEMESTER
 from schemas import (
     StudentProfile,
     PlacedCourseModel,
@@ -17,7 +18,7 @@ def generate_study_plan(profile: StudentProfile) -> DegreePlanPayload:
     catalog = get_courses_for_program(prodi_name)
     current_sem = profile.semester_saat_ini or 1
     target_sem = profile.target_kelulusan_semester or 8
-    max_sks = profile.maks_sks_per_semester or 24
+    max_sks = profile.maks_sks_per_semester or MAX_SKS_PER_SEMESTER
 
     interest_keywords = [k.lower() for k in profile.minat_fokus] if profile.minat_fokus else ["data", "machine learning", "ai"]
 

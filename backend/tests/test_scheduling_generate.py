@@ -1460,6 +1460,31 @@ def _unavailable_all_week(pool_index=0):
     ]
 
 
+def test_solver_marks_search_truncation_at_node_cap():
+    from features.scheduling.scheduler import ClassTask, RoomOption, solve
+
+    program_id = uuid.uuid4()
+    lecturer_id = uuid.uuid4()
+    task = ClassTask(
+        section_id=uuid.uuid4(),
+        course_code="TST101",
+        section_code="A",
+        credits=3,
+        capacity=10,
+        study_program_id=program_id,
+        lecturers=(lecturer_id,),
+    )
+    room = RoomOption(room_id=uuid.uuid4(), room_code="R1", capacity=40)
+    result = solve(
+        [task],
+        {program_id: (room,)},
+        {},
+        max_nodes=0,
+    )
+    assert result.truncated is True
+    assert result.explored >= 1
+
+
 def test_solver_uses_only_the_active_class_assignment(client, db_session, admin_headers):
     case = _make_case(
         client,

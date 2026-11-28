@@ -21,7 +21,11 @@ jobs:
             echo "[ERROR] Classified or secret files found committed in Git tree!"
             exit 1
           fi
-          echo "[PASS] Security Guard passed: No classified or sensitive files found."
+          if git grep -I -n -E "BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|AIza[0-9A-Za-z_-]{35}" -- . ':!pnpm-lock.yaml'; then
+            echo "[ERROR] Secret-like content found in tracked files!"
+            exit 1
+          fi
+          echo "[PASS] Security Guard passed: No classified files or secret-like content found."
 
   frontend:
     name: Frontend Build & Format
@@ -46,6 +50,9 @@ jobs:
 
       - name: Check formatting with oxfmt
         run: pnpm format:check
+
+      - name: Run frontend unit tests
+        run: pnpm test:unit
 
       - name: Build frontend
         run: pnpm build
@@ -139,24 +146,13 @@ jobs:
       - name: Install backend dependencies
         run: uv sync --directory backend
 
-      - name: Apply Alembic migrations to head
-        env:
-          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ftmm_compass_dev
-        run: uv run --directory backend alembic upgrade head
-
       - name: Static syntax and compilation check
         run: uv run python -m compileall -q backend
 
       - name: Python lint check with Ruff
         run: uv run --directory backend ruff check .
 
-      # Tes katalog dan degree-plan membaca data katalog 5 prodi; scripts.seed saja
-      # hanya mengisi pengguna demo dan 28 mata kuliah.
-      - name: Seed full catalog
-        env:
-          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ftmm_compass_dev
-        run: uv run --directory backend python -m scripts.seed_full_catalog
-
+      # conftest membuat database sementara, menjalankan alembic, lalu seed katalog.
       - name: Run backend test suite
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ftmm_compass_dev
