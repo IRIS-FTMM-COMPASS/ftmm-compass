@@ -165,6 +165,31 @@ Sebelum memulai, pastikan perangkat Anda telah terpasang:
    - Microservice akan aktif di `http://localhost:8000` dan terhubung langsung ke Ollama host.
    - *(Jika kontainer Docker tidak diaktifkan, endpoint chat/stream mengembalikan HTTP 503. Tidak ada fallback slot-filling di gateway.)*
 
+7. **Browser E2E Playwright (wajib untuk `pnpm test:e2e`)**:
+   - Proyek memakai Chromium, Firefox, dan WebKit. Unduh ketiganya sekali per mesin setelah `pnpm install`.
+   - **Windows (PowerShell)**:
+     ```powershell
+     pnpm exec playwright install chromium firefox webkit
+     ```
+     Tidak perlu `--with-deps`; dependensi browser sudah dibundel untuk Windows.
+   - **macOS (Terminal)**:
+     ```bash
+     pnpm exec playwright install chromium firefox webkit
+     ```
+     Tidak perlu `--with-deps`. Jika macOS memblokir biner WebKit saat pertama dijalankan, izinkan lewat **System Settings → Privacy & Security**.
+   - **Linux native / WSL2**:
+     ```bash
+     pnpm exec playwright install --with-deps chromium firefox webkit
+     ```
+     `--with-deps` memasang library sistem dan meminta akses `sudo`. WSL2 tanpa sesi desktop membutuhkan paket GTK/WPE tersebut agar WebKit bisa start.
+   - Verifikasi unduhan:
+     ```bash
+     pnpm exec playwright install --dry-run
+     pnpm exec playwright test --project=chromium
+     ```
+   - Jalankan semua browser dengan `pnpm test:e2e`; satu browser saja dengan `pnpm exec playwright test --project=firefox` (atau `webkit`).
+   - Unduhan pertama sekitar 500 MB. CI menginstal ketiga browser dengan `--with-deps`.
+
 ---
 
 ### 2. Quick Start Automasi (`Makefile` — Direkomendasikan)
@@ -392,10 +417,7 @@ make format        # Auto-format frontend via oxfmt (tidak memformat backend)
 # ----------------------------------------------------
 # B. Perintah Manual / Spesifik Sub-Sistem
 # ----------------------------------------------------
-# 0. E2E Playwright (sekali saja): unduh Chromium, Firefox, dan WebKit
-pnpm exec playwright install chromium firefox webkit
-# Linux tanpa sesi desktop: dependensi WebKit dipasang dengan
-# pnpm exec playwright install-deps (butuh akses root)
+# 0. E2E Playwright: pasang browser sesuai OS (lihat Prasyarat nomor 7)
 # Jalankan setelah database dimigrasi dan di-seed (make migrate && make seed)
 pnpm test:e2e
 # Satu browser saja:

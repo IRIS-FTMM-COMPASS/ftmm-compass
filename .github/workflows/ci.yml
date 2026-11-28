@@ -161,6 +161,7 @@ jobs:
   e2e:
     name: End-to-End Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [frontend]
     services:
       postgres:
@@ -213,6 +214,12 @@ jobs:
           uv run --directory backend alembic upgrade head
           uv run --directory backend python -m scripts.seed_full_catalog
           uv run --directory backend python -m scripts.seed
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium firefox webkit
