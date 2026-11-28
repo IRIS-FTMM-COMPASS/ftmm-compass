@@ -232,6 +232,28 @@ def test_legacy_testing_lecturer_is_not_active(client, admin_headers, db_session
     )
 
 
+def test_polling_period_follows_active_academic_period(client, db_session):
+    row = _one(
+        client,
+        db_session,
+        "SELECT ep.academic_year, ep.target_term, ep.target_semester, "
+        "ap.academic_year_start, ap.term, ap.semester_number "
+        "FROM elective_polling_periods ep "
+        "CROSS JOIN academic_periods ap "
+        "WHERE ep.status = 'open' AND ap.is_active = true "
+        "ORDER BY ep.created_at DESC LIMIT 1",
+    )
+    assert row is not None
+    active_term = row["term"]
+    target_term = "genap" if active_term == "ganjil" else "ganjil"
+    year_start = row["academic_year_start"] + (
+        1 if active_term == "genap" else 0
+    )
+    assert row["target_term"] == target_term
+    assert row["academic_year"] == f"{year_start}/{year_start + 1}"
+    assert row["target_semester"] == int(row["semester_number"] or 3) + 1
+
+
 def test_seed_gives_voters_profiles_and_own_prodi_votes(client, student_headers, db_session):
     _assert_voters_and_votes_are_scoped(client, db_session)
 

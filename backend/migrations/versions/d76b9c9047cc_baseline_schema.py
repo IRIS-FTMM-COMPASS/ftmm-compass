@@ -4,13 +4,14 @@ Revision ID: d76b9c9047cc
 Revises:
 Create Date: 2026-10-14 20:24:45.191731
 
-Baseline ini menerapkan `database/schema_v2_1_rc1.sql` (SSOT skema) sehingga
+Baseline ini menerapkan `database/schema_v2_1_rc1.sql` (baseline skema) sehingga
 `alembic upgrade head` pada database kosong menghasilkan skema yang sama dengan
-database hasil docker-compose. Jika tabel inti sudah ada (database dibuat oleh
-entrypoint PostgreSQL), baseline dilewati dan migrasi berikutnya tetap berjalan.
+database hasil docker-compose. Jika seluruh tabel baseline sudah ada, baseline
+dilewati; jika hanya sebagian ada, migrasi gagal dengan daftar tabel yang hilang.
 """
 
 from pathlib import Path
+import re
 from typing import Sequence, Union
 
 from alembic import op
@@ -67,31 +68,155 @@ def _split_statements(sql: str) -> list[str]:
     if trailing:
         statements.append(trailing)
 
-    cleaned: list[str] = []
-    for statement in statements:
-        body = "\n".join(
-            line
-            for line in statement.splitlines()
-            if not line.lstrip().startswith("--")
-        ).strip()
-        if body and body.upper() not in ("BEGIN", "COMMIT"):
-            cleaned.append(body)
-    return cleaned
+    return [statement for statement in statements if statement]
+
+
+def _strip_sql_comments(sql: str) -> str:
+    """Buang komentar SQL tanpa menyentuh isi string atau dollar-quoted body."""
+    output: list[str] = []
+    index = 0
+    length = len(sql)
+    dollar_tag: str | None = None
+    single_quote = False
+    double_quote = False
+    block_depth = 0
+
+    while index < length:
+        if block_depth:
+            if sql.startswith("/*", index):
+                block_depth += 1
+                index += 2
+                continue
+            if sql.startswith("*/", index):
+                block_depth -= 1
+                index += 2
+                continue
+            if sql[index] == "\n":
+                output.append("\n")
+            index += 1
+            continue
+
+        if dollar_tag is not None:
+            if sql.startswith(dollar_tag, index):
+                output.append(dollar_tag)
+                index += len(dollar_tag)
+                dollar_tag = None
+                continue
+            output.append(sql[index])
+            index += 1
+            continue
+
+        if single_quote:
+            output.append(sql[index])
+            if sql[index] == "'":
+                if index + 1 < length and sql[index + 1] == "'":
+                    output.append("'")
+                    index += 2
+                    continue
+                single_quote = False
+            index += 1
+            continue
+
+        if double_quote:
+            output.append(sql[index])
+            if sql[index] == '"':
+                if index + 1 < length and sql[index + 1] == '"':
+                    output.append('"')
+                    index += 2
+                    continue
+                double_quote = False
+            index += 1
+            continue
+
+        if sql.startswith("--", index):
+            newline = sql.find("\n", index)
+            if newline == -1:
+                break
+            output.append("\n")
+            index = newline + 1
+            continue
+
+        if sql.startswith("/*", index):
+            block_depth = 1
+            index += 2
+            continue
+
+        if sql[index] == "'":
+            single_quote = True
+            output.append(sql[index])
+            index += 1
+            continue
+
+        if sql[index] == '"':
+            double_quote = True
+            output.append(sql[index])
+            index += 1
+            continue
+
+        if sql[index] == "$":
+            match = re.match(r"\$\$|\$[A-Za-z_][A-Za-z0-9_]*\$", sql[index:])
+            if match:
+                dollar_tag = match.group(0)
+                output.append(dollar_tag)
+                index += len(dollar_tag)
+                continue
+
+        output.append(sql[index])
+        index += 1
+
+    if block_depth:
+        raise ValueError("Unterminated block comment in baseline schema")
+    if dollar_tag is not None:
+        raise ValueError("Unterminated dollar-quoted block in baseline schema")
+    if single_quote or double_quote:
+        raise ValueError("Unterminated quoted string in baseline schema")
+    return "".join(output)
+
+
+def _table_names(sql: str) -> set[str]:
+    return {
+        match.lower()
+        for match in re.findall(
+            r"^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z_][A-Za-z0-9_]*)",
+            sql,
+            flags=re.IGNORECASE | re.MULTILINE,
+        )
+    }
+
+
+def _baseline_action(expected: set[str], existing: set[str]) -> str:
+    if not existing:
+        return "apply"
+    if existing == expected:
+        return "skip"
+    missing = sorted(expected - existing)
+    raise RuntimeError(
+        "Baseline schema is partially initialized; missing tables: "
+        + ", ".join(missing)
+        + ". Reset the database and run `alembic upgrade head`."
+    )
 
 
 def upgrade() -> None:
     bind = op.get_bind()
-    exists = bind.execute(
-        text("SELECT to_regclass('public.users') IS NOT NULL")
-    ).scalar()
-    if exists:
+    raw_sql = SCHEMA_FILE.read_text(encoding="utf-8")
+    sql = _strip_sql_comments(raw_sql)
+    expected = _table_names(sql)
+    if not expected:
+        raise RuntimeError("No CREATE TABLE statements found in baseline schema")
+
+    existing = set(
+        bind.execute(
+            text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+        ).scalars()
+    )
+    action = _baseline_action(expected, existing & expected)
+    if action == "skip":
         return
 
-    raw_sql = SCHEMA_FILE.read_text(encoding="utf-8")
-    sql = "\n".join(
-        line for line in raw_sql.splitlines() if not line.lstrip().startswith("--")
-    )
     for statement in _split_statements(sql):
+        if statement.upper() in ("BEGIN", "COMMIT"):
+            continue
         bind.exec_driver_sql(statement)
 
 

@@ -12,14 +12,20 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from academics import parity_of
-from catalog import authoritative_curriculum_id, normalize_course_type
+from academics import MAX_SKS_PER_SEMESTER, parity_of
+from catalog import (
+    authoritative_curriculum_id,
+    cohort_curriculum_id,
+    get_courses_for_curriculum,
+    normalize_course_type,
+)
 from models import (
     Course,
     Curriculum,
     CurriculumCourse,
     DegreePlan,
     DegreePlanItem,
+    StudentCourseRecord,
     StudentCurriculumAssignment,
     StudentProfile,
     StudyProgram,
@@ -30,6 +36,7 @@ from schemas import (
     DegreePlanItemRequest,
     DegreePlanItemResponse,
     DegreePlanResponse,
+    PlacedCourseModel,
 )
 
 PLAN_LIMIT = 10
@@ -65,6 +72,11 @@ class DuplicateCourse(Exception):
         self.code = code
 
 
+class PlanValidationFailed(Exception):
+    def __init__(self, errors: list[str]):
+        self.errors = errors
+
+
 class NoCurriculumAssignment(Exception):
     pass
 
@@ -96,11 +108,11 @@ async def ensure_assignment(
             )
         )
     ).scalar_one_or_none()
-    curriculum_id = (
-        await authoritative_curriculum_id(db, program_name)
-        if program_name
-        else None
+    curriculum_id = await cohort_curriculum_id(
+        db, profile.study_program_id, profile.admission_year
     )
+    if curriculum_id is None and program_name:
+        curriculum_id = await authoritative_curriculum_id(db, program_name)
 
     if curriculum_id is None:
         curriculum = (
@@ -220,15 +232,91 @@ async def _resolve_courses(
     return by_code
 
 
+async def _completed_course_labels(db: AsyncSession, plan: DegreePlan) -> list[str]:
+    rows = (
+        await db.execute(
+            select(Course.course_name, Course.course_code)
+            .join(
+                CurriculumCourse,
+                CurriculumCourse.course_id == Course.course_id,
+            )
+            .join(
+                StudentCourseRecord,
+                StudentCourseRecord.curriculum_course_id
+                == CurriculumCourse.curriculum_course_id,
+            )
+            .where(
+                StudentCourseRecord.user_id == plan.user_id,
+                StudentCourseRecord.student_curriculum_assignment_id
+                == plan.student_curriculum_assignment_id,
+                StudentCourseRecord.record_status == "passed",
+            )
+        )
+    ).all()
+    return list(
+        dict.fromkeys(label for row in rows for label in row if label)
+    )
+
+
 async def _apply_items(
     db: AsyncSession,
     plan: DegreePlan,
     items: Sequence[DegreePlanItemRequest],
 ) -> None:
-    by_code = await _resolve_courses(db, await _curriculum_id(db, plan), items)
+    curriculum_id = await _curriculum_id(db, plan)
+    by_code = await _resolve_courses(db, curriculum_id, items)
     desired = {
         by_code[item.course_code.strip().upper()]: item for item in items
     }
+
+    catalog_by_code = {
+        course.code.upper(): course
+        for course in await get_courses_for_curriculum(db, curriculum_id)
+        if course.code
+    }
+    validation_plan: dict[int, list[PlacedCourseModel]] = {}
+    for course, request_item in desired.items():
+        if request_item.planning_status != "planned":
+            continue
+        code = course.course.course_code
+        meta = catalog_by_code.get(code.upper())
+        prerequisites = [
+            item
+            for item in (meta.prerequisites if meta else [])
+            if not item.startswith("Minimal ")
+        ]
+        term = (course.term or "").lower()
+        parity = (
+            "odd"
+            if term == "ganjil"
+            else "even"
+            if term == "genap"
+            else parity_of(request_item.planned_semester)
+        )
+        validation_plan.setdefault(request_item.planned_semester, []).append(
+            PlacedCourseModel(
+                id=str(course.curriculum_course_id),
+                code=code,
+                name=course.course.course_name,
+                credits=course.credits_total,
+                semester=request_item.planned_semester,
+                type=normalize_course_type(course.course_type),
+                parity=parity,
+                prerequisites=prerequisites,
+                status="planned",
+            )
+        )
+
+    if validation_plan:
+        from features.planning.validator import validate_plan_constraints
+
+        validation = validate_plan_constraints(
+            validation_plan,
+            await _completed_course_labels(db, plan),
+            maks_sks_per_semester=MAX_SKS_PER_SEMESTER,
+        )
+        if not validation.is_valid:
+            raise PlanValidationFailed(validation.errors)
 
     for existing in list(plan.items):
         if existing.curriculum_course_id not in {
@@ -303,7 +391,11 @@ async def create_plan(
         await db.rollback()
         raise DuplicatePlanName(name) from exc
 
-    await _apply_items(db, plan, payload.items)
+    try:
+        await _apply_items(db, plan, payload.items)
+    except Exception:
+        await db.rollback()
+        raise
     loaded = await get_plan(db, user.user_id, plan.degree_plan_id)
     assert loaded is not None
     return loaded

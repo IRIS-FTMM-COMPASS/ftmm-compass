@@ -1,6 +1,7 @@
 """Kontrak resource degree-plans: CRUD, validasi item, dan kepemilikan."""
 
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
 BASE = "/api/v1/degree-plans"
 
@@ -224,12 +225,123 @@ def test_catalog_requires_authentication(client):
 
 def test_catalog_matches_saved_plan_items(client, student_headers):
     catalog = client.get(f"{BASE}/catalog", headers=student_headers).json()["data"]
-    code = catalog[0]["code"]
-    semester = catalog[0]["semester"]
+    course = next(item for item in catalog if not item["prerequisites"])
     plan = _create(
         client,
         student_headers,
         "Katalog Sinkron",
-        [{"course_code": code, "planned_semester": semester}],
+        [{"course_code": course["code"], "planned_semester": course["semester"]}],
     )
-    assert [item["code"] for item in plan["items"]] == [code]
+    assert [item["code"] for item in plan["items"]] == [course["code"]]
+
+
+def _insert_prerequisite(client, db_session, target_code: str, prereq_code: str):
+    async def insert():
+        curriculum_id = (
+            await db_session.execute(
+                text(
+                    """
+                    SELECT curriculum_id
+                    FROM student_curriculum_assignments sca
+                    JOIN users u ON u.user_id = sca.user_id
+                    WHERE u.email = 'mahasiswa.testing@ftmm.unair.ac.id'
+                      AND sca.is_current
+                    """
+                )
+            )
+        ).scalar_one()
+
+        async def course_curriculum_id(code: str):
+            return (
+                await db_session.execute(
+                    text(
+                        """
+                        SELECT cc.curriculum_course_id
+                        FROM curriculum_courses cc
+                        JOIN courses c ON c.course_id = cc.course_id
+                        WHERE cc.curriculum_id = :cid AND c.course_code = :code
+                        """
+                    ),
+                    {"cid": curriculum_id, "code": code},
+                )
+            ).scalar_one()
+
+        target_id = await course_curriculum_id(target_code)
+        prereq_id = await course_curriculum_id(prereq_code)
+        rule_id = (
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO course_requirement_rules
+                        (curriculum_course_id, raw_expression, notes)
+                    VALUES (:target, :raw, 'admin_requirement')
+                    RETURNING course_requirement_rule_id
+                    """
+                ),
+                {"target": target_id, "raw": prereq_code},
+            )
+        ).scalar_one()
+        root_id = (
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO course_requirement_nodes
+                        (course_requirement_rule_id, node_order, node_type)
+                    VALUES (:rule, 1, 'all')
+                    RETURNING course_requirement_node_id
+                    """
+                ),
+                {"rule": rule_id},
+            )
+        ).scalar_one()
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO course_requirement_nodes
+                    (course_requirement_rule_id, parent_node_id, node_order,
+                     node_type, referenced_curriculum_course_id)
+                VALUES (:rule, :parent, 1, 'course_passed', :prereq)
+                """
+            ),
+            {"rule": rule_id, "parent": root_id, "prereq": prereq_id},
+        )
+
+    client.portal.call(insert)
+
+
+def test_create_plan_accepts_completed_prerequisite(
+    client, student_headers, db_session
+):
+    _insert_prerequisite(client, db_session, "TSD301", "KIK101")
+    response = client.post(
+        BASE,
+        json={
+            "name": "Prasyarat Lulus",
+            "items": [{"course_code": "TSD301", "planned_semester": 5}],
+        },
+        headers=student_headers,
+    )
+    assert response.status_code == 201, response.text
+
+
+def test_create_plan_rejects_missing_prerequisite(
+    client, student_headers, db_session
+):
+    _insert_prerequisite(client, db_session, "TSD302", "TSD201")
+    response = client.post(
+        BASE,
+        json={
+            "name": "Prasyarat Gagal",
+            "items": [{"course_code": "TSD302", "planned_semester": 5}],
+        },
+        headers=student_headers,
+    )
+    assert response.status_code == 422, response.text
+    body = response.json()
+    assert body["error"]["code"] == "plan_validation_failed"
+    assert any(
+        "Prasyarat tidak terpenuhi" in detail["message"]
+        for detail in body["error"]["details"]
+    )
+    plans = client.get(BASE, headers=student_headers).json()["data"]
+    assert "Prasyarat Gagal" not in [plan["name"] for plan in plans]

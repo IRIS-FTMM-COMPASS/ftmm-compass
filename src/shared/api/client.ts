@@ -1,4 +1,4 @@
-import { clearSession, readToken } from "./session"
+import { notifyUnauthorized, readToken } from "./session"
 
 export const API_BASE = (import.meta.env.VITE_API_BASE ?? "").replace(
   /\/+$/,
@@ -17,6 +17,7 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code?: string,
     readonly details: unknown = undefined,
+    readonly retryAfter: number | null = null,
   ) {
     super(message)
     this.name = "ApiError"
@@ -36,17 +37,25 @@ interface ErrorEnvelope {
     message?: unknown
     code?: unknown
     details?: unknown
+    retry_after?: unknown
   }
   detail?: unknown
   message?: unknown
   code?: unknown
   details?: unknown
+  retry_after?: unknown
 }
 
 interface ParsedErrorEnvelope {
   message: string
   code?: string
   details: unknown
+  retryAfter: number | null
+}
+
+function retryAfterFrom(value: unknown): number | null {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
 }
 
 function stringValue(value: unknown): string | undefined {
@@ -95,12 +104,15 @@ function parseErrorEnvelope(
   let message: string | undefined
   let code: string | undefined
   let details: unknown
+  let retryAfter: number | null = null
   if (payload && typeof payload === "object") {
     const body = payload as ErrorEnvelope
     const envelope =
       body.error && typeof body.error === "object" ? body.error : undefined
     details = envelope?.details ?? body.details ?? body.detail
     code = stringValue(envelope?.code) ?? stringValue(body.code)
+    retryAfter =
+      retryAfterFrom(envelope?.retry_after) ?? retryAfterFrom(body.retry_after)
     message =
       stringValue(envelope?.message) ??
       stringValue(body.detail) ??
@@ -111,7 +123,7 @@ function parseErrorEnvelope(
     if (!message && typeof details === "string") message = stringValue(details)
     if (!message && details && status !== 422) message = JSON.stringify(details)
   }
-  return { message: message ?? fallback, code, details }
+  return { message: message ?? fallback, code, details, retryAfter }
 }
 
 export function authHeaders(): Record<string, string> {
@@ -150,12 +162,20 @@ export async function apiFetch<T>(
         ? "Data yang dikirim tidak valid."
         : `Permintaan gagal (${response.status})`
     const parsed = parseErrorEnvelope(payload, response.status, fallback)
+    const retryAfter =
+      retryAfterFrom(response.headers.get("Retry-After")) ?? parsed.retryAfter
     const message =
       response.status >= 500
         ? `Layanan sedang bermasalah (${response.status})`
         : parsed.message
-    if (response.status === 401 && request.auth) clearSession()
-    throw new ApiError(message, response.status, parsed.code, parsed.details)
+    if (response.status === 401 && request.auth) notifyUnauthorized()
+    throw new ApiError(
+      message,
+      response.status,
+      parsed.code,
+      parsed.details,
+      retryAfter,
+    )
   }
 
   if (response.status === 204) return undefined as T

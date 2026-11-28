@@ -70,10 +70,11 @@ cp .env.example .env
 | `AUTO_SEED` | `false` | Seed data demo saat startup; hanya memanggil `seed_data()` dari `scripts/seed.py`, tidak pernah seed katalog penuh |
 | `CHATBOT_SERVICE_URL` | `http://127.0.0.1:8000` (host) / `http://ftmm-compass-chatbot:8000` (Docker) | Upstream URL for Chatbot AI microservice |
 | `CHATBOT_TIMEOUT_SECONDS` | `45.0` | Timeout in seconds for Chatbot microservice calls |
-| `JWT_SECRET_KEY` | random per proses | Signing key access token; wajib di-set untuk multi-worker |
+| `APP_ENV` | `development` | `production` mewajibkan `JWT_SECRET_KEY`; nilai lain memakai secret acak per proses |
+| `JWT_SECRET_KEY` | random per proses (development) | Signing key access token; wajib di-set saat `APP_ENV=production` dan untuk multi-worker |
 | `EKSTRAK_DIR` | `<repo>/Ekstrak` | lokasi data Ekstrak gitignored untuk seed katalog |
-| `DEFAULT_RATE_LIMIT` | none | Slowapi global limit per client; kosongkan untuk menonaktifkan |
-| `CORS_ORIGINS` | `*` | Allowed CORS origins, dipisah koma |
+| `DEFAULT_RATE_LIMIT` | none | Slowapi global limit per client; kini diterapkan lewat `SlowAPIMiddleware`, kosongkan untuk menonaktifkan |
+| `CORS_ORIGINS` | `http://localhost:8443,http://127.0.0.1:8443` | Allowed CORS origins, dipisah koma; `*` menonaktifkan credentials |
 
 > `AUTO_SEED=true` hanya menjalankan `seed_data()` dari `scripts/seed.py` (akun dan data demo). Katalog penuh tidak pernah di-seed saat startup — jalankan eksplisit dengan `uv run --directory backend python -m scripts.seed_full_catalog`. Lihat `docs/demo-data-policy.md` sebagai SSOT kebijakan data demo.
 
@@ -174,12 +175,16 @@ All 4xx and 5xx responses follow the standardized error payload:
 Run automated unit and integration tests:
 
 ```bash
-# Domain, endpoint, polling, and chat gateway tests
+# Domain, endpoint, polling, and chat gateway tests.
+# conftest membuat database sementara, menjalankan migrasi dan seed, lalu menghapusnya.
 uv run python -m pytest tests -q
+
+# Frontend pure-logic tests
+pnpm test:unit
 ```
 
 ---
 
 ## 🗄️ Database Coordination (PostgreSQL Baseline)
 
-The relational schema baseline is `database/schema_v2_1_rc1.sql` (PostgreSQL 16); perubahan schema sejak baseline dikelola lewat migrasi Alembic di `backend/migrations/versions/` (`alembic upgrade head`). Migrasi indeks `c4d2e6f8a1b3` menjalankan `CREATE EXTENSION pg_trgm`, jadi role database harus boleh membuat ekstensi tersebut (atau ekstensi sudah di-provision oleh admin). Katalog asli 5 prodi diisi oleh `uv run --directory backend python -m scripts.seed_full_catalog` (tidak otomatis saat startup). Untuk detail lihat `database/seed/README.md`.
+Jalur skema kanonik adalah `uv run --directory backend alembic upgrade head`. `database/schema_v2_1_rc1.sql` adalah baseline historis yang hanya dijalankan oleh revisi baseline Alembic; jangan menerapkannya langsung. Perubahan schema baru wajib lewat migrasi di `backend/migrations/versions/`. Migrasi indeks `c4d2e6f8a1b3` menjalankan `CREATE EXTENSION pg_trgm`, jadi role database harus boleh membuat ekstensi tersebut (atau ekstensi sudah di-provision oleh admin). Katalog asli 5 prodi diisi oleh `uv run --directory backend python -m scripts.seed_full_catalog` (tidak otomatis saat startup). Untuk detail lihat `database/seed/README.md`.

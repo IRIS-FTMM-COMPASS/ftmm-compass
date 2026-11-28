@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from auth import create_access_token
 from catalog import authoritative_curriculum_id
@@ -41,6 +41,233 @@ ITEM_KEYS = {
 def _assert_error(response, status_code, code):
     assert response.status_code == status_code, response.text
     assert response.json()["error"]["code"] == code, response.json()
+
+
+def test_quota_update_is_scoped_to_the_pj_program(client, pj_headers, db_session):
+    async def setup():
+        period_id = (
+            await db_session.execute(
+                text(
+                    "SELECT academic_period_id FROM academic_periods "
+                    "WHERE is_active ORDER BY academic_year_start DESC LIMIT 1"
+                )
+            )
+        ).scalar_one()
+        program_ids = dict(
+            (
+                await db_session.execute(
+                    text(
+                        "SELECT program_code, study_program_id FROM study_programs "
+                        "WHERE program_code IN ('TSD', 'TRKB')"
+                    )
+                )
+            ).all()
+        )
+        course_id = (
+            await db_session.execute(
+                text("SELECT course_id FROM courses WHERE course_code = 'TSD201'")
+            )
+        ).scalar_one()
+        trkb_curriculum_id = (
+            await db_session.execute(
+                text(
+                    "SELECT curriculum_id FROM curricula "
+                    "WHERE study_program_id = :program ORDER BY curriculum_year DESC LIMIT 1"
+                ),
+                {"program": program_ids["TRKB"]},
+            )
+        ).scalar_one()
+        trkb_curriculum_course_id = (
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO curriculum_courses
+                        (curriculum_id, course_id, credits_total,
+                         recommended_semester, term, course_type,
+                         course_scope, is_active)
+                    VALUES (:curriculum, :course, 3, 3, 'ganjil',
+                            'wajib', 'program_studi', true)
+                    ON CONFLICT (curriculum_id, course_id)
+                    DO UPDATE SET is_active = true
+                    RETURNING curriculum_course_id
+                    """
+                ),
+                {"curriculum": trkb_curriculum_id, "course": course_id},
+            )
+        ).scalar_one()
+        offering_id = (
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO course_offerings
+                        (academic_period_id, course_id, offering_code,
+                         offering_scope, is_active)
+                    VALUES (:period, :course, :code, 'program_studi', true)
+                    RETURNING course_offering_id
+                    """
+                ),
+                {
+                    "period": period_id,
+                    "course": course_id,
+                    "code": f"QTEST-{uuid.uuid4().hex[:8]}",
+                },
+            )
+        ).scalar_one()
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO course_offering_eligibilities
+                    (course_offering_id, curriculum_course_id)
+                VALUES (:offering, :curriculum_course)
+                """
+            ),
+            {
+                "offering": offering_id,
+                "curriculum_course": trkb_curriculum_course_id,
+            },
+        )
+        component_id = (
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO offering_components
+                        (course_offering_id, component_code, component_type)
+                    VALUES (:offering, 'LEC', 'lecture')
+                    RETURNING offering_component_id
+                    """
+                ),
+                {"offering": offering_id},
+            )
+        ).scalar_one()
+        trkb_section_id = (
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO class_sections
+                        (offering_component_id, section_code, capacity,
+                         enrollment_status)
+                    VALUES (:component, 'Q1', 40, 'open')
+                    RETURNING class_section_id
+                    """
+                ),
+                {"component": component_id},
+            )
+        ).scalar_one()
+        tsd_curriculum_course_id = (
+            await db_session.execute(
+                text(
+                    """
+                    SELECT cc.curriculum_course_id
+                    FROM curriculum_courses cc
+                    JOIN courses c ON c.course_id = cc.course_id
+                    JOIN curricula cur ON cur.curriculum_id = cc.curriculum_id
+                    JOIN study_programs sp
+                      ON sp.study_program_id = cur.study_program_id
+                    WHERE c.course_code = 'TSD201'
+                      AND sp.program_code = 'TSD'
+                    LIMIT 1
+                    """
+                )
+            )
+        ).scalar_one()
+        tsd_sections = (
+            await db_session.execute(
+                text(
+                    """
+                    SELECT cs.class_section_id, cs.capacity
+                    FROM class_sections cs
+                    JOIN offering_components oc
+                      ON oc.offering_component_id = cs.offering_component_id
+                    JOIN course_offerings co
+                      ON co.course_offering_id = oc.course_offering_id
+                    JOIN course_offering_eligibilities e
+                      ON e.course_offering_id = co.course_offering_id
+                    JOIN curriculum_courses cc
+                      ON cc.curriculum_course_id = e.curriculum_course_id
+                    JOIN curricula cur
+                      ON cur.curriculum_id = cc.curriculum_id
+                    WHERE co.academic_period_id = :period
+                      AND co.course_id = :course
+                      AND cur.study_program_id = :program
+                    """
+                ),
+                {
+                    "period": period_id,
+                    "course": course_id,
+                    "program": program_ids["TSD"],
+                },
+            )
+        ).all()
+        revision = (
+            await db_session.execute(
+                text(
+                    "SELECT input_revision FROM schedule_period_settings "
+                    "WHERE academic_period_id = :period "
+                    "AND study_program_id = :program"
+                ),
+                {"period": period_id, "program": program_ids["TSD"]},
+            )
+        ).scalar_one_or_none()
+        return {
+            "period": period_id,
+            "tsd_program": program_ids["TSD"],
+            "tsd_curriculum_course": tsd_curriculum_course_id,
+            "trkb_section": trkb_section_id,
+            "tsd_sections": tsd_sections,
+            "revision": revision or 0,
+        }
+
+    state = client.portal.call(setup)
+    response = client.put(
+        f"{V1}/pj/course-availability/{state['tsd_curriculum_course']}/quota",
+        headers=pj_headers,
+        json={
+            "academic_period_id": str(state["period"]),
+            "class_count": 1,
+            "capacity_per_class": 55,
+            "reason": "Uji cakupan prodi",
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    async def read():
+        trkb_capacity = (
+            await db_session.execute(
+                text(
+                    "SELECT capacity FROM class_sections "
+                    "WHERE class_section_id = :section"
+                ),
+                {"section": state["trkb_section"]},
+            )
+        ).scalar_one()
+        tsd_capacities = [
+            (
+                await db_session.execute(
+                    text(
+                        "SELECT capacity FROM class_sections "
+                        "WHERE class_section_id = :section"
+                    ),
+                    {"section": section},
+                )
+            ).scalar_one()
+            for section, _ in state["tsd_sections"]
+        ]
+        revision = (
+            await db_session.execute(
+                text(
+                    "SELECT input_revision FROM schedule_period_settings "
+                    "WHERE academic_period_id = :period "
+                    "AND study_program_id = :program"
+                ),
+                {"period": state["period"], "program": state["tsd_program"]},
+            )
+        ).scalar_one()
+        return trkb_capacity, tsd_capacities, revision
+
+    trkb_capacity, tsd_capacities, revision = client.portal.call(read)
+    assert trkb_capacity == 40
+    assert tsd_capacities and all(value == 55 for value in tsd_capacities)
+    assert revision > state["revision"]
 
 
 def _active_period(client, db_session):

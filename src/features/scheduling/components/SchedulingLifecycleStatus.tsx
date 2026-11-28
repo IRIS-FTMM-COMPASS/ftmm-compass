@@ -159,6 +159,13 @@ export default function SchedulingLifecycleStatus({
               </div>
             ))}
           </dl>
+          {generationResult.search_truncated && (
+            <p className="rounded-lg border border-orange/30 bg-orange/10 px-3 py-2 text-xs text-navy">
+              Pencarian mencapai batas 30.000 node. Sebagian kelas mungkin belum
+              ditempatkan meski slot tersedia; jalankan regenerasi per program
+              studi.
+            </p>
+          )}
         </section>
       )}
 

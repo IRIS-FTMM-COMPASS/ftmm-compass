@@ -2,6 +2,7 @@ from datetime import date, datetime, time
 from typing import List, Optional, Dict, Literal, Any, Union
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from academics import MAX_SKS_PER_SEMESTER, TOTAL_SKS_FOR_GRADUATION
 from settings import ACCESS_TOKEN_EXPIRE_SECONDS
 
 class OllamaHealthDetail(BaseModel):
@@ -95,7 +96,7 @@ class PlanValidationRequest(BaseModel):
     program_studi: str
     semester_saat_ini: int
     riwayat_matkul_lulus: List[str] = Field(default_factory=list)
-    maks_sks_per_semester: int = 24
+    maks_sks_per_semester: int = MAX_SKS_PER_SEMESTER
     plan: Dict[int, List[PlacedCourseModel]]
 
 
@@ -234,7 +235,6 @@ class ChatRequest(BaseModel):
     history: List[ChatMessage] = Field(default_factory=list)
     student_profile: Optional[StudentProfile] = None
     session_id: Optional[str] = None
-    user_id: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
@@ -272,7 +272,7 @@ class UserResponse(BaseModel):
     email: str
     full_name: str
     role: str
-    auth_provider: str = "Cybercampus SSO UNAIR"
+    auth_provider: str = "Kata sandi lokal"
     academic_identifier: Optional[str] = None
     unit_name: Optional[str] = None
     phone_number: Optional[str] = None
@@ -484,7 +484,7 @@ class AcademicPeriodResponse(BaseModel):
 class StudentDashboardStats(BaseModel):
     type: Literal["student"] = "student"
     sks_completed: int
-    sks_target: int = 144
+    sks_target: int = TOTAL_SKS_FOR_GRADUATION
     completion_percentage: float
     current_semester: int
     courses_planned: int
@@ -784,6 +784,7 @@ class GenerateRequest(BaseModel):
     mode: Literal["fill_empty", "regenerate", "full_reset"] = "fill_empty"
     study_program_id: Optional[str] = None
     confirm_full_reset: bool = False
+    request_key: Optional[str] = Field(default=None, min_length=1, max_length=64)
 
 
 class GenerateResponse(BaseModel):
@@ -800,6 +801,7 @@ class GenerateResponse(BaseModel):
     regenerated_count: int = 0
     preserved_final_count: int = 0
     preserved_manual_count: int = 0
+    search_truncated: bool = False
 
 
 class CourseQuotaUpdateRequest(BaseModel):

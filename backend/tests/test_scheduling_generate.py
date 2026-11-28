@@ -512,6 +512,69 @@ def test_generate_assigns_full_hour_block_in_owned_room(client, db_session, admi
     assert schedule["room_id"] in case["room_ids"]
 
 
+def test_generate_replays_same_request_key(
+    client, db_session, admin_headers
+):
+    case = _make_case(client, db_session)
+    request_key = f"idem-{uuid.uuid4().hex}"
+    payload = {
+        "mode": "fill_empty",
+        "academic_period_id": case["period_id"],
+        "request_key": request_key,
+    }
+
+    first = _generate(client, admin_headers, **payload)
+    assert first.status_code == 200, first.text
+    second = _generate(client, admin_headers, **payload)
+    assert second.status_code == 200, second.text
+    assert second.json() == first.json()
+
+    async def count_runs():
+        return (
+            await db_session.execute(
+                select(func.count())
+                .select_from(ScheduleRun)
+                .where(ScheduleRun.request_key == request_key)
+            )
+        ).scalar_one()
+
+    assert client.portal.call(count_runs) == 1
+
+    other = _generate(
+        client,
+        admin_headers,
+        **{**payload, "request_key": f"{request_key}-other"},
+    )
+    assert other.status_code == 200, other.text
+    assert other.json()["run_id"] != first.json()["run_id"]
+
+
+def test_generate_rejects_request_key_for_different_request(
+    client, db_session, admin_headers
+):
+    case = _make_case(client, db_session)
+    request_key = f"idem-{uuid.uuid4().hex}"
+    first = _generate(
+        client,
+        admin_headers,
+        mode="fill_empty",
+        academic_period_id=case["period_id"],
+        request_key=request_key,
+    )
+    assert first.status_code == 200, first.text
+
+    conflict = _generate(
+        client,
+        admin_headers,
+        mode="full_reset",
+        confirm_full_reset=True,
+        academic_period_id=case["period_id"],
+        request_key=request_key,
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["error"]["code"] == "idempotency_key_conflict"
+
+
 def test_generate_reports_capacity_parity_and_unavailable(
     client, db_session, admin_headers
 ):
@@ -1395,6 +1458,31 @@ def _unavailable_all_week(pool_index=0):
         }
         for day in range(1, 6)
     ]
+
+
+def test_solver_marks_search_truncation_at_node_cap():
+    from features.scheduling.scheduler import ClassTask, RoomOption, solve
+
+    program_id = uuid.uuid4()
+    lecturer_id = uuid.uuid4()
+    task = ClassTask(
+        section_id=uuid.uuid4(),
+        course_code="TST101",
+        section_code="A",
+        credits=3,
+        capacity=10,
+        study_program_id=program_id,
+        lecturers=(lecturer_id,),
+    )
+    room = RoomOption(room_id=uuid.uuid4(), room_code="R1", capacity=40)
+    result = solve(
+        [task],
+        {program_id: (room,)},
+        {},
+        max_nodes=0,
+    )
+    assert result.truncated is True
+    assert result.explored >= 1
 
 
 def test_solver_uses_only_the_active_class_assignment(client, db_session, admin_headers):

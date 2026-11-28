@@ -74,9 +74,9 @@ export default function CourseDetailView({
             : "Kembali ke Daftar Matkul"}
         </button>
         <div className="relative z-10">
-          <h1 className="font-heading text-3xl font-bold mb-4">
+          <h2 className="font-heading text-3xl font-bold mb-4">
             {currentCourse.name}
-          </h1>
+          </h2>
           <CourseBadges
             course={currentCourse}
             variant="overlay"

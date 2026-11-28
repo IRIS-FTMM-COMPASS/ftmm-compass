@@ -71,7 +71,7 @@ class User(Base):
     chat_logs: Mapped[list["ChatLog"]] = relationship(
         "ChatLog",
         back_populates="user",
-        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
     @property
@@ -893,6 +893,8 @@ class ScheduleRun(Base):
     input_revision: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default=text("0")
     )
+    request_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    response: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     triggered_by: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.user_id", ondelete="SET NULL"),
@@ -911,6 +913,16 @@ class ScheduleRun(Base):
 
     academic_period: Mapped["AcademicPeriod"] = relationship("AcademicPeriod")
     trigger_user: Mapped[Optional["User"]] = relationship("User")
+
+    __table_args__ = (
+        Index(
+            "uq_schedule_runs_request_key",
+            "academic_period_id",
+            "request_key",
+            unique=True,
+            postgresql_where=text("request_key IS NOT NULL"),
+        ),
+    )
 
 
 class ClassInstructorAssignment(Base):

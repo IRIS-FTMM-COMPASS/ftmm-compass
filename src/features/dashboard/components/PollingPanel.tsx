@@ -219,7 +219,7 @@ export default function PollingPanel({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
             <div className="p-3 rounded-xl bg-background border border-border">
               <span className="text-muted block text-[11px]">
                 Total Mahasiswa Partisipan

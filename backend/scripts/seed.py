@@ -1818,25 +1818,46 @@ async def seed_data():
         )
 
         print("\n[SEED 7/8] Checking and seeding Active Polling Period & Votes Peminatan...")
+        active_term = (active_period.term or "").strip().lower()
+        polling_target_term = "genap" if active_term == "ganjil" else "ganjil"
+        polling_year_start = active_period.academic_year_start + (
+            1 if active_term == "genap" else 0
+        )
+        polling_year = f"{polling_year_start}/{polling_year_start + 1}"
+        polling_target_semester = int(active_period.semester_number or 3) + 1
+        polling_title = (
+            f"Polling Peminatan MK Pilihan Semester "
+            f"{polling_target_term.capitalize()} {polling_year}"
+        )
+        polling_description = (
+            "Periode polling resmi mahasiswa FTMM untuk proyeksi kelas "
+            f"pilihan semester {polling_target_term}."
+        )
         stmt_poll = select(ElectivePollingPeriod).where(ElectivePollingPeriod.status == "open")
         polling_period = (await session.execute(stmt_poll)).scalars().first()
         if not polling_period:
             polling_period = ElectivePollingPeriod(
-                title="Polling Peminatan MK Pilihan Semester Genap 2024/2025",
-                academic_year="2024/2025",
-                target_term="genap",
-                target_semester=4,
+                title=polling_title,
+                academic_year=polling_year,
+                target_term=polling_target_term,
+                target_semester=polling_target_semester,
                 start_date=datetime.datetime.now(datetime.timezone.utc),
                 end_date=datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=30),
                 status="open",
                 min_quota_threshold=15,
                 max_votes_per_student=3,
-                description="Periode polling resmi mahasiswa FTMM untuk proyeksi kelas pilihan semester genap.",
+                description=polling_description,
             )
             session.add(polling_period)
             await session.flush()
             print(f"  [CREATED] Active Polling Period: {polling_period.title}")
         else:
+            polling_period.title = polling_title
+            polling_period.academic_year = polling_year
+            polling_period.target_term = polling_target_term
+            polling_period.target_semester = polling_target_semester
+            polling_period.description = polling_description
+            await session.flush()
             print(f"  [EXISTS] Active Polling Period: {polling_period.title}")
 
         # 7a. Voter demo: sembilan mahasiswa per prodi, satu semester sebelum target

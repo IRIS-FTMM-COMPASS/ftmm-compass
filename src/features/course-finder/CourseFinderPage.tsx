@@ -88,9 +88,10 @@ export default function CourseFinder({
     return map
   }, [myVotes])
 
-  const voteKey = (course: Course) => course.code || course.id
-  const votesFor = (course: Course) => demandStats[voteKey(course)] ?? 0
-  const voteFor = (course: Course) => myVoteMap[voteKey(course)]
+  const votesFor = (course: Course) =>
+    demandStats[course.code || course.id] ?? 0
+  const voteFor = (course: Course) =>
+    myVoteMap[course.id] ?? (course.code ? myVoteMap[course.code] : undefined)
 
   const maxVotes = pollingPeriod?.max_votes_per_student || 3
   const remainingSlots = Math.max(0, maxVotes - myVotes.length)
@@ -107,7 +108,7 @@ export default function CourseFinder({
     setVoteError(null)
     setIsSubmittingVote(true)
     try {
-      await submitVote(voteKey(priorityModalCourse), modalPriority)
+      await submitVote(priorityModalCourse.id, modalPriority)
       void loadDemand("all")
       setPriorityModalCourse(null)
     } catch (cause) {

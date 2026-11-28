@@ -5,6 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.errors import error_response
+from audit import redact_trace_snapshot
 from auth import get_current_user
 from database import get_db
 from models import User
@@ -49,7 +50,11 @@ async def list_authority_traces(
             actor_user_id=str(row["actor_user_id"]),
             actor_snapshot=row["actor_snapshot"],
             target_user_id=str(row["target_user_id"]),
-            target_snapshot=row["target_snapshot"],
+            target_snapshot=(
+                redact_trace_snapshot(row["target_snapshot"])
+                if row["action"] == "anonymize"
+                else row["target_snapshot"]
+            ),
             action=row["action"],
             field_name=row["field_name"],
             old_value=row["old_value"],

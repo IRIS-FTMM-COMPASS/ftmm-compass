@@ -20,6 +20,7 @@ from plan_storage import (
     NoCurriculumAssignment,
     ParityMismatch,
     PlanLimitReached,
+    PlanValidationFailed,
     UnknownCourse,
     create_plan,
     delete_plan,
@@ -46,6 +47,7 @@ ITEM_ERRORS = (
     CurriculumMismatch,
     ParityMismatch,
     DuplicateCourse,
+    PlanValidationFailed,
 )
 
 
@@ -82,6 +84,20 @@ def _item_error(exc: Exception) -> JSONResponse:
             f"Mata kuliah '{exc.code}' tidak sesuai paritas semester {exc.semester}"
         )
         code = "parity_mismatch"
+    elif isinstance(exc, PlanValidationFailed):
+        return _fail(
+            422,
+            "plan_validation_failed",
+            "Rencana studi tidak lolos validasi.",
+            [
+                {
+                    "field": "items",
+                    "code": "plan_validation_failed",
+                    "message": error,
+                }
+                for error in exc.errors
+            ],
+        )
     else:
         assert isinstance(exc, DuplicateCourse)
         message = f"Mata kuliah '{exc.code}' dikirim lebih dari sekali"

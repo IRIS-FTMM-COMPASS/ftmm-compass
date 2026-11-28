@@ -1,4 +1,4 @@
-import { API_BASE, ApiError, authHeaders } from "@/shared/api/client"
+import { ApiError, apiFetch, authHeaders } from "@/shared/api/client"
 import {
   clearSession,
   readToken,
@@ -175,34 +175,17 @@ export class AuthApiError extends Error {
   }
 }
 
-type UnauthorizedListener = () => void
 type TokenRenewedListener = (expiresInSeconds: number) => void
 
-const unauthorizedListeners = new Set<UnauthorizedListener>()
 const tokenRenewedListeners = new Set<TokenRenewedListener>()
-
-export function onUnauthorized(listener: UnauthorizedListener): () => void {
-  unauthorizedListeners.add(listener)
-  return () => unauthorizedListeners.delete(listener)
-}
 
 export function onTokenRenewed(listener: TokenRenewedListener): () => void {
   tokenRenewedListeners.add(listener)
   return () => tokenRenewedListeners.delete(listener)
 }
 
-export function notifyUnauthorized(): void {
-  clearSession()
-  unauthorizedListeners.forEach((listener) => listener())
-}
-
 function notifyTokenRenewed(expiresInSeconds: number): void {
   tokenRenewedListeners.forEach((listener) => listener(expiresInSeconds))
-}
-
-function retryAfterFrom(value: unknown): number | null {
-  const parsed = Number(value)
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
 }
 
 function normalizeDetails(raw: unknown): FieldIssue[] {
@@ -236,38 +219,6 @@ function normalizeDetails(raw: unknown): FieldIssue[] {
   return issues
 }
 
-function buildError(
-  payload: unknown,
-  status: number,
-  fallback: string,
-): AuthApiError {
-  let message = fallback
-  let code: string | null = null
-  let details: FieldIssue[] = []
-  let retryAfter: number | null = null
-
-  if (payload && typeof payload === "object") {
-    const body = payload as Record<string, unknown>
-    const envelope =
-      body.error && typeof body.error === "object"
-        ? body.error as Record<string, unknown>
-        : null
-    if (envelope) {
-      if (typeof envelope.message === "string") message = envelope.message
-      if (typeof envelope.code === "string") code = envelope.code
-      details = normalizeDetails(envelope.details)
-      retryAfter =
-        retryAfterFrom(envelope.retry_after) ?? retryAfterFrom(body.retry_after)
-    } else if (typeof body.detail === "string") {
-      message = body.detail
-    } else if (typeof body.message === "string") {
-      message = body.message
-    }
-  }
-
-  return new AuthApiError(message, status, code, details, retryAfter)
-}
-
 export function authErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof AuthApiError || error instanceof ApiError) {
     return error.message || fallback
@@ -297,22 +248,22 @@ async function request<T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<T> {
-  const headers: Record<string, string> = { Accept: "application/json" }
-  if (options.auth !== false) Object.assign(headers, authHeaders())
-  let payload: BodyInit | undefined
-  if (options.body !== undefined) {
-    headers["Content-Type"] = "application/json"
-    payload = JSON.stringify(options.body)
-  }
-
-  let response: Response
   try {
-    response = await fetch(`${API_BASE}${path}`, {
-      method: options.method ?? "GET",
-      headers,
-      body: payload,
+    return await apiFetch<T>(path, {
+      method: options.method,
+      body: options.body,
+      auth: options.auth !== false,
     })
-  } catch {
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw new AuthApiError(
+        error.message,
+        error.status,
+        error.code ?? null,
+        normalizeDetails(error.details),
+        error.retryAfter,
+      )
+    }
     throw new AuthApiError(
       "Tidak dapat terhubung ke layanan. Silakan coba lagi.",
       0,
@@ -321,22 +272,6 @@ async function request<T>(
       null,
     )
   }
-
-  if (!response.ok) {
-    const raw = await response.json().catch(() => null)
-    const error = buildError(
-      raw,
-      response.status,
-      response.status >= 500
-        ? `Layanan sedang bermasalah (${response.status})`
-        : `Permintaan gagal (${response.status})`,
-    )
-    if (response.status === 401 && options.auth !== false) notifyUnauthorized()
-    throw error
-  }
-
-  if (response.status === 204) return undefined as T
-  return (await response.json()) as T
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

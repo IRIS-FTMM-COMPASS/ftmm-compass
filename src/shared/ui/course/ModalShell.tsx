@@ -29,7 +29,36 @@ export default function ModalShell({
         ? document.activeElement
         : null
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose()
+      if (event.key === "Escape") {
+        onClose()
+        return
+      }
+      if (event.key !== "Tab" || !panelRef.current) return
+      const focusable = Array.from(
+        panelRef.current.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => element.getClientRects().length > 0)
+      if (focusable.length === 0) {
+        event.preventDefault()
+        panelRef.current.focus()
+        return
+      }
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement
+      if (
+        event.shiftKey &&
+        (active === first ||
+          active === panelRef.current ||
+          !panelRef.current.contains(active))
+      ) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault()
+        first.focus()
+      }
     }
     window.addEventListener("keydown", handleKeyDown)
     panelRef.current?.focus()

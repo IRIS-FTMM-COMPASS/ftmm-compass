@@ -165,6 +165,31 @@ Sebelum memulai, pastikan perangkat Anda telah terpasang:
    - Microservice akan aktif di `http://localhost:8000` dan terhubung langsung ke Ollama host.
    - *(Jika kontainer Docker tidak diaktifkan, endpoint chat/stream mengembalikan HTTP 503. Tidak ada fallback slot-filling di gateway.)*
 
+7. **Browser E2E Playwright (wajib untuk `pnpm test:e2e`)**:
+   - Proyek memakai Chromium, Firefox, dan WebKit. Unduh ketiganya sekali per mesin setelah `pnpm install`.
+   - **Windows (PowerShell)**:
+     ```powershell
+     pnpm exec playwright install chromium firefox webkit
+     ```
+     Tidak perlu `--with-deps`; dependensi browser sudah dibundel untuk Windows.
+   - **macOS (Terminal)**:
+     ```bash
+     pnpm exec playwright install chromium firefox webkit
+     ```
+     Tidak perlu `--with-deps`. Jika macOS memblokir biner WebKit saat pertama dijalankan, izinkan lewat **System Settings → Privacy & Security**.
+   - **Linux native / WSL2**:
+     ```bash
+     pnpm exec playwright install --with-deps chromium firefox webkit
+     ```
+     `--with-deps` memasang library sistem dan meminta akses `sudo`. WSL2 tanpa sesi desktop membutuhkan paket GTK/WPE tersebut agar WebKit bisa start.
+   - Verifikasi unduhan:
+     ```bash
+     pnpm exec playwright install --dry-run
+     pnpm exec playwright test --project=chromium
+     ```
+   - Jalankan semua browser dengan `pnpm test:e2e`; satu browser saja dengan `pnpm exec playwright test --project=firefox` (atau `webkit`).
+   - Unduhan pertama sekitar 500 MB. CI menginstal ketiga browser dengan `--with-deps`.
+
 ---
 
 ### 2. Quick Start Automasi (`Makefile` — Direkomendasikan)
@@ -378,19 +403,26 @@ Verifikasi: CLI mencetak `Rendered ...` dan keluar dengan status `0`; HTML memua
 
 ## Testing & QA Audit
 
-Suite backend berjalan terhadap PostgreSQL yang sudah di-migrate. Fixture `tests/conftest.py` menanam pengguna demo sendiri, tetapi tes katalog dan degree-plan membaca katalog 5 prodi, sehingga database harus sudah dijalankan `make seed` (yang menjalankan `seed_full_catalog.py` lalu `seed.py`, urutan ini wajib). CI melakukan urutan yang sama: job `database` memuat schema baseline, menjalankan `alembic upgrade head`, menguji rollback dengan `alembic downgrade -1` lalu upgrade lagi (`ci.yml:101-106`), lalu menjalankan seeder dua kali berturut-turut lewat `python -m scripts.seed` untuk membuktikan idempotensi; setelah itu job `backend` menjalankan `pytest`.
+Suite backend membuat database PostgreSQL sementara per sesi pytest. Fixture `tests/conftest.py` menjalankan `alembic upgrade head`, seed katalog 5 prodi, lalu seed akun demo sebelum tes, dan menghapus database itu saat sesi selesai. Database pengembangan tidak pernah di-seed atau diubah. Untuk memakai database uji yang sudah ada, set `FTMM_TEST_DATABASE_URL`; tanpa itu nama database diturunkan dari `DATABASE_URL` dengan sufiks PID.
 
 ```bash
 # ----------------------------------------------------
 # A. Menggunakan Makefile (Cepat & Terintegrasi)
 # ----------------------------------------------------
-make test          # Typecheck TypeScript + suite pytest backend
+make test          # Format, build, unit test frontend, Ruff, compileall, pytest backend
+make test-e2e      # Playwright E2E; server dev dimulai otomatis bila belum berjalan
 make lint          # oxfmt + typecheck + Ruff (backend)
 make format        # Auto-format frontend via oxfmt (tidak memformat backend)
 
 # ----------------------------------------------------
 # B. Perintah Manual / Spesifik Sub-Sistem
 # ----------------------------------------------------
+# 0. E2E Playwright: pasang browser sesuai OS (lihat Prasyarat nomor 7)
+# Jalankan setelah database dimigrasi dan di-seed (make migrate && make seed)
+pnpm test:e2e
+# Satu browser saja:
+pnpm exec playwright test --project=firefox
+
 # 1. Seed database (idempoten; urutan wajib: katalog 5 prodi dulu, lalu akun/transkrip demo)
 make seed
 
@@ -490,8 +522,8 @@ ftmm-compass-ui/
 │   ├── assets/                    # Logo & aset statis
 │   ├── index.css                  # Tailwind v4 @theme design tokens (Navy, Gold, Teal)
 │   └── vite-env.d.ts              # Tipe environment Vite
-├── database/                      # Canonical Database Baseline V2.1 RC1
-│   ├── schema_v2_1_rc1.sql        # PostgreSQL 16+ DDL (38 tabel = 36 baseline + 2 polling, 26 functions, 44 triggers)
+├── database/                      # Historical database baseline (V2.1 RC1)
+│   ├── schema_v2_1_rc1.sql        # Baseline historis revisi Alembic d76b9c9047cc (jalur kanonik: alembic upgrade head)
 │   ├── schema_v2_1_rc1.dbml       # DBML diagram definition
 │   ├── seed/                      # Input seed katalog 5 prodi (canonical + reconciliation)
 │   └── README.md                  # Ringkasan paket skema database
@@ -511,4 +543,4 @@ ftmm-compass-ui/
 
 ## Database Baseline — V2.1 RC1
 
-`database/schema_v2_1_rc1.sql` adalah canonical baseline PostgreSQL 16+ untuk arsitektur basis data akademik FTMM (**38 tabel — 36 baseline + 2 tabel polling —, 26 fungsi PL/pgSQL, 44 trigger, 2 read views**, dan lulus **97/97 static audit checks**). Dokumentasi lengkap keputusan desain tersedia di [`docs/database/DATABASE_SCHEMA_V2_1_RC1.md`](./docs/database/DATABASE_SCHEMA_V2_1_RC1.md) dan laporan validasinya di [`docs/database/SCHEMA_VALIDATION_V2_1_RC1.md`](./docs/database/SCHEMA_VALIDATION_V2_1_RC1.md).
+`database/schema_v2_1_rc1.sql` adalah baseline historis PostgreSQL 16+ untuk arsitektur basis data akademik FTMM (**38 tabel — 36 baseline + 2 tabel polling —, 26 fungsi PL/pgSQL, 44 trigger, 2 read views**, dan lulus **97/97 static audit checks**). Jalur skema kanonik adalah `uv run --directory backend alembic upgrade head`; file baseline hanya dijalankan oleh revisi Alembic `d76b9c9047cc`. Dokumentasi lengkap keputusan desain tersedia di [`docs/database/DATABASE_SCHEMA_V2_1_RC1.md`](./docs/database/DATABASE_SCHEMA_V2_1_RC1.md) dan laporan validasinya di [`docs/database/SCHEMA_VALIDATION_V2_1_RC1.md`](./docs/database/SCHEMA_VALIDATION_V2_1_RC1.md).

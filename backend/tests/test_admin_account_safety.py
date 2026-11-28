@@ -744,7 +744,8 @@ def test_anonimisasi_akun_mahasiswa_menjaga_baris_dan_jejak_wewenang(
         None,
     )
     assert entry is not None
-    assert student["email"] in entry["target_snapshot"]
+    assert student["email"] not in entry["target_snapshot"]
+    assert "redacted" in entry["target_snapshot"]
     assert entry["reason"] == REASON
 
 

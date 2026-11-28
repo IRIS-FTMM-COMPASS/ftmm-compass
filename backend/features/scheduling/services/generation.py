@@ -6,6 +6,7 @@ from uuid import UUID
 
 from fastapi import status
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import (
@@ -143,6 +144,44 @@ async def _generate_scope(
     return scope
 
 
+async def _replay_generation(
+    db: AsyncSession,
+    period_id: UUID,
+    payload: GenerateRequest,
+    actor_id: UUID,
+    scope: UUID | None,
+) -> GenerateResponse | ServiceError | None:
+    if payload.request_key is None:
+        return None
+    run = (
+        await db.execute(
+            select(ScheduleRun).where(
+                ScheduleRun.academic_period_id == period_id,
+                ScheduleRun.request_key == payload.request_key,
+            )
+        )
+    ).scalars().first()
+    if run is None:
+        return None
+    if (
+        run.study_program_id != scope
+        or run.mode != payload.mode
+        or run.triggered_by != actor_id
+    ):
+        return _failure(
+            status.HTTP_409_CONFLICT,
+            "idempotency_key_conflict",
+            "Kunci idempotensi telah dipakai untuk permintaan lain.",
+        )
+    if run.status != "completed" or run.response is None:
+        return _failure(
+            status.HTTP_409_CONFLICT,
+            "generation_in_progress",
+            "Pembangkitan jadwal dengan kunci ini belum selesai.",
+        )
+    return GenerateResponse.model_validate(run.response)
+
+
 async def generate(
     db: AsyncSession,
     payload: GenerateRequest,
@@ -153,14 +192,19 @@ async def generate(
     period = await resolve_period(db, payload.academic_period_id)
     if isinstance(period, ServiceError):
         return period
+    scope = await _generate_scope(db, payload, is_admin, actor_scope)
+    if isinstance(scope, ServiceError):
+        return scope
+    replayed = await _replay_generation(
+        db, period.academic_period_id, payload, actor_id, scope
+    )
+    if replayed is not None:
+        return replayed
     locked = await krs_lock_error(
         db, period, "KRS sudah dibuka; jadwal periode ini tidak dapat diubah."
     )
     if locked is not None:
         return locked
-    scope = await _generate_scope(db, payload, is_admin, actor_scope)
-    if isinstance(scope, ServiceError):
-        return scope
     if scope is not None or payload.mode == "full_reset":
         locked = await scheduling_input_lock(
             db,
@@ -170,13 +214,24 @@ async def generate(
         if locked is not None:
             code, message = locked
             return _failure(409, code, message)
-    return await generate_schedule(
-        db,
-        period,
-        mode=payload.mode,
-        triggered_by=actor_id,
-        study_program_id=scope,
-    )
+    period_id = period.academic_period_id
+    try:
+        return await generate_schedule(
+            db,
+            period,
+            mode=payload.mode,
+            triggered_by=actor_id,
+            study_program_id=scope,
+            request_key=payload.request_key,
+        )
+    except IntegrityError:
+        await db.rollback()
+        replayed = await _replay_generation(
+            db, period_id, payload, actor_id, scope
+        )
+        if replayed is not None:
+            return replayed
+        raise
 
 
 async def put_class_count_override(

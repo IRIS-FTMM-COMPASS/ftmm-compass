@@ -14,7 +14,7 @@ RED     := \033[31m
 BOLD    := \033[1m
 RESET   := \033[0m
 
-.PHONY: help doctor setup env-init network-init install db-up db-down db-wait db-reset migrate seed dev dev-frontend dev-backend test lint format docker-up docker-down clean
+.PHONY: help doctor setup env-init network-init install db-up db-down db-wait db-reset migrate seed dev dev-frontend dev-backend test test-e2e lint format docker-up docker-down clean
 
 help: ## Menampilkan panduan seluruh perintah yang tersedia
 	@echo -e "$(BOLD)$(CYAN)FTMM Compass — Developer Automation Interface$(RESET)"
@@ -107,11 +107,23 @@ dev-frontend: ## Hanya menjalankan server frontend Vite
 dev-backend: ## Hanya menjalankan server backend FastAPI
 	@pnpm dev:backend
 
-test: ## Menjalankan seluruh pengujian (typecheck frontend + suite pytest backend)
-	@echo -e "$(CYAN)[TEST] Typecheck TypeScript frontend...$(RESET)"
-	@pnpm typecheck
-	@echo -e "$(CYAN)[TEST] Suite backend (pytest)...$(RESET)"
+test: ## Menjalankan seluruh pengujian (format, build, lint, pytest)
+	@echo -e "$(CYAN)[TEST] Format frontend...$(RESET)"
+	@pnpm format:check
+	@echo -e "$(CYAN)[TEST] Build frontend...$(RESET)"
+	@pnpm build
+	@echo -e "$(CYAN)[TEST] Unit test frontend...$(RESET)"
+	@pnpm test:unit
+	@echo -e "$(CYAN)[TEST] Lint backend...$(RESET)"
+	@uv run --directory backend ruff check .
+	@echo -e "$(CYAN)[TEST] Compile backend...$(RESET)"
+	@uv run python -m compileall -q backend
+	@echo -e "$(CYAN)[TEST] Suite backend (pytest, database sementara)...$(RESET)"
 	@uv run --directory backend python -m pytest tests -q
+
+test-e2e: ## Menjalankan E2E Playwright (server dev dimulai otomatis)
+	@echo -e "$(CYAN)[TEST] E2E Playwright...$(RESET)"
+	@pnpm test:e2e
 
 lint: ## Menjalankan pemeriksaan format kode dan typecheck
 	@pnpm format:check

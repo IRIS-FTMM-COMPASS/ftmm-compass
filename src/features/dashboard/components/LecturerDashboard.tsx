@@ -228,9 +228,9 @@ export default function LecturerDashboard({
         aria-live="polite"
         className="rounded-xl border border-border bg-surface p-8"
       >
-        <h1 className="font-heading text-2xl font-bold text-navy">
+        <h2 className="font-heading text-2xl font-bold text-navy">
           Dashboard Dosen
-        </h1>
+        </h2>
         <p className="mt-3 text-sm text-muted">
           Memuat penugasan, jadwal, dan status preferensi Anda...
         </p>
@@ -244,9 +244,9 @@ export default function LecturerDashboard({
         role="alert"
         className="rounded-xl border border-orange/30 bg-orange/10 p-6"
       >
-        <h1 className="font-heading text-2xl font-bold text-navy">
+        <h2 className="font-heading text-2xl font-bold text-navy">
           Dashboard Dosen
-        </h1>
+        </h2>
         <p className="mt-3 text-sm text-foreground">{error}</p>
         <button
           type="button"
@@ -278,9 +278,9 @@ export default function LecturerDashboard({
     <div className="space-y-6">
       <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h1 className="font-heading text-2xl font-bold text-navy">
+          <h2 className="font-heading text-2xl font-bold text-navy">
             Dashboard Dosen
-          </h1>
+          </h2>
           <p className="mt-1 text-sm text-foreground">
             {dashboardData?.full_name}
           </p>

@@ -141,7 +141,7 @@ export default function DashboardMainPanel({
                 </span>
               )}
               <span className="text-xs font-mono text-muted bg-background border border-border px-2 py-0.5 rounded">
-                {period?.label ?? "—"} · {period?.week_label ?? ""}
+                {period?.label ?? "—"}, {period?.week_label ?? ""}
               </span>
               {hasConflict && (
                 <span className="flex items-center gap-1 text-xs font-medium text-danger bg-danger/8 px-2 py-0.5 rounded-full border border-danger/20">

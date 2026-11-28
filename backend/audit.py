@@ -41,6 +41,24 @@ def _identity_snapshot(user: User) -> str:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
 
 
+def redact_trace_snapshot(raw: str) -> str:
+    try:
+        values = json.loads(raw)
+    except (TypeError, ValueError):
+        return raw
+    if not isinstance(values, dict):
+        return raw
+    payload = {
+        key: values.get(key) for key in ("user_id", "role", "is_active")
+    }
+    payload["redacted"] = True
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+
+
+def _redacted_identity_snapshot(user: User) -> str:
+    return redact_trace_snapshot(_identity_snapshot(user))
+
+
 async def record_admin_action(
     db: AsyncSession,
     *,
@@ -53,6 +71,11 @@ async def record_admin_action(
     new_value: str | None = None,
 ) -> None:
     """Tulis satu baris jejak wewenang; committer tetap berada di caller."""
+    target_snapshot = (
+        _redacted_identity_snapshot(target)
+        if action == "anonymize"
+        else _identity_snapshot(target)
+    )
     await db.execute(
         text(
             "INSERT INTO admin_authority_traces "
@@ -67,7 +90,7 @@ async def record_admin_action(
             "actor_user_id": str(actor.user_id),
             "actor_snapshot": _identity_snapshot(actor),
             "target_user_id": str(target.user_id),
-            "target_snapshot": _identity_snapshot(target),
+            "target_snapshot": target_snapshot,
             "action": action,
             "field_name": field_name,
             "old_value": old_value,

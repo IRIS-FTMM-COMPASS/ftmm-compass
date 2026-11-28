@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { AlertCircle, Pin, RefreshCw, Save, Trash2 } from "lucide-react"
 import { apiErrorMessage } from "@/shared/api/client"
 import { useSession } from "@/features/auth/session"
+import { canManageSchedule } from "@/features/auth/access"
 import ConfirmDialog from "@/shared/ui/ConfirmDialog"
 import SearchableCombobox from "@/shared/ui/SearchableCombobox"
 import { TablePager } from "@/shared/ui/TableControls"
@@ -152,9 +153,7 @@ export default function AssignmentPanel({
   onContextFilterChange,
 }: AssignmentPanelProps) {
   const { user } = useSession()
-  const canManage =
-    user?.role === "admin" ||
-    (user?.role === "lecturer" && user.is_program_coordinator === true)
+  const canManage = canManageSchedule(user)
   const [periods, setPeriods] = useState<PreferencePeriod[]>([])
   const [periodId, setPeriodId] = useState("")
   const [periodsLoading, setPeriodsLoading] = useState(true)

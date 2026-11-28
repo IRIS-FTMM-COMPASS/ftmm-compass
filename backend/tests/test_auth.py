@@ -2,9 +2,10 @@ import uuid
 from datetime import datetime, timezone
 
 import jwt
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, text
 
 from auth import get_password_hash
+from catalog import cohort_curriculum_id
 from models import LecturerProfile, StudyProgram, User
 from rate_limit import limiter
 from tests.conftest import SEEDED_STUDENT
@@ -181,8 +182,11 @@ def test_me_non_lecturer_identity_is_unchanged(client, student_headers, admin_he
     assert admin.status_code == 200
     body = admin.json()
     assert body["role"] == "admin"
-    assert body["unit_name"] == "Sub-Bagian Akademik & Kemahasiswaan FTMM"
-    assert body["academic_identifier"] == "198504122010121003"
+    assert body["auth_provider"] == "Kata sandi lokal"
+    assert body["unit_name"] is None
+    assert body["academic_identifier"] is None
+    assert body["phone_number"] is None
+    assert body["bio"] is None
     assert body["is_program_coordinator"] is False
 
 
@@ -267,6 +271,35 @@ def test_register_creates_account_profile_and_session(client):
         headers={"Authorization": f"Bearer {body['access_token']}"},
     )
     assert me.status_code == 200
+
+
+def test_register_assigns_cohort_curriculum(client, db_session):
+    limiter.reset()
+    response = client.post("/api/v1/auth/register", json=_registration_payload(9))
+    assert response.status_code == 201, response.text
+    user_id = response.json()["user"]["user_id"]
+
+    async def expected_and_actual():
+        program_id = await db_session.scalar(
+            text(
+                "SELECT study_program_id FROM student_profiles "
+                "WHERE user_id = CAST(:user AS uuid)"
+            ),
+            {"user": user_id},
+        )
+        expected = await cohort_curriculum_id(db_session, program_id, 2026)
+        actual = await db_session.scalar(
+            text(
+                "SELECT curriculum_id FROM student_curriculum_assignments "
+                "WHERE user_id = CAST(:user AS uuid) AND is_current"
+            ),
+            {"user": user_id},
+        )
+        return expected, actual
+
+    expected, actual = client.portal.call(expected_and_actual)
+    assert expected is not None
+    assert actual == expected
 
 
 def test_register_legacy_alias(client):

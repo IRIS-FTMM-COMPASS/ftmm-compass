@@ -78,6 +78,14 @@ export default function TimetableGrid({
   const conflictingItems = displayedSchedule.filter((s) => s.conflict)
   const hasConflict = conflictingItems.length > 0
   const rowHeight = compact ? 38 : 44
+  const mobileDays = days
+    .map((day) => ({
+      day,
+      items: displayedSchedule
+        .filter((item) => item.day === day)
+        .sort((a, b) => a.start - b.start),
+    }))
+    .filter((entry) => entry.items.length > 0)
 
   const handleCopyLink = async () => {
     const res = await copyTimetableShareUrl(displayedSchedule, semester)
@@ -139,15 +147,15 @@ export default function TimetableGrid({
       <div className="hidden print:block mb-4 border-b-2 border-navy pb-3">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-lg font-bold font-heading text-navy">
+            <h2 className="text-lg font-bold font-heading text-navy">
               UNIVERSITAS AIRLANGGA
-            </h1>
-            <h2 className="text-sm font-semibold text-navy/90">
-              FAKULTAS TEKNOLOGI MAJU DAN MULTIDISIPLIN
             </h2>
+            <h3 className="text-sm font-semibold text-navy/90">
+              FAKULTAS TEKNOLOGI MAJU DAN MULTIDISIPLIN
+            </h3>
             <p className="text-xs text-muted mt-0.5">
-              Jadwal Perkuliahan Mahasiswa{" "}
-              {semester ? `• Semester ${semester}` : "• Semester Aktif"}
+              Jadwal Perkuliahan Mahasiswa
+              {semester ? `, Semester ${semester}` : ", Semester Aktif"}
             </p>
           </div>
           <div className="text-right text-xs text-muted">
@@ -273,9 +281,84 @@ export default function TimetableGrid({
         </div>
       )}
 
+      <div className="space-y-3 p-3 md:hidden print:hidden">
+        {mobileDays.length === 0 ? (
+          <p className="px-2 py-6 text-center text-xs text-muted">
+            Belum ada jadwal pada periode ini.
+          </p>
+        ) : (
+          mobileDays.map(({ day, items }) => (
+            <section key={day} aria-label={`Jadwal hari ${day}`}>
+              <h3 className="mb-2 font-heading text-sm font-bold text-navy">
+                {day}
+              </h3>
+              <div className="space-y-2">
+                {items.map((item) => {
+                  const content = (
+                    <div className="flex items-start gap-3">
+                      <div className="flex w-16 flex-shrink-0 flex-col font-mono text-[11px] text-muted">
+                        <span>{String(item.start).padStart(2, "0")}:00</span>
+                        <span>
+                          {String(item.start + item.duration).padStart(2, "0")}
+                          :00
+                        </span>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-mono text-[11px] font-bold opacity-80">
+                            {item.code}
+                          </span>
+                          {item.sectionCode && (
+                            <span className="rounded bg-navy/10 px-1.5 py-0.5 text-[9px] font-bold text-navy">
+                              {item.sectionCode}
+                            </span>
+                          )}
+                          {item.conflict && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-danger">
+                              <AlertTriangle className="h-3 w-3" />
+                              Bentrok
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-0.5 line-clamp-2 text-sm font-medium text-navy">
+                          {item.course}
+                        </p>
+                        <p className="mt-1 break-words text-xs text-muted">
+                          {item.room}
+                        </p>
+                      </div>
+                    </div>
+                  )
+                  const className = cn(
+                    "w-full rounded-xl border p-3 text-left transition-colors",
+                    item.color,
+                    item.conflict && "border-danger border-dashed bg-danger/15",
+                    onItemClick && "cursor-pointer hover:border-gold",
+                  )
+                  return onItemClick ? (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => onItemClick(item)}
+                      className={className}
+                    >
+                      {content}
+                    </button>
+                  ) : (
+                    <div key={item.id} className={className}>
+                      {content}
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
+          ))
+        )}
+      </div>
+
       <div
         className={cn(
-          "overflow-auto print-timetable-surface",
+          "hidden md:block overflow-auto print-timetable-surface print:block",
           !compact
             ? "flex-1 bg-surface border border-border rounded-xl shadow-xs relative"
             : "bg-surface relative",

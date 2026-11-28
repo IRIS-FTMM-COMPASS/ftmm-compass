@@ -2,7 +2,10 @@
 
 **Status:** Final sementara / integrated baseline untuk progress saat ini.  
 **Target DBMS:** PostgreSQL 16+  
-**Canonical schema:** `schema_v2_1_rc1.sql`  
+**Baseline schema:** `schema_v2_1_rc1.sql` (input historis revisi Alembic `d76b9c9047cc`)
+
+**Canonical apply path:** `uv run --directory backend alembic upgrade head`
+
 **Diagram review:** `schema_v2_1_rc1.dbml`
 
 ## Tujuan

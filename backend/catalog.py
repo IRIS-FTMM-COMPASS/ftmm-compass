@@ -15,6 +15,7 @@ import os
 import re
 import threading
 import time
+import uuid
 from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
@@ -479,6 +480,43 @@ async def authoritative_curriculum_id(
 
     year = _pick_richest(coverage).get(program)
     return by_key.get((program, year)) if year is not None else None
+
+
+async def cohort_curriculum_id(
+    db: AsyncSession,
+    study_program_id: object,
+    admission_year: int,
+) -> Optional[uuid.UUID]:
+    """Kurikulum dari aturan angkatan, lalu kurikulum aktif terdekat."""
+    value = (
+        await db.execute(
+            text(
+                "SELECT ccr.curriculum_id FROM curriculum_cohort_rules ccr "
+                "WHERE ccr.study_program_id = CAST(:program AS uuid) "
+                "AND ccr.is_active "
+                "AND :year >= ccr.admission_year_from "
+                "AND (ccr.admission_year_to IS NULL OR :year <= ccr.admission_year_to) "
+                "ORDER BY ccr.priority ASC, ccr.curriculum_id ASC "
+                "LIMIT 1"
+            ),
+            {"program": str(study_program_id), "year": admission_year},
+        )
+    ).scalar_one_or_none()
+    if value is not None:
+        return uuid.UUID(str(value))
+    value = (
+        await db.execute(
+            text(
+                "SELECT curriculum_id FROM curricula "
+                "WHERE study_program_id = CAST(:program AS uuid) AND is_active "
+                "ORDER BY CASE WHEN curriculum_year = :year THEN 0 ELSE 1 END, "
+                "ABS(curriculum_year - :year) ASC, curriculum_year DESC "
+                "LIMIT 1"
+            ),
+            {"program": str(study_program_id), "year": admission_year},
+        )
+    ).scalar_one_or_none()
+    return uuid.UUID(str(value)) if value is not None else None
 
 
 async def build_catalog_from_db(db: AsyncSession) -> Optional[Dict[str, List[CourseModel]]]:

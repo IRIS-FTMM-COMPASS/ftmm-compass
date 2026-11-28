@@ -20,6 +20,7 @@ from schemas import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import settings
+from academics import TOTAL_SKS_FOR_GRADUATION
 from catalog import authoritative_curriculum_id, get_courses_for_curriculum
 from database import get_db
 from .degree_plans import router as degree_plans_router
@@ -37,7 +38,7 @@ def normalize_plan_payload(raw_payload: dict, profile: StudentProfile) -> Degree
         program_studi=summary_data.get("program_studi") or profile.program_studi or "Teknologi Sains Data",
         current_semester=summary_data.get("current_semester") or profile.semester_saat_ini or 1,
         target_semester=summary_data.get("target_semester") or profile.target_kelulusan_semester or 8,
-        total_credits=summary_data.get("total_credits") or 144,
+        total_credits=summary_data.get("total_credits") or TOTAL_SKS_FOR_GRADUATION,
         focus_tracks=summary_data.get("focus_tracks") or profile.minat_fokus or ["Umum"],
         note=summary_data.get("note") or "Rencana studi rekomendasi AI berdasarkan kurikulum resmi FTMM.",
     )

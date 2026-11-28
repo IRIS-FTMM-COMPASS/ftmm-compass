@@ -8,6 +8,7 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(line_buffering=True)
 from typing import Optional
 import logging
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import select, func, case, or_
@@ -49,6 +50,10 @@ def _reject(status_code: int, code: str, message: str) -> JSONResponse:
     return error_response(status_code, code, message, detail=message)
 
 
+def _projected_classes(total_votes: int) -> int:
+    return (total_votes + 39) // 40 if total_votes > 0 else 0
+
+
 async def _shared_course_codes(db: AsyncSession) -> set[str]:
     """Kode MK yang berlaku lintas prodi (scope fakultas/universitas)."""
     rows = (
@@ -69,8 +74,22 @@ def _has_shared_scope(course, shared_codes: set[str]) -> bool:
 router = APIRouter()
 
 
+def _active_period_query():
+    now = datetime.now(timezone.utc)
+    return (
+        select(ElectivePollingPeriod)
+        .where(
+            ElectivePollingPeriod.status == "open",
+            ElectivePollingPeriod.start_date <= now,
+            ElectivePollingPeriod.end_date >= now,
+        )
+        .order_by(ElectivePollingPeriod.created_at.desc())
+    )
+
+
 def _to_polling_period_response(period: ElectivePollingPeriod) -> PollingPeriodResponse:
     term_val = period.target_term if period.target_term in ("ganjil", "genap") else "ganjil"
+    now = datetime.now(timezone.utc)
     return PollingPeriodResponse(
         period_id=str(period.polling_period_id),
         academic_year=period.academic_year,
@@ -78,7 +97,10 @@ def _to_polling_period_response(period: ElectivePollingPeriod) -> PollingPeriodR
         target_semester_type=term_val,
         start_date=period.start_date.isoformat(),
         end_date=period.end_date.isoformat(),
-        is_active=(period.status == "open"),
+        is_active=(
+            period.status == "open"
+            and period.start_date <= now <= period.end_date
+        ),
         min_quorum=period.min_quota_threshold,
         max_votes_per_student=period.max_votes_per_student,
         description=period.description or period.title,
@@ -87,12 +109,7 @@ def _to_polling_period_response(period: ElectivePollingPeriod) -> PollingPeriodR
 
 @router.get("/polling/periods/active", response_model=PollingPeriodResponse)
 async def get_active_polling_period(db: AsyncSession = Depends(get_db)):
-    stmt = (
-        select(ElectivePollingPeriod)
-        .where(ElectivePollingPeriod.status == "open")
-        .order_by(ElectivePollingPeriod.created_at.desc())
-    )
-    result = await db.execute(stmt)
+    result = await db.execute(_active_period_query())
     period = result.scalars().first()
     if not period:
         raise HTTPException(
@@ -153,12 +170,7 @@ async def get_my_votes(
             detail="Akses ditolak: Hanya mahasiswa yang memiliki daftar vote pilihan.",
         )
 
-    stmt_period = (
-        select(ElectivePollingPeriod)
-        .where(ElectivePollingPeriod.status == "open")
-        .order_by(ElectivePollingPeriod.created_at.desc())
-    )
-    res_period = await db.execute(stmt_period)
+    res_period = await db.execute(_active_period_query())
     active_period = res_period.scalars().first()
 
     stmt = select(ElectiveCourseVote).where(ElectiveCourseVote.user_id == current_user.user_id)
@@ -195,12 +207,7 @@ async def submit_vote(
             "Hanya mahasiswa yang dapat melakukan voting peminatan.",
         )
 
-    stmt_period = (
-        select(ElectivePollingPeriod)
-        .where(ElectivePollingPeriod.status == "open")
-        .order_by(ElectivePollingPeriod.created_at.desc())
-    )
-    active_period = (await db.execute(stmt_period)).scalars().first()
+    active_period = (await db.execute(_active_period_query())).scalars().first()
     if not active_period:
         return _reject(
             status.HTTP_400_BAD_REQUEST,
@@ -387,12 +394,7 @@ async def remove_vote(
             "Hanya mahasiswa yang dapat membatalkan vote.",
         )
 
-    period_stmt = (
-        select(ElectivePollingPeriod)
-        .where(ElectivePollingPeriod.status == "open")
-        .order_by(ElectivePollingPeriod.created_at.desc())
-    )
-    active_period = (await db.execute(period_stmt)).scalars().first()
+    active_period = (await db.execute(_active_period_query())).scalars().first()
     if not active_period:
         return None
 
@@ -419,12 +421,7 @@ async def _fetch_demand_analytics(
     study_program: Optional[str],
     db: AsyncSession,
 ) -> DemandAnalyticsResponse:
-    stmt_period = (
-        select(ElectivePollingPeriod)
-        .where(ElectivePollingPeriod.status == "open")
-        .order_by(ElectivePollingPeriod.created_at.desc())
-    )
-    res_period = await db.execute(stmt_period)
+    res_period = await db.execute(_active_period_query())
     active_period = res_period.scalars().first()
 
     if not active_period:
@@ -524,7 +521,7 @@ async def _fetch_demand_analytics(
         else:
             c_status = "UNQUALIFIED"
 
-        proj_classes = (tot // 40) + 1 if tot > 0 else 0
+        proj_classes = _projected_classes(tot)
 
         if filter_name:
             same_prodi = normalize_prodi(prog_name) == filter_name or (

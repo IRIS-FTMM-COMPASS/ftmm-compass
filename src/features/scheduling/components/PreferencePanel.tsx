@@ -9,6 +9,7 @@ import {
 } from "lucide-react"
 import { apiErrorMessage } from "@/shared/api/client"
 import { useSession } from "@/features/auth/session"
+import { canManageSchedule } from "@/features/auth/access"
 import ConfirmDialog from "@/shared/ui/ConfirmDialog"
 import { cn } from "@/shared/utils"
 import SearchableCombobox from "@/shared/ui/SearchableCombobox"
@@ -116,8 +117,7 @@ function warningMessage(warning: string | PreferenceWarning): string {
 
 export default function PreferencePanel() {
   const { user } = useSession()
-  const canReadSettings =
-    user?.role === "admin" || user?.is_program_coordinator === true
+  const canReadSettings = canManageSchedule(user)
   const [periods, setPeriods] = useState<PreferencePeriod[]>([])
   const [periodId, setPeriodId] = useState("")
   const [periodsLoading, setPeriodsLoading] = useState(true)
@@ -354,9 +354,9 @@ export default function PreferencePanel() {
   if (user?.role !== "lecturer") {
     return (
       <section className="rounded-xl border border-border bg-surface p-6">
-        <h1 className="font-heading text-xl font-bold text-navy">
+        <h2 className="font-heading text-xl font-bold text-navy">
           Preferensi Jadwal
-        </h1>
+        </h2>
         <p className="mt-2 text-sm text-muted">
           Preferensi hanya dapat diisi oleh dosen untuk akunnya sendiri.
         </p>
@@ -370,12 +370,12 @@ export default function PreferencePanel() {
       className="flex w-full flex-col gap-6"
     >
       <header>
-        <h1
+        <h2
           id="preference-title"
           className="font-heading text-2xl font-bold text-navy"
         >
           Preferensi Jadwal
-        </h1>
+        </h2>
         <p className="mt-2 max-w-2xl text-sm text-muted">
           Tentukan jam yang Anda utamakan dan blok waktu yang tidak dapat
           digunakan untuk mengajar.

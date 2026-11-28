@@ -29,6 +29,7 @@ import {
   ElectiveCourseBank,
 } from "@/features/degree-planner/components/SemesterColumn"
 import CoursePickerModal from "@/features/degree-planner/components/CoursePickerModal"
+import ConfirmDialog from "@/shared/ui/ConfirmDialog"
 import CourseInspectModal from "@/features/degree-planner/components/CourseInspectModal"
 import ClassSelectorPanel from "@/features/degree-planner/components/ClassSelectorPanel"
 import {
@@ -139,6 +140,8 @@ export default function DegreePlanner({
     error: recordError,
   } = planner
   const [activeTab, setActiveTab] = useState<Tab>(initialTab || "roadmap")
+  const [pendingDeleteDraftId, setPendingDeleteDraftId] =
+    useState<string | null>(null)
   const [activeRoadmapSem, setActiveRoadmapSem] = useState<number>(() =>
     Math.min(8, Math.max(1, user?.student_profile?.current_semester ?? 1)),
   )
@@ -597,6 +600,9 @@ export default function DegreePlanner({
   useEffect(() => {
     if (!timetableSemesterResolved || !timetableHydrated) return
     if (effectiveSignature === timetableSavedSignatureRef.current) return
+    // shortcut: empty selections never clear the timetable; the backend
+    // replaces all rows, so add a scoped clear endpoint before allowing it.
+    if (effectiveSelections.length === 0) return
 
     const controller = new AbortController()
     setTimetableSaveStatus("saving")
@@ -817,6 +823,7 @@ export default function DegreePlanner({
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
+              aria-pressed={activeTab === tab.key}
               className={cn(
                 "flex items-center gap-2 px-4 min-h-11 rounded-lg text-sm font-medium transition-all cursor-pointer",
                 activeTab === tab.key
@@ -843,7 +850,7 @@ export default function DegreePlanner({
             onSwitchDraft={switchDraft}
             onCreateDraft={(name) => void createDraft(name)}
             onDuplicateDraft={duplicateCurrentDraft}
-            onDeleteDraft={(draftId) => void deleteDraft(draftId)}
+            onDeleteDraft={setPendingDeleteDraftId}
             onResetDraft={resetCurrentDraft}
             isSaving={isSaving}
             lastSaved={lastSaved}
@@ -1088,6 +1095,26 @@ export default function DegreePlanner({
             </div>
           </div>
         </div>
+      )}
+
+      {pendingDeleteDraftId && (
+        <ConfirmDialog
+          labelledBy="delete-draft-title"
+          title="Hapus skenario rencana?"
+          body={
+            <p className="text-sm text-muted leading-relaxed">
+              Skenario yang dihapus tidak dapat dipulihkan. Mata kuliah pada
+              skenario lain tidak berubah.
+            </p>
+          }
+          confirmLabel="Hapus skenario"
+          tone="orange"
+          onConfirm={async () => {
+            await deleteDraft(pendingDeleteDraftId)
+            setPendingDeleteDraftId(null)
+          }}
+          onCancel={() => setPendingDeleteDraftId(null)}
+        />
       )}
     </div>
   )

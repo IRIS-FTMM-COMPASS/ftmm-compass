@@ -279,7 +279,7 @@ export default function PrerequisiteDiagram({
                     fontSize="8.5"
                     fill="#6b7280"
                   >
-                    {isClickable ? "Prasyarat • Klik detail" : "Prasyarat"}
+                    {isClickable ? "Prasyarat, klik detail" : "Prasyarat"}
                   </text>
                 </g>
               )
@@ -392,7 +392,7 @@ export default function PrerequisiteDiagram({
                     fontSize="8.5"
                     fill="#713f12"
                   >
-                    {isClickable ? "Membuka Matkul • Klik" : "Membuka Matkul"}
+                    {isClickable ? "Membuka Matkul, klik" : "Membuka Matkul"}
                   </text>
                 </g>
               )
