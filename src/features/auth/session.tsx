@@ -13,32 +13,10 @@ import {
   onTokenRenewed,
   type AuthUser,
 } from "@/features/auth/authService"
+import { canAccessPage } from "@/features/auth/access"
 import { onUnauthorized } from "@/shared/api/session"
 
 const EXPIRY_KEY = "auth_expires_at"
-
-const STUDENT_ONLY_PAGES: Record<string, true> = {
-  "degree-planner": true,
-  chatbot: true,
-}
-
-const ADMIN_ONLY_PAGES: Record<string, true> = {
-  "admin-accounts": true,
-}
-
-const LECTURER_ONLY_PAGES: Record<string, true> = {
-  "pj-courses": true,
-  preferences: true,
-}
-
-const SCHEDULING_PAGES: Record<string, true> = {
-  scheduling: true,
-}
-
-const SCHEDULE_MANAGE_PAGES: Record<string, true> = {
-  "teaching-team": true,
-  "class-assignment": true,
-}
 
 interface SessionContextValue {
   user: AuthUser | null
@@ -165,23 +143,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   )
 
   const canAccess = useCallback(
-    (page: string) => {
-      const role = user?.role ?? "student"
-      if (ADMIN_ONLY_PAGES[page]) return role === "admin"
-      if (STUDENT_ONLY_PAGES[page]) return role === "student"
-      if (LECTURER_ONLY_PAGES[page]) return role === "lecturer"
-      if (SCHEDULING_PAGES[page]) {
-        return role === "admin" || role === "lecturer"
-      }
-      if (SCHEDULE_MANAGE_PAGES[page]) {
-        return (
-          role === "admin" ||
-          (role === "lecturer" && user?.is_program_coordinator === true)
-        )
-      }
-      return true
-    },
-    [user?.role, user?.is_program_coordinator],
+    (page: string) => canAccessPage(user, page),
+    [user],
   )
 
   const value = useMemo(

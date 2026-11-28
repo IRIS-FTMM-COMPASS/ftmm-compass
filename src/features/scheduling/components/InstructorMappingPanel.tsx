@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react"
 import { useSession } from "@/features/auth/session"
+import { canManageSchedule } from "@/features/auth/access"
 import {
   apiErrorMessage,
   apiFieldErrors,
@@ -232,9 +233,7 @@ export default function InstructorMappingPanel({
   onCourseFilterChange,
 }: InstructorMappingPanelProps) {
   const { user } = useSession()
-  const canManage =
-    user?.role === "admin" ||
-    (user?.role === "lecturer" && user.is_program_coordinator === true)
+  const canManage = canManageSchedule(user)
   const consumedBootstrapKey = useRef(0)
   const formRef = useRef<HTMLFormElement>(null)
   const panelRef = useRef<HTMLElement>(null)

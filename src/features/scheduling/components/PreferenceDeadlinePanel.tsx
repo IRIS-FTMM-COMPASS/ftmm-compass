@@ -9,6 +9,7 @@ import {
 import { RefreshCw, Save } from "lucide-react"
 import { apiErrorMessage } from "@/shared/api/client"
 import { useSession } from "@/features/auth/session"
+import { canManageSchedule } from "@/features/auth/access"
 import { cn } from "@/shared/utils"
 import SearchableCombobox from "@/shared/ui/SearchableCombobox"
 import {
@@ -182,9 +183,7 @@ function SummaryRows({ items }: { items: PreferenceSummaryItem[] }) {
 export default function PreferenceDeadlinePanel() {
   const { user } = useSession()
   const isAdmin = user?.role === "admin"
-  const canManage =
-    isAdmin ||
-    (user?.role === "lecturer" && user.is_program_coordinator === true)
+  const canManage = canManageSchedule(user)
   const [periods, setPeriods] = useState<PreferencePeriod[]>([])
   const [periodId, setPeriodId] = useState("")
   const [scopeId, setScopeId] = useState("")

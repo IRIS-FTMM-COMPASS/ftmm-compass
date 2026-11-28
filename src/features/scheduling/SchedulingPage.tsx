@@ -9,6 +9,7 @@ import {
 } from "react"
 import { AlertCircle, RefreshCw } from "lucide-react"
 import { useSession } from "@/features/auth/session"
+import { canManageSchedule } from "@/features/auth/access"
 import { apiErrorMessage, apiFieldErrors } from "@/shared/api/client"
 import { useDiscardGuard } from "@/shared/hooks/useDiscardGuard"
 import ConfirmDialog, {
@@ -113,8 +114,7 @@ function matchesProgram(item: BoardClassItem, programId: string): boolean {
 export default function SchedulingPage({ onOpenPanel }: SchedulingPageProps) {
   const { user } = useSession()
   const isAdmin = user?.role === "admin"
-  const isPjProdi =
-    user?.role === "lecturer" && user.is_program_coordinator === true
+  const isPjProdi = canManageSchedule(user) && !isAdmin
   const canOperateSchedule = isAdmin || isPjProdi
   const isOrdinaryLecturer = user?.role === "lecturer" && !isPjProdi
   const { isFinal, retry: refreshSchedulingStatus } = useSchedulingStatus()

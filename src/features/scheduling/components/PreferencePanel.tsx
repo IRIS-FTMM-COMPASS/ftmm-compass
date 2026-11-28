@@ -9,6 +9,7 @@ import {
 } from "lucide-react"
 import { apiErrorMessage } from "@/shared/api/client"
 import { useSession } from "@/features/auth/session"
+import { canManageSchedule } from "@/features/auth/access"
 import ConfirmDialog from "@/shared/ui/ConfirmDialog"
 import { cn } from "@/shared/utils"
 import SearchableCombobox from "@/shared/ui/SearchableCombobox"
@@ -116,8 +117,7 @@ function warningMessage(warning: string | PreferenceWarning): string {
 
 export default function PreferencePanel() {
   const { user } = useSession()
-  const canReadSettings =
-    user?.role === "admin" || user?.is_program_coordinator === true
+  const canReadSettings = canManageSchedule(user)
   const [periods, setPeriods] = useState<PreferencePeriod[]>([])
   const [periodId, setPeriodId] = useState("")
   const [periodsLoading, setPeriodsLoading] = useState(true)

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { AlertCircle, Pencil, Plus, RefreshCw } from "lucide-react"
 import { useSession } from "@/features/auth/session"
+import { canManageSchedule } from "@/features/auth/access"
 import { authService } from "@/features/auth/authService"
 import {
   schedulingService,
@@ -112,7 +113,7 @@ export default function RoomAdminPanel() {
   const isAdmin = user?.role === "admin"
   const isPjProdi =
     user?.role === "lecturer" && user.is_program_coordinator === true
-  const canView = isAdmin || isPjProdi
+  const canView = canManageSchedule(user)
 
   const [rooms, setRooms] = useState<RoomResponse[]>([])
   const [isLoading, setIsLoading] = useState(true)

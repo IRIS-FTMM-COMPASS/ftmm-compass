@@ -466,6 +466,7 @@ export interface GenerateResponse {
   regenerated_count: number
   preserved_final_count: number
   preserved_manual_count: number
+  search_truncated: boolean
 }
 
 export interface ClassMoveRequest {
@@ -530,22 +531,6 @@ export interface UnlockResponse {
   audit_count: number
 }
 
-export interface ClassCountOverrideRequest {
-  academic_period_id?: string | null
-  course_id: string
-  study_program_id: string
-  class_count: number
-}
-
-export interface ClassCountOverrideResponse {
-  override_id: string
-  academic_period_id: string
-  course_id: string
-  study_program_id: string
-  class_count: number
-  created: boolean
-}
-
 async function fetchSchedulingList<T>(
   path: string,
   query?: URLSearchParams,
@@ -569,10 +554,6 @@ export const schedulingService = {
       body: request,
       auth: true,
     })
-  },
-
-  getConflicts(): Promise<BoardConflictItem[]> {
-    return fetchSchedulingList<BoardConflictItem>("/conflicts")
   },
 
   moveClass(
@@ -836,18 +817,5 @@ export const schedulingService = {
 
   listCurriculumCourses(): Promise<CurriculumCourseOption[]> {
     return fetchSchedulingList<CurriculumCourseOption>("/curriculum-courses")
-  },
-
-  getUnassigned(): Promise<UnassignedItem[]> {
-    return fetchSchedulingList<UnassignedItem>("/unassigned")
-  },
-
-  setClassCountOverride(
-    request: ClassCountOverrideRequest,
-  ): Promise<ClassCountOverrideResponse> {
-    return apiFetch<ClassCountOverrideResponse>(
-      `${SCHEDULING_BASE}/class-count-overrides`,
-      { method: "POST", body: request, auth: true },
-    )
   },
 }
