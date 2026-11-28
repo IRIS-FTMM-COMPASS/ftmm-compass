@@ -194,6 +194,6 @@ Baca hanya kalimat aksi berurutan:
 - **Font:** judul `Inter Heavy`; kicker/body `Anantason`; subjudul `Anantason Light`; kartu `Anantason Bold`; wordmark `Helvetica Now Bold`. Font ini ditanam dari template ke deck oleh `embed_fonts.py`, jadi tetap tampil di mesin tanpa font tersebut.
 - **Ukuran:** 20 × 11,25 inci (16:9), mengikuti template.
 - **Aset:** `presentation/assets/image1.png` (background), `image2.png` (logo), `image4.png` (ribbon), `presentation/assets/screens/*.png` (tangkapan layar lokal).
-- **Build:** `node presentation/build_deck.js` lalu `python presentation/embed_fonts.py`.
+- **Build:** `node presentation/build_deck.js` menghasilkan `FTMM-Compass-Deck.pptx` dan `FTMM-Compass-Deck.pdf`; font ditanam oleh `embed_fonts.py` di tengah pipeline.
 - **Aturan UI:** pemisah teks memakai koma, bukan `·`; tidak ada emoji di output CLI.
 - **Bukti screenshot:** diambil dari aplikasi lokal pada 28 November 2026 memakai akun `mahasiswa.testing@ftmm.unair.ac.id`; data dashboard 44 SKS dan IPK 3,78 berasal dari akun uji tersebut.

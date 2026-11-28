@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url"
 
 const require = createRequire(import.meta.url)
 const path = require("path")
+const os = require("node:os")
+const { execFileSync } = require("node:child_process")
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const pptxgen = require("/home/primarizki/.npm-global/lib/node_modules/pptxgenjs")
 const PptxGenJS = pptxgen.default || pptxgen
@@ -1125,8 +1127,37 @@ function bullets(slide, items, o) {
   })
 }
 
-pres
-  .writeFile({ fileName: path.join(__dirname, "FTMM-Compass-Deck.pptx") })
-  .then((file) => {
-    console.log(`Wrote ${file}`)
+const DECK = path.join(__dirname, "FTMM-Compass-Deck.pptx")
+const PYTHON =
+  process.env.PYTHON || (process.platform === "win32" ? "python" : "python3")
+const SOFFICE = process.env.SOFFICE || "soffice"
+
+async function main() {
+  const file = await pres.writeFile({ fileName: DECK })
+  console.log(`Wrote ${file}`)
+
+  execFileSync(PYTHON, [path.join(__dirname, "embed_fonts.py")], {
+    stdio: "inherit",
   })
+
+  const profile = path.join(os.tmpdir(), `ftmm-deck-lo-${process.pid}`)
+  execFileSync(
+    SOFFICE,
+    [
+      "--headless",
+      `-env:UserInstallation=file://${profile}`,
+      "--convert-to",
+      "pdf",
+      "--outdir",
+      __dirname,
+      DECK,
+    ],
+    { stdio: "inherit" },
+  )
+  console.log(`Wrote ${path.join(__dirname, "FTMM-Compass-Deck.pdf")}`)
+}
+
+main().catch((error) => {
+  console.error(`[ERROR] ${error.message}`)
+  process.exit(1)
+})
