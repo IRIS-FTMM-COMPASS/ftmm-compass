@@ -385,12 +385,18 @@ Suite backend membuat database PostgreSQL sementara per sesi pytest. Fixture `te
 # A. Menggunakan Makefile (Cepat & Terintegrasi)
 # ----------------------------------------------------
 make test          # Format, build, unit test frontend, Ruff, compileall, pytest backend
+make test-e2e      # Playwright E2E; server dev dimulai otomatis bila belum berjalan
 make lint          # oxfmt + typecheck + Ruff (backend)
 make format        # Auto-format frontend via oxfmt (tidak memformat backend)
 
 # ----------------------------------------------------
 # B. Perintah Manual / Spesifik Sub-Sistem
 # ----------------------------------------------------
+# 0. E2E Playwright (sekali saja): unduh Chromium yang cocok dengan versi runner
+pnpm exec playwright install chromium
+# Jalankan setelah database dimigrasi dan di-seed (make migrate && make seed)
+pnpm test:e2e
+
 # 1. Seed database (idempoten; urutan wajib: katalog 5 prodi dulu, lalu akun/transkrip demo)
 make seed
 

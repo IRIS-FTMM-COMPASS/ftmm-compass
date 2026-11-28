@@ -14,7 +14,7 @@ RED     := \033[31m
 BOLD    := \033[1m
 RESET   := \033[0m
 
-.PHONY: help doctor setup env-init network-init install db-up db-down db-wait db-reset migrate seed dev dev-frontend dev-backend test lint format docker-up docker-down clean
+.PHONY: help doctor setup env-init network-init install db-up db-down db-wait db-reset migrate seed dev dev-frontend dev-backend test test-e2e lint format docker-up docker-down clean
 
 help: ## Menampilkan panduan seluruh perintah yang tersedia
 	@echo -e "$(BOLD)$(CYAN)FTMM Compass — Developer Automation Interface$(RESET)"
@@ -120,6 +120,10 @@ test: ## Menjalankan seluruh pengujian (format, build, lint, pytest)
 	@uv run python -m compileall -q backend
 	@echo -e "$(CYAN)[TEST] Suite backend (pytest, database sementara)...$(RESET)"
 	@uv run --directory backend python -m pytest tests -q
+
+test-e2e: ## Menjalankan E2E Playwright (server dev dimulai otomatis)
+	@echo -e "$(CYAN)[TEST] E2E Playwright...$(RESET)"
+	@pnpm test:e2e
 
 lint: ## Menjalankan pemeriksaan format kode dan typecheck
 	@pnpm format:check
